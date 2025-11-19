@@ -6,10 +6,10 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import Severity from '../../../../base/common/severity.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { INotificationService, INotificationActions } from '../../../../platform/notification/common/notification.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
-import { IHostService } from '../../../../platform/host/browser/host.js';
+import { IHostService } from '../../../services/host/browser/host.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IAction } from '../../../../base/common/actions.js';
@@ -35,7 +35,7 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 		super();
 
 		// Wait for the window to have focus before showing the notification
-		this._hostService.hadLastFocus().then(async hadLastFocus => {
+		this._hostService.hadLastFocus().then(async (hadLastFocus: boolean) => {
 			if (!hadLastFocus) {
 				return;
 			}
@@ -68,8 +68,8 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 
 	private _showUpdateNotification(version: string, isNewInstallation: boolean): void {
 		const message = isNewInstallation
-			? localize2('updateNotification.welcome', 'Welcome to {0} {1}!', this._productService.nameLong, version)
-			: localize2('updateNotification.updated', '{0} has been updated to {1}!', this._productService.nameLong, version);
+			? localize2('updateNotification.welcome', 'Welcome to {0} {1}!', this._productService.nameLong, version).value
+			: localize2('updateNotification.updated', '{0} has been updated to {1}!', this._productService.nameLong, version).value;
 
 		const primaryActions: IAction[] = [];
 
@@ -77,9 +77,9 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 		if (this._productService.releaseNotesUrl) {
 			primaryActions.push({
 				id: 'cortexide.update.whatsNew',
-				label: localize2('updateNotification.whatsNew', 'What\'s New'),
+				label: localize2('updateNotification.whatsNew', 'What\'s New').value,
 				enabled: true,
-				tooltip: localize2('updateNotification.whatsNewTooltip', 'View release notes'),
+				tooltip: localize2('updateNotification.whatsNewTooltip', 'View release notes').value,
 				class: undefined,
 				run: async () => {
 					const uri = URI.parse(this._productService.releaseNotesUrl!);
@@ -90,9 +90,9 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 			// Fallback to GitHub releases if no release notes URL is configured
 			primaryActions.push({
 				id: 'cortexide.update.whatsNew',
-				label: localize2('updateNotification.whatsNew', 'What\'s New'),
+				label: localize2('updateNotification.whatsNew', 'What\'s New').value,
 				enabled: true,
-				tooltip: localize2('updateNotification.whatsNewTooltip', 'View release notes'),
+				tooltip: localize2('updateNotification.whatsNewTooltip', 'View release notes').value,
 				class: undefined,
 				run: async () => {
 					const uri = URI.parse('https://github.com/opencortexide/cortexide/releases');
@@ -110,9 +110,9 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 				secondary: [
 					{
 						id: 'cortexide.update.dismiss',
-						label: localize2('updateNotification.dismiss', 'Dismiss'),
+						label: localize2('updateNotification.dismiss', 'Dismiss').value,
 						enabled: true,
-						tooltip: localize2('updateNotification.dismissTooltip', 'Dismiss this notification'),
+						tooltip: localize2('updateNotification.dismissTooltip', 'Dismiss this notification').value,
 						class: undefined,
 						run: () => {
 							// Mark this version as dismissed
@@ -132,11 +132,17 @@ class CortexideUpdateNotificationContribution extends Disposable implements IWor
 
 		// Auto-dismiss after 30 seconds if it's not a new installation
 		if (!isNewInstallation) {
-			setTimeout(() => {
-				if (!notificationHandle.isDisposed) {
+			const timeoutId = setTimeout(() => {
+				try {
 					notificationHandle.close();
+				} catch (e) {
+					// Notification may have already been closed
 				}
 			}, 30000);
+			// Clean up timeout if notification is closed early
+			notificationHandle.onDidClose(() => {
+				clearTimeout(timeoutId);
+			});
 		}
 	}
 }

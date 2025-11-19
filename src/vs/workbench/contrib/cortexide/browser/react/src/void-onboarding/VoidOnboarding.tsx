@@ -660,7 +660,7 @@ const VoidOnboardingContent = () => {
 	// can be md
 	const detailedDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
 		smart: "Most intelligent and best for agent mode.",
-		private: "Private-hosted so your data never leaves your computer or network. [Email us](mailto:founders@voideditor.com) for help setting up at your company.",
+		private: "Private-hosted so your data never leaves your computer or network. [Contact us](https://github.com/opencortexide/cortexide/issues/new) for help setting up at your company.",
 		cheap: "Use great deals like Gemini 2.5 Pro, or self-host a model with Ollama or vLLM for free.",
 		all: "",
 	}
