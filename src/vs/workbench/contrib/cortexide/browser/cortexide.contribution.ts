@@ -33,6 +33,7 @@ import './media/cortexide.css'
 
 // update (frontend part, also see platform/)
 import './cortexideUpdateActions.js'
+import './cortexideUpdateNotification.js'
 
 import './convertToLLMMessageWorkbenchContrib.js'
 

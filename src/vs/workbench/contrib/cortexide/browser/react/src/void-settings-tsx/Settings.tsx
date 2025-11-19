@@ -350,7 +350,7 @@ const SimpleModelSettingsDialog = ({
 		onClose();
 	};
 
-	const sourcecodeOverridesLink = `https://github.com/cortexide/cortexide/blob/main/src/vs/workbench/contrib/cortexide/common/modelCapabilities.ts#L146-L172`
+	const sourcecodeOverridesLink = `https://github.com/opencortexide/cortexide/blob/main/src/vs/workbench/contrib/cortexide/common/modelCapabilities.ts#L146-L172`
 
 	return (
 		<div // Backdrop
