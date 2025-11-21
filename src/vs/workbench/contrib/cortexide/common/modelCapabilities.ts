@@ -73,32 +73,57 @@ export const defaultProviderSettings = {
 
 export const defaultModelsOfProvider = {
 	openAI: [ // https://platform.openai.com/docs/models/gp
-		'gpt-5',
-		'gpt-5-mini',
-		'gpt-4.1',
+		// Latest models (Nov 2025)
+		'gpt-5.1-thinking', // Released Nov 12, 2025 - flagship with enhanced reasoning
+		'gpt-5.1-instant', // Released Nov 12, 2025 - fast responses
+		'gpt-5.1-codex', // Released Nov 12, 2025 - advanced coding model
+		'gpt-5.1-codex-mini', // Released Nov 12, 2025 - lightweight coding model
+		'gpt-5-pro', // Premium model with enhanced reasoning
+		// GPT-5 series (Aug 2025)
+		'gpt-5', // Released Aug 7, 2025 - flagship multimodal model
+		'gpt-5-mini', // Fast variant of GPT-5
+		// GPT-4.1 series (Apr 2025)
+		'gpt-4.1', // Enhanced coding, reasoning, multimodal
 		'gpt-4.1-mini',
 		'gpt-4.1-nano',
-		'o3',
-		'o4-mini',
-		// 'o1',
-		// 'o1-mini',
-		// 'gpt-4o',
-		// 'gpt-4o-mini',
+		// Reasoning models
+		'o3', // Advanced reasoning model
+		'o4-mini', // Fast reasoning model
+		// Legacy models (deprecated)
+		// 'o1', // Deprecated
+		// 'o1-mini', // Deprecated
+		// 'gpt-4o', // Deprecated - use GPT-5 or GPT-4.1
+		// 'gpt-4o-mini', // Deprecated
 	],
 	anthropic: [ // https://docs.anthropic.com/en/docs/about-claude/models
-		'claude-opus-4-0',
-		'claude-sonnet-4-0',
-		'claude-3-7-sonnet-latest',
-		'claude-3-5-sonnet-latest',
-		'claude-3-5-haiku-latest',
-		'claude-3-opus-latest',
+		// Claude 4.5 series (Oct 2025)
+		'claude-sonnet-4.5', // Released Oct 14, 2025 - optimized for coding and agents
+		'claude-haiku-4.5', // Released Oct 15, 2025 - low latency, cost-efficient
+		// Claude 4.1 series (May-Aug 2025)
+		'claude-opus-4.1', // Released Aug 5, 2025 - enhanced coding and reasoning
+		'claude-opus-4.0', // Released May 2025
+		'claude-sonnet-4.0', // Released May 2025
+		// Claude 3.7 series
+		'claude-3-7-sonnet-latest', // Latest 3.7 sonnet
+		// Claude 3.5 series
+		'claude-3-5-sonnet-latest', // Latest 3.5 sonnet
+		'claude-3-5-haiku-latest', // Latest 3.5 haiku
+		// Legacy Claude 3
+		'claude-3-opus-latest', // Latest 3.0 opus
 	],
 	xAI: [ // https://docs.x.ai/docs/models?cluster=us-east-1
-		'grok-2',
+		// Latest models (Nov 2025)
+		'grok-4', // Flagship model - high performance in math, reasoning, NLP
+		'grok-4-fast', // Cost-efficient for quick responses
+		'grok-4-fast-reasoning', // Cost-efficient reasoning model
+		'grok-4-heavy', // Real-time data processing and speed
+		// Grok 3 series
 		'grok-3',
 		'grok-3-mini',
 		'grok-3-fast',
-		'grok-3-mini-fast'
+		'grok-3-mini-fast',
+		// Legacy
+		'grok-2', // Older version
 	],
 	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
 		// Latest models (Nov 2025)
@@ -116,47 +141,106 @@ export const defaultModelsOfProvider = {
 		'gemini-2.0-flash-lite', // Still available but consider migrating to 2.5-flash-lite
 	],
 	deepseek: [ // https://api-docs.deepseek.com/quick_start/pricing
-		'deepseek-chat',
-		'deepseek-reasoner',
+		// Latest models (Nov 2025)
+		'deepseek-r1', // Cost-efficient reasoning model - top performer
+		'deepseek-r1-zero', // Free variant of R1
+		'deepseek-v3.1', // Latest general model
+		// Standard models
+		'deepseek-chat', // General-purpose conversations, coding, summarization
+		'deepseek-reasoner', // Complex step-by-step logical reasoning
 	],
-	ollama: [ // autodetected
+	ollama: [ // autodetected - common models listed for reference
+		// Latest models (2025) - these are autodetected but listed for documentation
+		// Coding models
+		// 'qwen2.5-coder:32b', // Strong coding capabilities
+		// 'qwen2.5-coder:7b', // Lightweight coding model
+		// 'deepseek-r1:32b', // Reasoning and coding
+		// 'deepseek-r1:1.5b', // Lightweight reasoning
+		// 'codestral:latest', // Mistral's coding model
+		// 'devstral:latest', // Mistral's development model
+		// General models
+		// 'llama3.3:70b', // Latest Llama model
+		// 'llama3.1:70b', // Strong general purpose
+		// 'llama3.1:8b', // Fast and efficient
+		// 'mistral-large:latest', // High performance
+		// 'mistral-medium:latest', // Balanced performance
+		// 'qwen2.5:72b', // Multilingual model
+		// Vision models
+		// 'llava:latest', // Vision-language model
+		// 'bakllava:latest', // Alternative vision model
 	],
-	vLLM: [ // autodetected
+	vLLM: [ // autodetected - common models listed for reference
+		// Latest models (2025) - these are autodetected but listed for documentation
+		// 'meta-llama/Llama-3.3-70B-Instruct',
+		// 'meta-llama/Llama-3.1-70B-Instruct',
+		// 'meta-llama/Llama-3.1-8B-Instruct',
+		// 'Qwen/Qwen2.5-72B-Instruct',
+		// 'Qwen/Qwen2.5-Coder-32B-Instruct',
+		// 'mistralai/Mistral-Large-2407',
+		// 'mistralai/Codestral-2407',
+		// 'deepseek-ai/DeepSeek-R1',
 	],
-	lmStudio: [], // autodetected
+	lmStudio: [], // autodetected - supports same models as vLLM
 
 	openRouter: [ // https://openrouter.ai/models
-		// 'anthropic/claude-3.7-sonnet:thinking',
+		// Latest models (Nov 2025)
+		'anthropic/claude-sonnet-4.5', // Latest Claude - optimized for coding
+		'anthropic/claude-opus-4.1', // Enhanced reasoning
+		'anthropic/claude-haiku-4.5', // Fast and cost-efficient
+		'google/gemini-3.0-pro', // Latest Gemini
+		'google/gemini-3.0-deep-think', // Complex reasoning
+		'qwen/qwen3-max', // Latest Qwen - outperforms many models
+		'qwen/qwen3-next', // Advanced Qwen variant
+		'qwen/qwen3-235b-a22b', // Large Qwen model
+		'deepseek/deepseek-r1', // Top-performing reasoning model
+		'deepseek/deepseek-r1-zero:free', // Free reasoning model
+		'deepseek/deepseek-v3.1', // Latest DeepSeek general model
+		// Claude 4.0 series
 		'anthropic/claude-opus-4',
 		'anthropic/claude-sonnet-4',
-		'qwen/qwen3-235b-a22b',
+		// Claude 3.7 series
 		'anthropic/claude-3.7-sonnet',
+		// 'anthropic/claude-3.7-sonnet:thinking', // Thinking variant
+		// Claude 3.5 series
 		'anthropic/claude-3.5-sonnet',
-		'deepseek/deepseek-r1',
-		'deepseek/deepseek-r1-zero:free',
-		'mistralai/devstral-small:free'
-		// 'openrouter/quasar-alpha',
-		// 'google/gemini-2.5-pro-preview-03-25',
-		// 'mistralai/codestral-2501',
-		// 'qwen/qwen-2.5-coder-32b-instruct',
-		// 'mistralai/mistral-small-3.1-24b-instruct:free',
-		// 'google/gemini-2.0-flash-lite-preview-02-05:free',
-		// 'google/gemini-2.0-pro-exp-02-05:free',
-		// 'google/gemini-2.0-flash-exp:free',
+		// Mistral models
+		'mistralai/devstral-small:free', // Free coding model
+		'mistralai/mistral-large-2407', // Latest Mistral Large
+		'mistralai/mistral-medium-3', // Latest Mistral Medium
+		'mistralai/codestral-2407', // Latest Codestral
+		// 'mistralai/mistral-small-3.1-24b-instruct:free', // Free small model
+		// Google models
+		'google/gemini-2.5-pro', // Generally available
+		'google/gemini-2.5-flash', // Fast variant
+		// 'google/gemini-2.5-pro-preview-03-25', // Preview
+		// 'google/gemini-2.0-flash-lite-preview-02-05:free', // Free preview
+		// 'google/gemini-2.0-pro-exp-02-05:free', // Experimental
+		// 'google/gemini-2.0-flash-exp:free', // Experimental
+		// Other models
+		// 'openrouter/quasar-alpha', // Experimental
 	],
 	groq: [ // https://console.groq.com/docs/models
-		'qwen-qwq-32b',
-		'llama-3.3-70b-versatile',
-		'llama-3.1-8b-instant',
-		// 'qwen-2.5-coder-32b', // preview mode (experimental)
+		// Latest models (2025)
+		'llama-3.3-70b-versatile', // Latest Llama 3.3 - versatile capabilities
+		'llama-3.1-70b-versatile', // Large Llama 3.1
+		'llama-3.1-8b-instant', // Fast Llama 3.1
+		'qwen-qwq-32b', // Qwen model optimized for Groq
+		'qwen-2.5-coder-32b', // Coding model (now generally available)
+		'qwen-2.5-72b-instruct', // Large Qwen model
+		'mistral-large-2407', // Latest Mistral Large
+		'mixtral-8x7b-32768', // Mixtral model
 	],
 	mistral: [ // https://docs.mistral.ai/getting-started/models/models_overview/
-		'codestral-latest',
-		'devstral-small-latest',
-		'mistral-large-latest',
-		'mistral-medium-latest',
-		'ministral-3b-latest',
-		'ministral-8b-latest',
+		// Latest models (2025)
+		'mistral-medium-3', // Released 2025 - performs at 90%+ of Claude Sonnet 3.7
+		'mistral-large-latest', // Latest large model
+		'mistral-medium-latest', // Latest medium model
+		// Coding models
+		'codestral-latest', // AI-powered software development
+		'devstral-small-latest', // Small development model
+		// Small models
+		'ministral-3b-latest', // 3B parameter model
+		'ministral-8b-latest', // 8B parameter model
 	],
 	openAICompatible: [], // fallback
 	googleVertex: [],
@@ -442,11 +526,50 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		return toFallback(geminiModelOptions, 'gemini-2.5-pro');
 	}
 
+	// Claude 4.5 series (Oct 2025)
+	if (lower.includes('claude') && (lower.includes('4.5') || lower.includes('4-5'))) {
+		if (lower.includes('haiku')) { return toFallback(anthropicModelOptions, 'claude-haiku-4.5-20251015'); }
+		if (lower.includes('sonnet')) { return toFallback(anthropicModelOptions, 'claude-sonnet-4.5-20251014'); }
+		return toFallback(anthropicModelOptions, 'claude-sonnet-4.5-20251014');
+	}
+	// Claude 4.1 series (May-Aug 2025)
+	if (lower.includes('claude') && (lower.includes('4.1') || lower.includes('4-1'))) {
+		if (lower.includes('opus')) { return toFallback(anthropicModelOptions, 'claude-opus-4.1-20250805'); }
+		return toFallback(anthropicModelOptions, 'claude-opus-4.1-20250805');
+	}
+	// Claude 4.0 series
+	if (lower.includes('claude') && (lower.includes('4.0') || lower.includes('4-0') || (lower.includes('4') && !lower.includes('3')))) {
+		if (lower.includes('opus')) { return toFallback(anthropicModelOptions, 'claude-opus-4.0-20250503'); }
+		if (lower.includes('sonnet')) { return toFallback(anthropicModelOptions, 'claude-sonnet-4.0-20250503'); }
+		return toFallback(anthropicModelOptions, 'claude-sonnet-4.0-20250503');
+	}
+	// Claude 3.7 series
+	if (lower.includes('claude') && (lower.includes('3.7') || lower.includes('3-7'))) {
+		return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219');
+	}
+	// Claude 3.5 series
 	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) { return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022'); }
+	// Claude 3.x fallback
 	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }
 
-	if (lower.includes('grok2') || lower.includes('grok2')) { return toFallback(xAIModelOptions, 'grok-2'); }
-	if (lower.includes('grok')) { return toFallback(xAIModelOptions, 'grok-3'); }
+	// Grok 4 series (Nov 2025)
+	if (lower.includes('grok') && (lower.includes('4') || lower.includes('four'))) {
+		if (lower.includes('heavy')) { return toFallback(xAIModelOptions, 'grok-4-heavy'); }
+		if (lower.includes('fast') && lower.includes('reasoning')) { return toFallback(xAIModelOptions, 'grok-4-fast-reasoning'); }
+		if (lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-4-fast'); }
+		return toFallback(xAIModelOptions, 'grok-4');
+	}
+	// Grok 3 series
+	if (lower.includes('grok') && (lower.includes('3') || lower.includes('three'))) {
+		if (lower.includes('mini') && lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-3-mini-fast'); }
+		if (lower.includes('mini')) { return toFallback(xAIModelOptions, 'grok-3-mini'); }
+		if (lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-3-fast'); }
+		return toFallback(xAIModelOptions, 'grok-3');
+	}
+	// Grok 2 (legacy)
+	if (lower.includes('grok2') || (lower.includes('grok') && lower.includes('2'))) { return toFallback(xAIModelOptions, 'grok-2'); }
+	// Generic Grok fallback
+	if (lower.includes('grok')) { return toFallback(xAIModelOptions, 'grok-4'); }
 
 	if (lower.includes('deepseek-r1') || lower.includes('deepseek-reasoner')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekR1'); }
 	if (lower.includes('deepseek') && lower.includes('v2')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2'); }
@@ -476,6 +599,16 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 
 	if (lower.includes('quasar') || lower.includes('quaser')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'quasar'); }
 
+	// GPT-5.1 series (Nov 2025)
+	if (lower.includes('gpt') && lower.includes('5.1')) {
+		if (lower.includes('codex') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'gpt-5.1-codex-mini'); }
+		if (lower.includes('codex')) { return toFallback(openAIModelOptions, 'gpt-5.1-codex'); }
+		if (lower.includes('thinking')) { return toFallback(openAIModelOptions, 'gpt-5.1-thinking'); }
+		if (lower.includes('instant')) { return toFallback(openAIModelOptions, 'gpt-5.1-instant'); }
+		return toFallback(openAIModelOptions, 'gpt-5.1-thinking'); // Default to thinking
+	}
+	// GPT-5 series (Aug 2025)
+	if (lower.includes('gpt') && lower.includes('5') && lower.includes('pro')) { return toFallback(openAIModelOptions, 'gpt-5-pro'); }
 	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('5') || lower.includes('5.0'))) { return toFallback(openAIModelOptions, 'gpt-5-mini'); }
 	if (lower.includes('gpt') && (lower.includes('5') || lower.includes('5.0'))) { return toFallback(openAIModelOptions, 'gpt-5'); }
 	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('4.1') || lower.includes('4-1'))) { return toFallback(openAIModelOptions, 'gpt-4.1-mini'); }
@@ -555,6 +688,80 @@ const anthropicModelOptions = {
 		},
 
 	},
+	'claude-sonnet-4.5-20251014': { // Released Oct 14, 2025 - optimized for coding and agents
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-haiku-4.5-20251015': { // Released Oct 15, 2025 - low latency, cost-efficient
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-opus-4.1-20250805': { // Released Aug 5, 2025 - enhanced coding and reasoning
+		contextWindow: 1_000_000, // 1M token context window
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-opus-4.0-20250503': { // Released May 2025
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-sonnet-4.0-20250503': { // Released May 2025
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
 	'claude-3-5-sonnet-20241022': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
@@ -630,6 +837,67 @@ const anthropicSettings: VoidStaticProviderInfo = {
 
 // ---------------- OPENAI ----------------
 const openAIModelOptions = { // https://platform.openai.com/docs/pricing
+	// GPT-5.1 series (Nov 2025)
+	'gpt-5.1-thinking': { // Released Nov 12, 2025 - flagship with enhanced reasoning
+		contextWindow: 196_000, // Enhanced context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.50, output: 10.00, cache_read: 0.625 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
+	'gpt-5.1-instant': { // Released Nov 12, 2025 - fast responses
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.50, output: 2.00, cache_read: 0.125 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5.1-codex': { // Released Nov 12, 2025 - advanced coding model
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 3.00, output: 12.00, cache_read: 0.75 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: true, // Coding models typically support FIM
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5.1-codex-mini': { // Released Nov 12, 2025 - lightweight coding model
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.60, output: 2.40, cache_read: 0.15 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5-pro': { // Premium model with enhanced reasoning
+		contextWindow: 1_047_576,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 5.00, output: 20.00, cache_read: 1.25 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
 	'gpt-5': {
 		contextWindow: 1_047_576,
 		reservedOutputTokenSpace: 32_768,
@@ -781,6 +1049,62 @@ const openAISettings: VoidStaticProviderInfo = {
 const xAIModelOptions = {
 	// https://docs.x.ai/docs/guides/reasoning#reasoning
 	// https://docs.x.ai/docs/models#models-and-pricing
+	// Grok 4 series (Nov 2025)
+	'grok-4': { // Flagship model - high performance in math, reasoning, NLP
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.50, output: 17.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
+	'grok-4-fast': { // Cost-efficient for quick responses
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 1.00, output: 5.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+	'grok-4-fast-reasoning': { // Cost-efficient reasoning model
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 1.50, output: 7.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium'], default: 'low' },
+		},
+	},
+	'grok-4-heavy': { // Real-time data processing and speed
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 5.00, output: 25.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+		},
+	},
 	'grok-2': {
 		contextWindow: 131_072,
 		reservedOutputTokenSpace: null,
@@ -855,7 +1179,7 @@ const xAISettings: VoidStaticProviderInfo = {
 // ---------------- GEMINI ----------------
 const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
-	
+
 	// Gemini 3.0 series (Nov 2025)
 	'gemini-3.0-pro': {
 		contextWindow: 1_048_576, // 1M tokens
@@ -889,7 +1213,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 			reasoningReservedOutputTokenSpace: 8192,
 		},
 	},
-	
+
 	// Gemini 2.5 series (generally available)
 	'gemini-2.5-pro': {
 		contextWindow: 1_048_576,
@@ -933,7 +1257,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		specialToolFormat: 'gemini-style',
 		reasoningCapabilities: false,
 	},
-	
+
 	// Preview/experimental models
 	'gemini-2.5-pro-preview-05-06': {
 		contextWindow: 1_048_576,
@@ -1339,7 +1663,21 @@ const ollamaModelOptions = {
 
 } as const satisfies Record<string, CortexideStaticModelInfo>;
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[];
+export const ollamaRecommendedModels = [
+	// Latest models (2025)
+	'llama3.3:70b', // Latest Llama - versatile capabilities
+	'qwen2.5-coder:32b', // Strong coding capabilities
+	'qwen2.5-coder:7b', // Lightweight coding
+	'deepseek-r1:32b', // Top reasoning model
+	'deepseek-r1:1.5b', // Lightweight reasoning
+	'codestral:latest', // Mistral coding model
+	'devstral:latest', // Mistral dev model
+	// Legacy names (for backward compatibility)
+	'llama3.1',
+	'qwq',
+	'deepseek-r1',
+	'qwen2.5-coder:1.5b',
+] as const satisfies (keyof typeof ollamaModelOptions)[];
 
 
 const vLLMSettings: VoidStaticProviderInfo = {
