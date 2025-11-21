@@ -101,11 +101,19 @@ export const defaultModelsOfProvider = {
 		'grok-3-mini-fast'
 	],
 	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
-		// 'gemini-2.5-pro-exp-03-25', // Not available in API v1beta
-		'gemini-2.5-flash-preview-04-17',
-		'gemini-2.0-flash',
-		'gemini-2.0-flash-lite',
+		// Latest models (Nov 2025)
+		'gemini-3.0-pro', // Released Nov 18, 2025 - most advanced model
+		'gemini-3.0-deep-think', // Released Nov 18, 2025 - complex reasoning
+		// Gemini 2.5 series (generally available)
+		'gemini-2.5-pro', // Generally available - strong reasoning, coding, math
+		'gemini-2.5-flash', // Generally available - balanced performance
+		'gemini-2.5-flash-lite', // Generally available - fastest and most cost-efficient
+		// Preview/experimental models (may be less stable)
 		'gemini-2.5-pro-preview-05-06',
+		'gemini-2.5-flash-preview-04-17',
+		// Deprecated models (scheduled for deprecation Feb 2026)
+		// 'gemini-2.0-flash', // Deprecated - use 2.5 or 3.0 models instead
+		'gemini-2.0-flash-lite', // Still available but consider migrating to 2.5-flash-lite
 	],
 	deepseek: [ // https://api-docs.deepseek.com/quick_start/pricing
 		'deepseek-chat',
@@ -416,7 +424,23 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		};
 	};
 
-	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) { return toFallback(geminiModelOptions, 'gemini-2.5-pro-preview-05-06'); }
+	// Gemini 3.0 models
+	if (lower.includes('gemini') && (lower.includes('3.0') || lower.includes('3-0') || lower.includes('3'))) {
+		if (lower.includes('deep') || lower.includes('think')) {
+			return toFallback(geminiModelOptions, 'gemini-3.0-deep-think');
+		}
+		return toFallback(geminiModelOptions, 'gemini-3.0-pro');
+	}
+	// Gemini 2.5 models
+	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) {
+		if (lower.includes('flash') && lower.includes('lite')) {
+			return toFallback(geminiModelOptions, 'gemini-2.5-flash-lite');
+		}
+		if (lower.includes('flash')) {
+			return toFallback(geminiModelOptions, 'gemini-2.5-flash');
+		}
+		return toFallback(geminiModelOptions, 'gemini-2.5-pro');
+	}
 
 	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) { return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022'); }
 	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }
@@ -831,6 +855,86 @@ const xAISettings: VoidStaticProviderInfo = {
 // ---------------- GEMINI ----------------
 const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
+	
+	// Gemini 3.0 series (Nov 2025)
+	'gemini-3.0-pro': {
+		contextWindow: 1_048_576, // 1M tokens
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-3.0-deep-think': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	
+	// Gemini 2.5 series (generally available)
+	'gemini-2.5-pro': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.15, output: 0.60 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-flash-lite': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.075, output: 0.30 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+	
+	// Preview/experimental models
 	'gemini-2.5-pro-preview-05-06': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
