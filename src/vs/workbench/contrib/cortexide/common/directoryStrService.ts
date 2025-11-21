@@ -9,6 +9,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { Limiter } from '../../../../base/common/async.js';
 import { ShallowDirectoryItem, BuiltinToolCallParams, BuiltinToolResultType } from './toolsServiceTypes.js';
 import { MAX_CHILDREN_URIs_PAGE, MAX_DIRSTR_CHARS_TOTAL_BEGINNING, MAX_DIRSTR_CHARS_TOTAL_TOOL } from './prompt/prompts.js';
 
@@ -137,10 +138,43 @@ export const stringifyDirectoryTree1Deep = (params: BuiltinToolCallParams['ls_di
 
 // ---------- IN GENERAL ----------
 
+// Cache for directory resolution results to avoid redundant file system calls
+const directoryResolutionCache = new Map<string, { stats: IFileStat[]; timestamp: number }>();
+const DIRECTORY_CACHE_TTL_MS = 30 * 1000; // Cache for 30 seconds
+const MAX_CACHE_SIZE = 1000; // Limit cache size
+
 const resolveChildren = async (children: undefined | IFileStat[], fileService: IFileService): Promise<IFileStat[]> => {
-	const res = await fileService.resolveAll(children ?? [])
-	const stats = res.map(s => s.success ? s.stat : null).filter(s => !!s)
-	return stats
+	if (!children || children.length === 0) {
+		return [];
+	}
+
+	// Create cache key from children URIs
+	const cacheKey = children.map(c => c.resource.toString()).sort().join('|');
+	const cached = directoryResolutionCache.get(cacheKey);
+	const now = Date.now();
+
+	// Return cached result if still valid
+	if (cached && (now - cached.timestamp) < DIRECTORY_CACHE_TTL_MS) {
+		return cached.stats;
+	}
+
+	// Resolve children
+	const res = await fileService.resolveAll(children);
+	const stats = res.map(s => s.success ? s.stat : null).filter(s => !!s) as IFileStat[];
+
+	// Cache the result
+	// Limit cache size to prevent memory issues
+	if (directoryResolutionCache.size >= MAX_CACHE_SIZE) {
+		// Remove oldest 20% of entries
+		const entriesToDelete = Math.floor(directoryResolutionCache.size * 0.2);
+		const keys = Array.from(directoryResolutionCache.keys()).slice(0, entriesToDelete);
+		for (const key of keys) {
+			directoryResolutionCache.delete(key);
+		}
+	}
+
+	directoryResolutionCache.set(cacheKey, { stats, timestamp: now });
+	return stats;
 }
 
 // Remove the old computeDirectoryTree function and replace with a combined version that handles both computation and rendering
@@ -325,6 +359,17 @@ export async function getAllUrisInDirectory(
 	fileService: IFileService,
 ): Promise<URI[]> {
 	const result: URI[] = [];
+	// Use a mutex-like pattern to safely check and update result length
+	const checkAndAdd = (uri: URI): boolean => {
+		if (result.length >= maxResults) {
+			return false;
+		}
+		result.push(uri);
+		return result.length < maxResults;
+	};
+
+	// Use Limiter for parallel directory traversal with controlled concurrency
+	const limiter = new Limiter<boolean>(10); // Process up to 10 directories concurrently
 
 	// Helper function to recursively collect URIs
 	async function visitAll(folderStat: IFileStat): Promise<boolean> {
@@ -334,44 +379,56 @@ export async function getAllUrisInDirectory(
 		}
 
 		try {
-
 			if (!folderStat.isDirectory || !folderStat.children) {
 				return true;
 			}
 
-			const eChildren = await resolveChildren(folderStat.children, fileService)
+			const eChildren = await resolveChildren(folderStat.children, fileService);
 
 			// Process files first (common convention to list files before directories)
-			for (const child of eChildren) {
-				if (!child.isDirectory) {
-					result.push(child.resource);
-
-					// Check if we've hit the limit
-					if (result.length >= maxResults) {
-						return false;
+			// Process files in parallel since they're independent
+			const filePromises = eChildren
+				.filter(child => !child.isDirectory)
+				.map(async (child) => {
+					if (checkAndAdd(child.resource)) {
+						return true;
 					}
-				}
+					return false;
+				});
+
+			// Wait for all file processing to complete
+			await Promise.all(filePromises);
+
+			// Check if we've hit the limit after processing files
+			if (result.length >= maxResults) {
+						return false;
 			}
 
-			// Then process directories recursively
-			for (const child of eChildren) {
-				const isGitIgnored = shouldExcludeDirectory(child.name)
-				if (child.isDirectory && !isGitIgnored) {
-					const shouldContinue = await visitAll(child);
-					if (!shouldContinue) {
-						return false;
-					}
-				}
-			}
+			// Then process directories recursively in parallel with concurrency limit
+			const directories = eChildren.filter(child =>
+				child.isDirectory && !shouldExcludeDirectory(child.name)
+			);
 
-			return true;
+			// Process directories in parallel with concurrency control
+			const dirResults = await Promise.all(
+				directories.map(dirChild =>
+					limiter.queue(async () => {
+						// Resolve the directory stat first
+						const dirStat = await fileService.resolve(dirChild.resource);
+						return visitAll(dirStat);
+					})
+				)
+			);
+
+			// If any directory traversal returned false (hit limit), stop
+			return dirResults.every(shouldContinue => shouldContinue);
 		} catch (error) {
 			console.error(`Error processing directory ${folderStat.resource.fsPath}: ${error}`);
 			return true; // Continue despite errors in a specific directory
 		}
 	}
 
-	const rootStat = await fileService.resolve(directoryUri)
+	const rootStat = await fileService.resolve(directoryUri);
 	await visitAll(rootStat);
 	return result;
 }

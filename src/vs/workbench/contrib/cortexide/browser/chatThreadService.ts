@@ -261,7 +261,7 @@ export interface IChatThreadService {
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>;
 
-	getCurrentThread(): ThreadType;
+	getCurrentThread(): ThreadType | undefined;
 	openNewThread(): void;
 	switchToThread(threadId: string): void;
 
@@ -668,7 +668,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
 
 		const requiresComplexReasoning = isCodebaseQuestion || // Codebase questions need reasoning
-			reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
+		                                 reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
 			complexAnalysisKeywords.some(keyword => lowerMessage.includes(keyword));
 		const isLongMessage = userMessage.length > 500;
 
@@ -709,12 +709,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// Enable low-latency preference for simple questions to improve TTFS
 		// More aggressive: enable for simple questions OR when task doesn't require complex reasoning
 		const preferLowLatency = (isSimpleQuestion ||
-			(!requiresComplexReasoning &&
-				!hasImages &&
-				!hasPDFs &&
-				!isLongMessage &&
-				!isMultiStepTask &&
-				!isCodebaseQuestion &&
+		                         (!requiresComplexReasoning &&
+		                          !hasImages &&
+		                          !hasPDFs &&
+		                          !isLongMessage &&
+		                          !isMultiStepTask &&
+		                          !isCodebaseQuestion &&
 				taskType === 'chat')); // Only for general chat, not code/vision tasks
 
 		const context: TaskContext = {
@@ -986,7 +986,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		];
 
 		return debuggingKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			errorPatterns.some(pattern => pattern.test(lowerMessage)) ||
+		       errorPatterns.some(pattern => pattern.test(lowerMessage)) ||
 			(hasCode && (lowerMessage.includes('error') || lowerMessage.includes('exception')));
 	}
 
@@ -1097,15 +1097,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _detectSimpleQuestion(message: string, lowerMessage: string): boolean {
 		// Exclude complex tasks first
 		if (lowerMessage.includes('codebase') ||
-			lowerMessage.includes('repository') ||
-			lowerMessage.includes('architecture') ||
-			lowerMessage.includes('analyze') ||
-			lowerMessage.includes('refactor') ||
-			lowerMessage.includes('implement') ||
-			lowerMessage.includes('debug') ||
-			lowerMessage.includes('error') ||
-			lowerMessage.includes('fix') ||
-			lowerMessage.includes('review')) {
+		    lowerMessage.includes('repository') ||
+		    lowerMessage.includes('architecture') ||
+		    lowerMessage.includes('analyze') ||
+		    lowerMessage.includes('refactor') ||
+		    lowerMessage.includes('implement') ||
+		    lowerMessage.includes('debug') ||
+		    lowerMessage.includes('error') ||
+		    lowerMessage.includes('fix') ||
+		    lowerMessage.includes('review')) {
 			return false;
 		}
 
@@ -1637,23 +1637,23 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 Please generate a structured execution plan for this task. Output your plan in the following JSON format:
 
-		{
-			"summary": "Brief overall plan summary",
-			"steps": [
-				{
-					"stepNumber": 1,
-					"description": "Step description",
-					"tools": ["tool_name1", "tool_name2"],
-					"files": ["path/to/file1.ts", "path/to/file2.ts"]
-				},
-				{
-					"stepNumber": 2,
-					"description": "Next step description",
-					"tools": ["tool_name"],
-					"files": ["path/to/file.ts"]
-				}
-			]
-		}
+{
+  "summary": "Brief overall plan summary",
+  "steps": [
+    {
+      "stepNumber": 1,
+      "description": "Step description",
+      "tools": ["tool_name1", "tool_name2"],
+      "files": ["path/to/file1.ts", "path/to/file2.ts"]
+    },
+    {
+      "stepNumber": 2,
+      "description": "Next step description",
+      "tools": ["tool_name"],
+      "files": ["path/to/file.ts"]
+    }
+  ]
+}
 
 Think through the task carefully. Break it down into logical steps. For each step:
 - Describe what needs to be done
@@ -1707,7 +1707,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									role: 'plan',
 									type: 'agent_plan',
 									summary: planData.summary || 'Execution plan',
-									steps: (planData.steps || []).map((step: unknown, idx: number) => ({
+									steps: (planData.steps || []).map((step: { stepNumber?: number; description?: string; tools?: unknown[]; files?: unknown[] }, idx: number) => ({
 										stepNumber: step.stepNumber || idx + 1,
 										description: step.description || `Step ${idx + 1}`,
 										tools: step.tools || [],
@@ -2050,7 +2050,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				for (let i = thread.messages.length - 1; i >= 0; i--) {
 					const msg = thread.messages[i];
 					if (msg.role === 'assistant' && 'modelSelection' in msg) {
-						modelSelection = (msg as unknown).modelSelection;
+						modelSelection = (msg as { modelSelection?: ModelSelection }).modelSelection;
 						break;
 					}
 				}
@@ -2085,9 +2085,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	): void {
 		const fileName = editContext.uri.path.split('/').pop() || editContext.uri.path;
 		const operationLabel = toolName === 'rewrite_file' ? 'rewritten' :
-			toolName === 'edit_file' ? 'edited' :
-				toolName === 'create_file_or_folder' ? 'created' :
-					'modified';
+		                      toolName === 'edit_file' ? 'edited' :
+		                      toolName === 'create_file_or_folder' ? 'created' :
+		                      'modified';
 
 		// Show brief, non-intrusive notification
 		// Not sticky, auto-dismisses after a few seconds
@@ -2332,7 +2332,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } });
 
 			if (isBuiltInTool) {
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as unknown);
+				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any);
 				const interruptor = () => { interrupted = true; interruptTool?.(); };
 				resolveInterruptor(interruptor);
 
@@ -2366,7 +2366,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// 4. stringify the result to give to the LLM
 		try {
 			if (isBuiltInTool) {
-				toolResultStr = this._toolsService.stringOfResult[toolName](toolParams as unknown, toolResult as unknown);
+				toolResultStr = this._toolsService.stringOfResult[toolName](toolParams as any, toolResult as any);
 			}
 			// For MCP tools, handle the result based on its type
 			else {
@@ -2721,8 +2721,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (settings.imageQADevMode && preprocessed.qaResponse) {
 							console.log('[ImageQA] Pipeline response:', {
 								confidence: preprocessed.qaResponse.confidence,
-								needsLLM: !!(preprocessed.qaResponse as unknown)._needsLLM,
-								needsVLM: !!(preprocessed.qaResponse as unknown)._needsVLM,
+								needsLLM: !!(preprocessed.qaResponse as { _needsLLM?: boolean })._needsLLM,
+								needsVLM: !!(preprocessed.qaResponse as { _needsVLM?: boolean })._needsVLM,
 								answer: preprocessed.qaResponse.answer?.substring(0, 100),
 							});
 						}
@@ -2859,8 +2859,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						return acc + estimateTokens(m.content);
 					} else if (Array.isArray(m.content)) {
 						// Handle OpenAI format with image_url parts
-						return acc + m.content.reduce((sum: number, part: unknown) => {
-							if (part.type === 'text') {
+						return acc + m.content.reduce((sum: number, part: { type?: string; text?: string }) => {
+							if (part.type === 'text' && part.text) {
 								return sum + estimateTokens(part.text);
 							} else if (part.type === 'image_url') {
 								// Rough estimate: ~85 tokens per image + base64 overhead
@@ -2888,8 +2888,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					if (typeof m.content === 'string') {
 						return acc + m.content.length;
 					} else if (Array.isArray(m.content)) {
-						return acc + m.content.reduce((sum: number, part: unknown) => {
-							if (part.type === 'text') { return sum + part.text.length; }
+						return acc + m.content.reduce((sum: number, part: { type?: string; text?: string }) => {
+							if (part.type === 'text' && part.text) { return sum + part.text.length; }
 							return sum;
 						}, 0);
 					}
@@ -4446,15 +4446,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 
-	getCurrentThread(): ThreadType {
+	getCurrentThread(): ThreadType | undefined {
 		const state = this.state;
 		const thread = state.allThreads[state.currentThreadId];
-		if (!thread) { throw new Error(`Current thread should never be undefined`); }
 		return thread;
 	}
 
 	getCurrentFocusedMessageIdx() {
 		const thread = this.getCurrentThread();
+		if (!thread) { return; }
 
 		// get the focusedMessageIdx
 		const focusedMessageIdx = thread.state.focusedMessageIdx;
@@ -4481,17 +4481,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 
+	/**
+	 * Opens a new chat thread. Always creates a new thread and adds it to open tabs.
+	 *
+	 * NOTE: There is no hard limit on the number of tabs - users can create as many as needed.
+	 * This function always creates a new thread when called, allowing users to have multiple
+	 * empty threads if desired. The previous behavior of switching to existing empty threads
+	 * was changed to allow users to create multiple new chats by clicking the "+" button.
+	 */
 	openNewThread() {
-		// if a thread with 0 messages already exists, switch to it
+		// Always create a new thread - don't check for existing empty threads
+		// This allows users to create multiple new chats by clicking the "+" button
 		const { allThreads: currentThreads } = this.state;
-		for (const threadId in currentThreads) {
-			if (currentThreads[threadId]!.messages.length === 0) {
-				// switch to the existing empty thread and exit
-				this.switchToThread(threadId);
-				return;
-			}
-		}
-		// otherwise, start a new thread
 		const newThread = newThreadObject();
 
 		// update state
@@ -4550,6 +4551,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._setState({ allThreads: newThreads });
 	}
 
+	openTab(threadId: string): void {
+		if (!this.state.allThreads[threadId]) { return; }
+		const openTabs = this.state.openTabs.includes(threadId)
+			? this.state.openTabs
+			: [...this.state.openTabs, threadId];
+		this._setState({ openTabs });
+	}
+
+	closeTab(threadId: string): void {
+		const openTabs = this.state.openTabs.filter(id => id !== threadId);
+		const currentThreadId = this.state.currentThreadId === threadId ? (null as unknown as string) : this.state.currentThreadId;
+		this._setState({ openTabs, currentThreadId });
+	}
+
+	switchToTab(threadId: string): void {
+		if (!this.state.allThreads[threadId]) { return; }
+		this._setState({ currentThreadId: threadId });
+	}
+
+	getOpenTabs(): string[] {
+		return this.state.openTabs.filter(threadId => this.state.allThreads[threadId] !== undefined);
+	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
 		// Invalidate plan cache when plan messages are added
@@ -4711,6 +4734,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	getCurrentThreadState = () => {
 		const currentThread = this.getCurrentThread();
+		if (!currentThread) {
+			// Return default state if no current thread
+			return {
+				currCheckpointIdx: null,
+				stagingSelections: [],
+				focusedMessageIdx: undefined,
+				linksOfMessageIdx: {},
+				filesWithUserChanges: new Set()
+			};
+		}
 		return currentThread.state;
 	};
 	setCurrentThreadState = (newState: Partial<ThreadType['state']>) => {

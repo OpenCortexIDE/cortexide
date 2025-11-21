@@ -24,8 +24,27 @@ export const mountFnGenerator = (Component: (params: any) => React.ReactNode) =>
 		root.render(<Component {...props} />); // tailwind dark theme indicator
 	}
 	const dispose = () => {
-		root.unmount();
+		// Dispose disposables first
 		disposables.forEach(d => d.dispose());
+
+		// Defer unmount to avoid "synchronously unmount a root while React was already rendering" warning
+		// Use queueMicrotask to ensure unmount happens after the current render cycle completes
+		queueMicrotask(() => {
+			try {
+				root.unmount();
+			} catch (e) {
+				// Ignore errors if already unmounted or if React is still rendering
+				// Fallback to setTimeout if queueMicrotask fails
+				setTimeout(() => {
+					try {
+						root.unmount();
+					} catch (e2) {
+						// Final fallback - ignore if still failing
+						console.warn('Error unmounting React root after retry:', e2);
+					}
+				}, 0);
+			}
+		});
 	}
 
 	rerender(props)

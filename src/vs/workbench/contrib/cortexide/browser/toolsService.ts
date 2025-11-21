@@ -514,6 +514,7 @@ export class ToolsService implements IToolsService {
 
 		this.callTool = {
 			read_file: async ({ uri, startLine, endLine, pageNumber }) => {
+				const originalUri = uri.toString();
 				await cortexideModelService.initializeModel(uri);
 				let { model } = await cortexideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -532,7 +533,9 @@ export class ToolsService implements IToolsService {
 							model = (await cortexideModelService.getModelSafe(uri)).model;
 						}
 					} catch { /* ignore and throw original error if still null */ }
-					if (model === null) { throw new Error(`No contents; File does not exist.`); }
+					if (model === null) {
+						throw new Error(`No contents; File does not exist: ${originalUri}. Please verify the file path is correct and the file exists in the workspace.`);
+					}
 				}
 
 				const totalNumLines = model.getLineCount();
@@ -648,6 +651,7 @@ export class ToolsService implements IToolsService {
 				return { result: { queryStr, uris, hasNextPage } };
 			},
 			search_in_file: async ({ uri, query, isRegex }) => {
+				const originalUri = uri.toString();
 				await cortexideModelService.initializeModel(uri);
 				let { model } = await cortexideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -666,7 +670,9 @@ export class ToolsService implements IToolsService {
 							model = (await cortexideModelService.getModelSafe(uri)).model;
 						}
 					} catch { /* ignore and throw original error if still null */ }
-					if (model === null) { throw new Error(`No contents; File does not exist.`); }
+					if (model === null) {
+						throw new Error(`No contents; File does not exist: ${originalUri}. Please verify the file path is correct and the file exists in the workspace.`);
+					}
 				}
 				const contents = model.getValue(EndOfLinePreference.LF);
 				const contentOfLine = contents.split('\n');
@@ -962,7 +968,7 @@ export class ToolsService implements IToolsService {
 									timeout: 10000,
 								}, CancellationToken.None);
 
-								const json = await asJson<unknown>(response);
+								const json = await asJson<{ AbstractText?: string; Heading?: string; AbstractURL?: string; RelatedTopics?: Array<{ Text?: string; FirstURL?: string }> }>(response);
 								const results: Array<{ title: string; snippet: string; url: string }> = [];
 
 								if (json?.AbstractText) {

@@ -8,6 +8,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { importAMDNodeModule } from '../../../../amdX.js';
 
 export interface ASTSymbol {
 	name: string;
@@ -69,8 +70,8 @@ class TreeSitterService implements ITreeSitterService {
 		}
 
 		try {
-			// Dynamic import of tree-sitter-wasm
-			const treeSitterWasm = await import('@vscode/tree-sitter-wasm');
+			// Use importAMDNodeModule for proper module resolution in VS Code's bundling system
+			const treeSitterWasm = await importAMDNodeModule<typeof import('@vscode/tree-sitter-wasm')>('@vscode/tree-sitter-wasm', 'wasm/tree-sitter.js');
 			this._wasmModule = treeSitterWasm;
 			return this._wasmModule;
 		} catch (error) {

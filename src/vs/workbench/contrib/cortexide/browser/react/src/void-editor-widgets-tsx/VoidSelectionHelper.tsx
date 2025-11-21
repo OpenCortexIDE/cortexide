@@ -7,12 +7,11 @@
 import { useAccessor, useActiveURI, useIsDark, useSettingsState } from '../util/services.js';
 
 import '../styles.css'
-import { CORTEXIDE_CTRL_K_ACTION_ID, CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
+import { CORTEXIDE_CTRL_K_ACTION_ID, CORTEXIDE_CTRL_L_ACTION_ID, CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../actionIDs.js';
 import { Circle, MoreVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { CortexideSelectionHelperProps } from '../../../../../../contrib/cortexide/browser/cortexideSelectionHelperWidget.js';
-import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 
 
 export const VoidSelectionHelperMain = (props: CortexideSelectionHelperProps) => {

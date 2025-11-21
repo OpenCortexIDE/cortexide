@@ -8,13 +8,13 @@ import { createDecorator, IInstantiationService } from '../../../../platform/ins
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IContextGatheringService } from './contextGatheringService.js';
-import { IFileService, FileChangesEvent } from '../../../../platform/files/common/files.js';
+import { IFileService, FileChangesEvent, FileChangeType, IFileChange } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
-import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { Limiter, RunOnceScheduler } from '../../../../base/common/async.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { LRUCache } from '../../../../base/common/map.js';
 import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/common/aiEmbeddingVectorService.js';
@@ -83,6 +83,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _pendingUpdates = new Set<string>(); // URIs that need indexing
 	private _incrementalUpdateScheduler: RunOnceScheduler;
 	private _saveIndexScheduler: RunOnceScheduler;
+	private _fileChangeDebouncer: RunOnceScheduler; // Debounce file change events
+	private _accumulatedFileChanges: { rawAdded: URI[]; rawUpdated: URI[]; rawDeleted: URI[] } | undefined; // Accumulate file changes for debouncing
 
 	// Inverted indexes for fast lookups
 	private _termIndex: Map<string, Set<number>> = new Map(); // term -> set of entry indices
@@ -98,7 +100,9 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _tokenizationCache: LRUCache<string, Set<string>> = new LRUCache(10000); // Increased from 1000 to 10000
 
 	// File content cache for recently accessed files (avoids re-reading from disk)
-	private _fileContentCache: LRUCache<string, string> = new LRUCache(500); // Increased from 100 to 500 files
+	// Max 500 files, max 1MB per file to prevent memory issues
+	private _fileContentCache: LRUCache<string, string> = new LRUCache(500);
+	private static readonly MAX_FILE_CACHE_SIZE_BYTES = 1024 * 1024; // 1MB per file
 
 	// BM25 statistics cache (pre-computed per document for faster scoring)
 	private _bm25StatsCache: Map<number, {
@@ -193,6 +197,23 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		this.privacyGate = new OfflinePrivacyGate();
 		this._loadIndex();
 
+		// Setup file change debouncer (batch file changes to avoid excessive processing)
+		this._fileChangeDebouncer = new RunOnceScheduler(() => {
+			// Process accumulated file changes
+			if (this._accumulatedFileChanges) {
+				// Create a proper FileChangesEvent from accumulated changes
+				const changes: IFileChange[] = [
+					...this._accumulatedFileChanges.rawAdded.map(uri => ({ resource: uri, type: FileChangeType.ADDED })),
+					...this._accumulatedFileChanges.rawUpdated.map(uri => ({ resource: uri, type: FileChangeType.UPDATED })),
+					...this._accumulatedFileChanges.rawDeleted.map(uri => ({ resource: uri, type: FileChangeType.DELETED }))
+				];
+				const event = new FileChangesEvent(changes, false);
+				this._handleFileChanges(event);
+				this._accumulatedFileChanges = undefined;
+			}
+		}, 500); // Debounce for 500ms
+		this._register(this._fileChangeDebouncer);
+
 		// Setup incremental update scheduler
 		this._incrementalUpdateScheduler = this._register(new RunOnceScheduler(
 			() => this._processPendingUpdates(),
@@ -260,29 +281,45 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const data = JSON.parse(content.value.toString());
 			if (Array.isArray(data)) {
 				// Validate and deserialize index entries (convert arrays back to Sets)
-				this._index = data.filter((entry: unknown) =>
-					entry &&
-					typeof entry.uri === 'string' &&
-					Array.isArray(entry.symbols) &&
-					typeof entry.snippet === 'string'
-				).map((entry: unknown) => ({
-					...entry,
+				this._index = data.filter((entry: unknown): entry is Partial<IndexEntry> & { uri: string; symbols: string[]; snippet: string } =>
+					entry !== null &&
+					typeof entry === 'object' &&
+					'uri' in entry &&
+					typeof (entry as { uri: unknown }).uri === 'string' &&
+					'symbols' in entry &&
+					Array.isArray((entry as { symbols: unknown }).symbols) &&
+					'snippet' in entry &&
+					typeof (entry as { snippet: unknown }).snippet === 'string'
+				).map((entry): IndexEntry => {
+					const e = entry as Partial<IndexEntry> & { uri: string; symbols: string[]; snippet: string };
+					return {
+						uri: e.uri,
+						symbols: e.symbols,
+						snippet: e.snippet,
+						snippetStartLine: e.snippetStartLine,
+						snippetEndLine: e.snippetEndLine,
 					// Convert arrays back to Sets for fast lookups
-					snippetTokens: entry.snippetTokens ? new Set(entry.snippetTokens) : undefined,
-					uriTokens: entry.uriTokens ? new Set(entry.uriTokens) : undefined,
-					symbolTokens: entry.symbolTokens ? new Set(entry.symbolTokens) : undefined,
-					chunks: entry.chunks?.map((chunk: unknown) => ({
-						...chunk,
-						tokens: chunk.tokens ? new Set(chunk.tokens) : undefined,
-						embedding: chunk.embedding && Array.isArray(chunk.embedding) ? chunk.embedding : undefined
-					})),
+						snippetTokens: e.snippetTokens ? (Array.isArray(e.snippetTokens) ? new Set(e.snippetTokens) : e.snippetTokens) : undefined,
+						uriTokens: e.uriTokens ? (Array.isArray(e.uriTokens) ? new Set(e.uriTokens) : e.uriTokens) : undefined,
+						symbolTokens: e.symbolTokens ? (Array.isArray(e.symbolTokens) ? new Set(e.symbolTokens) : e.symbolTokens) : undefined,
+						chunks: e.chunks?.map((chunk: unknown): IndexChunk => {
+							const c = chunk as Partial<IndexChunk> & { text: string; startLine: number; endLine: number };
+							return {
+								text: c.text,
+								startLine: c.startLine,
+								endLine: c.endLine,
+								tokens: c.tokens ? (Array.isArray(c.tokens) ? new Set(c.tokens) : c.tokens) : undefined,
+								embedding: c.embedding && Array.isArray(c.embedding) ? c.embedding : undefined
+							};
+						}),
 					// Embeddings are already arrays, no conversion needed
-					snippetEmbedding: entry.snippetEmbedding && Array.isArray(entry.snippetEmbedding) ? entry.snippetEmbedding : undefined,
-					chunkEmbeddings: entry.chunkEmbeddings && Array.isArray(entry.chunkEmbeddings) ? entry.chunkEmbeddings : undefined,
+						snippetEmbedding: e.snippetEmbedding && Array.isArray(e.snippetEmbedding) ? e.snippetEmbedding : undefined,
+						chunkEmbeddings: e.chunkEmbeddings && Array.isArray(e.chunkEmbeddings) ? e.chunkEmbeddings : undefined,
 					// Import information is already arrays, no conversion needed
-					importedSymbols: entry.importedSymbols,
-					importedFrom: entry.importedFrom
-				}));
+						importedSymbols: e.importedSymbols,
+						importedFrom: e.importedFrom
+					};
+				});
 				// Rebuild inverted indexes from loaded data (tokens already pre-computed!)
 				this._rebuildInvertedIndexes();
 				this._isWarmed = true;
@@ -305,24 +342,40 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const data = JSON.parse(content.value.toString());
 			if (Array.isArray(data)) {
 				// Validate and migrate index entries (convert arrays to Sets if present)
-				this._index = data.filter((entry: unknown) =>
-					entry &&
-					typeof entry.uri === 'string' &&
-					Array.isArray(entry.symbols) &&
-					typeof entry.snippet === 'string'
-				).map((entry: unknown) => ({
-					...entry,
-					snippetTokens: entry.snippetTokens ? (Array.isArray(entry.snippetTokens) ? new Set(entry.snippetTokens) : entry.snippetTokens) : undefined,
-					uriTokens: entry.uriTokens ? (Array.isArray(entry.uriTokens) ? new Set(entry.uriTokens) : entry.uriTokens) : undefined,
-					symbolTokens: entry.symbolTokens ? (Array.isArray(entry.symbolTokens) ? new Set(entry.symbolTokens) : entry.symbolTokens) : undefined,
-					chunks: entry.chunks?.map((chunk: unknown) => ({
-						...chunk,
-						tokens: chunk.tokens ? (Array.isArray(chunk.tokens) ? new Set(chunk.tokens) : chunk.tokens) : undefined
-					})),
+				this._index = data.filter((entry: unknown): entry is Partial<IndexEntry> & { uri: string; symbols: string[]; snippet: string } =>
+					entry !== null &&
+					typeof entry === 'object' &&
+					'uri' in entry &&
+					typeof (entry as { uri: unknown }).uri === 'string' &&
+					'symbols' in entry &&
+					Array.isArray((entry as { symbols: unknown }).symbols) &&
+					'snippet' in entry &&
+					typeof (entry as { snippet: unknown }).snippet === 'string'
+				).map((entry): IndexEntry => {
+					const e = entry as Partial<IndexEntry> & { uri: string; symbols: string[]; snippet: string };
+					return {
+						uri: e.uri,
+						symbols: e.symbols,
+						snippet: e.snippet,
+						snippetStartLine: e.snippetStartLine,
+						snippetEndLine: e.snippetEndLine,
+						snippetTokens: e.snippetTokens ? (Array.isArray(e.snippetTokens) ? new Set(e.snippetTokens) : e.snippetTokens) : undefined,
+						uriTokens: e.uriTokens ? (Array.isArray(e.uriTokens) ? new Set(e.uriTokens) : e.uriTokens) : undefined,
+						symbolTokens: e.symbolTokens ? (Array.isArray(e.symbolTokens) ? new Set(e.symbolTokens) : e.symbolTokens) : undefined,
+						chunks: e.chunks?.map((chunk: unknown): IndexChunk => {
+							const c = chunk as Partial<IndexChunk> & { text: string; startLine: number; endLine: number };
+							return {
+								text: c.text,
+								startLine: c.startLine,
+								endLine: c.endLine,
+								tokens: c.tokens ? (Array.isArray(c.tokens) ? new Set(c.tokens) : c.tokens) : undefined
+							};
+						}),
 					// Import information is already arrays, no conversion needed
-					importedSymbols: entry.importedSymbols,
-					importedFrom: entry.importedFrom
-				}));
+						importedSymbols: e.importedSymbols,
+						importedFrom: e.importedFrom
+					};
+				});
 				// Rebuild inverted indexes from migrated data
 				this._rebuildInvertedIndexes();
 				this._isWarmed = true;
@@ -343,7 +396,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			// Serialize with Set conversion for JSON compatibility
 			// Optimize: remove undefined/null fields and use compact format
 			const serializableIndex = this._index.map(entry => {
-				const result: unknown = {
+				const result: Record<string, unknown> = {
 					uri: entry.uri,
 					symbols: entry.symbols,
 					snippet: entry.snippet
@@ -362,7 +415,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				}
 				if (entry.chunks && entry.chunks.length > 0) {
 					result.chunks = entry.chunks.map(chunk => {
-						const chunkResult: unknown = {
+						const chunkResult: Record<string, unknown> = {
 							text: chunk.text,
 							startLine: chunk.startLine,
 							endLine: chunk.endLine
@@ -410,35 +463,89 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	private async _walkFiles(workspaceRoot: URI, onFile: (uri: URI) => Promise<void>): Promise<void> {
+		// Optimized: Pre-compile ignore patterns as regex for faster matching
 		const ignorePatterns = [
 			'node_modules', '.git', 'dist', 'build', 'out',
 			'.vscode', '.idea', 'coverage', '.nyc_output', '.next', '.cache'
 		];
+		// Create regex patterns for faster matching (escape special chars and use word boundaries where appropriate)
+		const ignoreRegexes = ignorePatterns.map(pattern => {
+			// Escape special regex characters
+			const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			// Match pattern as whole word or path segment
+			return new RegExp(`(^|[/\\\\])${escaped}([/\\\\]|$)`, 'i');
+		});
 
 		const shouldIgnore = (path: string): boolean => {
-			return ignorePatterns.some(pattern => path.includes(pattern));
+			// Use compiled regex instead of includes() for O(n) instead of O(n*m) complexity
+			return ignoreRegexes.some(regex => regex.test(path));
 		};
+
+		// Cache for path parsing results to avoid repeated string operations
+		const pathCache = new Map<string, { ext: string | undefined; base: string | undefined }>();
+		const getPathInfo = (path: string): { ext: string | undefined; base: string | undefined } => {
+			let cached = pathCache.get(path);
+			if (cached) {
+				return cached;
+			}
+			// Optimized: Find last dot and last slash in single pass
+			const lastDot = path.lastIndexOf('.');
+			const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+			const ext = lastDot > lastSlash && lastDot !== -1 ? path.substring(lastDot + 1).toLowerCase() : undefined;
+			const base = lastSlash !== -1 ? path.substring(lastSlash + 1).toLowerCase() : path.toLowerCase();
+			cached = { ext, base };
+			// Limit cache size to prevent memory issues
+			if (pathCache.size > 10000) {
+				// Clear oldest 20% of entries
+				const entriesToDelete = Math.floor(pathCache.size * 0.2);
+				const keys = Array.from(pathCache.keys()).slice(0, entriesToDelete);
+				for (const key of keys) {
+					pathCache.delete(key);
+				}
+			}
+			pathCache.set(path, cached);
+			return cached;
+		};
+
+		const codeExts = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md']);
+		const overviewDocs = new Set(['readme.md', 'package.json', 'product.json']);
+
+		// Use Limiter for parallel directory traversal with controlled concurrency
+		const limiter = new Limiter<void>(10); // Process up to 10 directories concurrently
 
 		const walk = async (dir: URI): Promise<void> => {
 			try {
 				const entries = await this.fileService.resolve(dir);
 				if (!entries.children) { return; }
 
+				// Separate files and directories for parallel processing
+				const files: URI[] = [];
+				const directories: URI[] = [];
+
 				for (const child of entries.children) {
 					if (shouldIgnore(child.resource.path)) { continue; }
 
 					if (child.isDirectory) {
-						await walk(child.resource);
+						directories.push(child.resource);
 					} else if (child.isFile) {
-						const ext = child.resource.path.split('.').pop()?.toLowerCase();
-						const base = child.resource.path.split('/').pop()?.toLowerCase();
-						const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-						const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-						if ((ext && codeExts.includes(ext)) || isOverviewDoc) {
-							await onFile(child.resource);
-						}
+						files.push(child.resource);
 					}
 				}
+
+				// Process files in parallel (they're independent)
+				await Promise.all(files.map(async (fileUri) => {
+					const pathInfo = getPathInfo(fileUri.path);
+					const { ext, base } = pathInfo;
+					const isOverviewDoc = base && overviewDocs.has(base);
+					if ((ext && codeExts.has(ext)) || isOverviewDoc) {
+						await onFile(fileUri);
+					}
+				}));
+
+				// Process directories in parallel with concurrency limit
+				await Promise.all(directories.map(dirUri =>
+					limiter.queue(() => walk(dirUri))
+				));
 			} catch {
 				// Ignore errors (permissions, etc.)
 			}
@@ -453,18 +560,26 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// Try tree-sitter first if enabled
 		if (this.treeSitterService.isEnabled()) {
 			try {
-				const fileContent = this._fileContentCache.get(uri.fsPath) ||
-					(await this.fileService.readFile(uri)).value.toString();
+				let fileContent = this._fileContentCache.get(uri.fsPath);
+				if (!fileContent) {
+					const content = await this.fileService.readFile(uri);
+					fileContent = content.value.toString();
+					// Cache if under size limit
+					const sizeBytes = fileContent.length * 2;
+					if (sizeBytes <= RepoIndexerService.MAX_FILE_CACHE_SIZE_BYTES) {
+						this._fileContentCache.set(uri.fsPath, fileContent);
+					}
+				}
 				const astSymbols = await this.treeSitterService.extractSymbols(uri, fileContent);
 
 				// Convert AST symbols to string array
-				const extractNames = (sym: unknown): void => {
+				const extractNames = (sym: { name?: string; children?: unknown[] }): void => {
 					if (sym.name && !symbols.includes(sym.name)) {
 						symbols.push(sym.name);
 					}
 					if (sym.children) {
 						for (const child of sym.children) {
-							extractNames(child);
+							extractNames(child as { name?: string; children?: unknown[] });
 						}
 					}
 				};
@@ -492,19 +607,19 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			if (!docSymbols || docSymbols.length === 0) { return symbols; }
 
 			for (const provider of docSymbols) {
-				const docSymbols_ = await provider.provideDocumentSymbols(model, {} as unknown);
+				const docSymbols_ = await provider.provideDocumentSymbols(model, CancellationToken.None);
 				if (docSymbols_) {
-					const extract = (sym: unknown): void => {
+					const extract = (sym: { name?: string; children?: unknown[] }): void => {
 						const name = sym.name || '';
 						if (name && !symbols.includes(name)) {
 							symbols.push(name);
 						}
 						if (sym.children) {
-							for (const child of sym.children) { extract(child); }
+							for (const child of sym.children) { extract(child as { name?: string; children?: unknown[] }); }
 						}
 					};
 					for (const sym of docSymbols_) {
-						extract(sym);
+						extract(sym as { name?: string; children?: unknown[] });
 					}
 				}
 			}
@@ -589,8 +704,12 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			} else {
 				const content = await this.fileService.readFile(uri);
 				text = content.value.toString();
-				// Cache file content for future use
+				// Cache file content for future use, but only if under size limit
+				// Use byte length (approximate: 2 bytes per char for UTF-16, but this is conservative)
+				const sizeBytes = text.length * 2;
+				if (sizeBytes <= RepoIndexerService.MAX_FILE_CACHE_SIZE_BYTES) {
 				this._fileContentCache.set(uriPath, text);
+				}
 			}
 
 			const base = uri.path.split('/').pop()?.toLowerCase();
@@ -1728,12 +1847,41 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		});
 
 		// Listen to file changes and register as disposable
+		// Debounce file change events to batch multiple changes
 		this._register(this.fileService.onDidFilesChange(e => {
-			this._handleFileChanges(e);
+			// Accumulate file changes
+			if (!this._accumulatedFileChanges) {
+				this._accumulatedFileChanges = {
+					rawAdded: [],
+					rawUpdated: [],
+					rawDeleted: []
+				};
+			}
+			// Merge new changes into accumulated changes
+			this._accumulatedFileChanges.rawAdded.push(...e.rawAdded);
+			this._accumulatedFileChanges.rawUpdated.push(...e.rawUpdated);
+			this._accumulatedFileChanges.rawDeleted.push(...e.rawDeleted);
+			// Schedule debounced processing
+			this._fileChangeDebouncer.schedule();
 		}));
 
 		// Store watcher reference for disposal
 		this._fileWatcher = watcher;
+	}
+
+	// Helper method to check if a file should be indexed (optimized path parsing)
+	private _shouldIndexFile(path: string): boolean {
+		// Optimized: Find last dot and last slash in single pass
+		const lastDot = path.lastIndexOf('.');
+		const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+		const ext = lastDot > lastSlash && lastDot !== -1 ? path.substring(lastDot + 1).toLowerCase() : undefined;
+		const base = lastSlash !== -1 ? path.substring(lastSlash + 1).toLowerCase() : path.toLowerCase();
+
+		const codeExts = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md']);
+		const overviewDocs = new Set(['readme.md', 'package.json', 'product.json']);
+		const isOverviewDoc = base && overviewDocs.has(base);
+
+		return (ext && codeExts.has(ext)) || isOverviewDoc || false;
 	}
 
 	private _handleFileChanges(e: FileChangesEvent): void {
@@ -1745,13 +1893,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const path = resource.fsPath;
 
 			// Only process files we care about (same logic as _walkFiles)
-			const ext = path.split('.').pop()?.toLowerCase();
-			const base = path.split('/').pop()?.toLowerCase();
-			const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-
-			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) { continue; }
+			if (!this._shouldIndexFile(path)) { continue; }
 
 			// Skip if not in workspace
 			if (!path.startsWith(workspace.fsPath)) { continue; }
@@ -1774,13 +1916,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const path = resource.fsPath;
 
 			// Only process files we care about (same logic as _walkFiles)
-			const ext = path.split('.').pop()?.toLowerCase();
-			const base = path.split('/').pop()?.toLowerCase();
-			const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'h', 'hpp', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'dart', 'r', 'm', 'mm', 'sh', 'bash', 'zsh', 'fish', 'md'];
-			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
-
-			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) { continue; }
+			if (!this._shouldIndexFile(path)) { continue; }
 
 			// Skip if not in workspace
 			if (!path.startsWith(workspace.fsPath)) { continue; }

@@ -17,7 +17,7 @@ import { IRange } from '../../../../editor/common/core/range.js';
 import { CORTEXIDE_VIEW_CONTAINER_ID, CORTEXIDE_VIEW_ID } from './sidebarPane.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from './cortexideSettingsPane.js';
+import { CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from './actionIDs.js';
 import { CORTEXIDE_CTRL_L_ACTION_ID } from './actionIDs.js';
 import { localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
@@ -221,7 +221,7 @@ registerAction2(class extends Action2 {
 		// do not do anything if there are no messages (without this it clears all of the user's selections if the button is pressed)
 		// TODO the history button should be disabled in this case so we can remove this logic
 		const thread = accessor.get(IChatThreadService).getCurrentThread();
-		if (thread.messages.length === 0) {
+		if (!thread || thread.messages.length === 0) {
 			return;
 		}
 

@@ -299,7 +299,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], providerName
 									for (let i = start; i < end; i++) {
 										// Use hasOwnProperty check to avoid getters/prototype issues
 										if (Object.prototype.hasOwnProperty.call(data, String(i))) {
-											const val = (data as unknown)[String(i)];
+											const val = (data as Record<string, unknown>)[String(i)];
 											if (typeof val === 'number' && val >= 0 && val <= 255 && Number.isInteger(val)) {
 												values.push(val);
 											} else if (val !== undefined && val !== null) {
@@ -412,7 +412,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], providerName
 								media_type: mimeType,
 								data: base64,
 							},
-						} as unknown); // Type assertion needed because contentParts type is union
+						} as { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } }); // Type assertion needed because contentParts type is union
 					} else {
 						// Use OpenAI format: { type: 'image_url', image_url: { url: dataUrl } }
 						// Construct data URL - OpenAI expects format: data:image/<type>;base64,<base64>
@@ -440,7 +440,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], providerName
 				// For Anthropic format, ensure contentParts only contains valid Anthropic types
 				const anthropicContentParts: Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } }> = contentParts.filter((part): part is { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } } =>
 					part.type === 'text' || part.type === 'image'
-				) as unknown;
+				);
 				const userMsg: AnthropicLLMChatMessage = {
 					role: 'user',
 					content: anthropicContentParts.length > 0 ? anthropicContentParts : (textContent || ''),
@@ -450,7 +450,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], providerName
 				// For OpenAI format, ensure contentParts only contains valid OpenAI types
 				const openAIContentParts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = contentParts.filter((part): part is { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } } =>
 					part.type === 'text' || part.type === 'image_url'
-				) as unknown;
+				);
 				const userMsg: OpenAILLMChatMessage = {
 					role: 'user',
 					content: hasImages ? openAIContentParts : (openAIContentParts.length > 0 ? openAIContentParts : (textContent || '')),
@@ -754,7 +754,7 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 									},
 								});
 							}
-							lastMsg.content = contentArray as unknown;
+							lastMsg.content = contentArray as string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
 						} else {
 							// No images, just append text
 							lastMsg.content += '\n\n' + c.content;
@@ -1039,15 +1039,18 @@ const prepareOpenAIOrAnthropicMessages = ({
 		} else {
 			// Content is an array (may contain images/text parts)
 			// Prepend system message to the first text part, or add a new text part
-			const contentArray = [...firstMsg.content] as unknown[];
-			const firstTextIndex = contentArray.findIndex((c: unknown) => c.type === 'text');
+			const contentArray = Array.isArray(firstMsg.content) ? [...firstMsg.content] : [{ type: 'text' as const, text: firstMsg.content }];
+			const firstTextIndex = contentArray.findIndex((c): c is { type: 'text'; text: string } => c.type === 'text');
 
 			if (firstTextIndex !== -1) {
 				// Prepend to existing text part
-				contentArray[firstTextIndex] = {
-					type: 'text',
-					text: systemMsgPrefix + (contentArray[firstTextIndex] as unknown).text
-				};
+				const textPart = contentArray[firstTextIndex];
+				if (textPart.type === 'text') {
+					contentArray[firstTextIndex] = {
+						type: 'text',
+						text: systemMsgPrefix + textPart.text
+					};
+				}
 			} else {
 				// No text part exists, add one at the beginning
 				contentArray.unshift({
@@ -1058,7 +1061,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 			const newFirstMessage: AnthropicOrOpenAILLMMessage = {
 				role: 'user',
-				content: contentArray
+				content: contentArray as string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
 			};
 			llmMessages.splice(0, 1); // delete first message
 			llmMessages.unshift(newFirstMessage); // add new first message
@@ -1080,7 +1083,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 		else {
 			// allowed to be empty if has a tool in it or following it
 			if (currMsg.content.find(c => c.type === 'tool_result' || c.type === 'tool_use')) {
-				currMsg.content = currMsg.content.filter(c => !(c.type === 'text' && !c.text)) as unknown;
+				currMsg.content = currMsg.content.filter(c => !(c.type === 'text' && !c.text)) as typeof currMsg.content;
 				continue;
 			}
 			if (nextMsg?.role === 'tool') { continue; }
@@ -1096,13 +1099,13 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 				if (textPartIndex === -1) {
 					// No text part exists, add one at the beginning
-					currMsg.content.unshift({ type: 'text', text: imageAnalysisPrompt } as unknown);
+					currMsg.content.unshift({ type: 'text', text: imageAnalysisPrompt } as { type: 'text'; text: string });
 				} else {
 					// Text part exists, ensure it's not empty
 					const textPart = currMsg.content[textPartIndex];
 					if (textPart.type === 'text' && (!textPart.text || textPart.text.trim() === '' || textPart.text === EMPTY_MESSAGE)) {
 						// Replace empty text with proper image analysis prompt
-						currMsg.content[textPartIndex] = { type: 'text', text: imageAnalysisPrompt } as unknown;
+						currMsg.content[textPartIndex] = { type: 'text', text: imageAnalysisPrompt } as { type: 'text'; text: string };
 					}
 				}
 			} else {
@@ -1543,17 +1546,18 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				systemMessage = systemMessage + guidance + contextSection;
 
 				// Log metrics for monitoring (only in dev/debug mode to avoid noise)
-				if (console.debug && metrics) {
+				if (console.debug && metrics && typeof metrics === 'object' && 'retrievalLatencyMs' in metrics) {
+					const metricsTyped = metrics as { retrievalLatencyMs: number; tokensInjected: number; resultsCount: number; topScore?: number; timedOut?: boolean; earlyTerminated?: boolean };
 					const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
 					const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
 					console.debug('[RepoIndexer]', {
 						query: userQuery.slice(0, 50),
-						latencyMs: metrics.retrievalLatencyMs.toFixed(1),
-						tokens: metrics.tokensInjected,
-						results: metrics.resultsCount,
-						topScore: metrics.topScore?.toFixed(2),
-						timedOut: metrics.timedOut,
-						earlyTerminated: metrics.earlyTerminated,
+						latencyMs: metricsTyped.retrievalLatencyMs.toFixed(1),
+						tokens: metricsTyped.tokensInjected,
+						results: metricsTyped.resultsCount,
+						topScore: metricsTyped.topScore?.toFixed(2),
+						timedOut: metricsTyped.timedOut,
+						earlyTerminated: metricsTyped.earlyTerminated,
 						mode: chatMode
 					});
 				}

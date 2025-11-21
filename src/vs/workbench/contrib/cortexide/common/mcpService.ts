@@ -14,7 +14,7 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPServerOfName, MCPConfigFileJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from './mcpServiceTypes.js';
+import { MCPServerOfName, MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from './mcpServiceTypes.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
@@ -203,11 +203,11 @@ class MCPService extends Disposable implements IMCPService {
 	private _transformInputSchemaToParams(inputSchema?: Record<string, unknown>): { [paramName: string]: { description: string } } {
 
 		// Check if inputSchema is valid
-		if (!inputSchema || !inputSchema.properties) { return {}; }
+		if (!inputSchema || !inputSchema.properties || typeof inputSchema.properties !== 'object') { return {}; }
 
 		const params: { [paramName: string]: { description: string } } = {};
-		Object.keys(inputSchema.properties).forEach(paramName => {
-			const propertyValues = inputSchema.properties[paramName];
+		Object.keys(inputSchema.properties as Record<string, unknown>).forEach(paramName => {
+			const propertyValues = (inputSchema.properties as Record<string, unknown>)[paramName];
 
 			// Check if propertyValues is not an object
 			if (typeof propertyValues !== 'object') {
@@ -216,8 +216,9 @@ class MCPService extends Disposable implements IMCPService {
 			}
 
 			// Add the parameter to the params object
+			const prop = propertyValues as { description?: string };
 			params[paramName] = {
-				description: JSON.stringify(propertyValues.description || '', null, 2) || '',
+				description: JSON.stringify(prop.description || '', null, 2) || '',
 			};
 		});
 		return params;
@@ -260,7 +261,7 @@ class MCPService extends Disposable implements IMCPService {
 				if (!serverConfig || typeof serverConfig !== 'object' || Array.isArray(serverConfig)) {
 					continue; // Skip invalid entries
 				}
-				const processedServer = { ...serverConfig } as unknown;
+				const processedServer: MCPConfigFileEntryJSON = { ...serverConfig as MCPConfigFileEntryJSON };
 				// Convert string URL to URL object if present
 				if (processedServer.url && typeof processedServer.url === 'string') {
 					processedServer.url = new URL(processedServer.url);

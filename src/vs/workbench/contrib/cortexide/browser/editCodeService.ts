@@ -2200,6 +2200,10 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// console.log('ORIGINAL', diffArea.originalCode)
 		// console.log('new original Code', newOriginalCode)
 
+		// Note: The file model already has the changes from _instantlyApplySRBlocks,
+		// so we don't need to write again. We just update the diffArea.originalCode
+		// to reflect that the diff has been accepted, and onFinishEdit will save the file.
+
 		// update code now accepted as original
 		diffArea.originalCode = newOriginalCode
 

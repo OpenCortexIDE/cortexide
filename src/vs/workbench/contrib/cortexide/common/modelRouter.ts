@@ -5,7 +5,7 @@
 
 import { ProviderName, ModelSelection, localProviderNames } from './cortexideSettingsTypes.js';
 import { getModelCapabilities, CortexideStaticModelInfo } from './modelCapabilities.js';
-import { ICortexideSettingsService } from './cortexideSettingsService.js';
+import { ICortexideSettingsService, CortexideSettingsState } from './cortexideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -105,7 +105,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private getCachedCapabilities(
 		modelSelection: ModelSelection,
-		settingsState: unknown
+		settingsState: CortexideSettingsState
 	): ReturnType<typeof getModelCapabilities> {
 		const key = `${modelSelection.providerName}:${modelSelection.modelName}:${this.capabilityCacheVersion}`;
 		if (this.capabilityCache.has(key)) {
@@ -553,7 +553,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private findFastCheapModel(
 		models: ModelSelection[],
-		settingsState: unknown
+		settingsState: CortexideSettingsState
 	): ModelSelection | null {
 		// Filter out 'auto' provider
 		const validModels = models.filter(m => m.providerName !== 'auto');
@@ -648,7 +648,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get per-model timeout based on task and model characteristics
 	 */
-	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: unknown): number {
+	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: CortexideSettingsState): number {
 		// Skip 'auto' provider
 		if (model.providerName === 'auto') {
 			return 60_000; // Default timeout
@@ -732,7 +732,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get all available models from settings
 	 */
-	private getAvailableModels(settingsState: unknown): ModelSelection[] {
+	private getAvailableModels(settingsState: CortexideSettingsState): ModelSelection[] {
 		const models: ModelSelection[] = [];
 
 		for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
@@ -759,7 +759,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	private scoreModel(
 		modelSelection: ModelSelection,
 		context: TaskContext,
-		settingsState: unknown,
+		settingsState: CortexideSettingsState,
 		hasOnlineModels: boolean = false
 	): number {
 		// Skip "auto" - it's not a real model
@@ -1387,7 +1387,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		modelSelection: ModelSelection,
 		context: TaskContext,
 		score: number,
-		settingsState: unknown
+		settingsState: CortexideSettingsState
 	): string {
 		// Guard: "auto" is not a real model
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {

@@ -26,6 +26,7 @@ import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextke
 import { mountVoidSettings } from './react/out/void-settings-tsx/index.js'
 import { Codicon } from '../../../../base/common/codicons.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
+import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID, CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from './actionIDs.js';
 
 
 // refer to preferences.contribution.ts keybindings editor
@@ -118,7 +119,6 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 
 
 // register the gear on the top right
-export const CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID = 'workbench.action.toggleCortexideSettings'
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -166,8 +166,6 @@ registerAction2(class extends Action2 {
 })
 
 
-
-export const CORTEXIDE_OPEN_SETTINGS_ACTION_ID = 'workbench.action.openCortexideSettings'
 registerAction2(class extends Action2 {
 	constructor() {
 		super({

@@ -27,7 +27,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { IExplorerService } from './files.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
-import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../cortexide/browser/cortexideSettingsPane.js';
+import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../cortexide/browser/actionIDs.js';
 
 // Contribute Global Actions
 

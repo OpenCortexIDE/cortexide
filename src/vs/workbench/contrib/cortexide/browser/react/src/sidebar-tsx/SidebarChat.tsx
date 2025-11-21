@@ -17,8 +17,7 @@ import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlide
 import { ModelDropdown, } from '../void-settings-tsx/ModelDropdown.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
 import { ChatTabsBar } from './ChatTabsBar.js';
-import { CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
-import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
+import { CORTEXIDE_CTRL_L_ACTION_ID, CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../actionIDs.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../void-settings-tsx/WarningBox.js';
@@ -931,10 +930,21 @@ export const SelectedFiles = (
 						>
 							{<SelectionIcon size={10} />}
 
-							{ // file name and range
-								getBasename(selection.uri.fsPath)
-								+ (selection.type === 'CodeSelection' ? ` (${selection.range[0]}-${selection.range[1]})` : '')
-							}
+							{/**
+							 * Display file name and optional range for code selections.
+							 *
+							 * IMPORTANT: Always check if fsPath exists before calling getBasename.
+							 * If fsPath is undefined, getBasename will return undefined, which when
+							 * concatenated with strings will show "undefined" in the UI.
+							 */}
+							{(() => {
+								const uriPath = selection.uri.fsPath || selection.uri.path || ''
+								const fileName = uriPath ? getBasename(uriPath) : 'file'
+								const rangeStr = selection.type === 'CodeSelection'
+									? ` (${selection.range[0]}-${selection.range[1]})`
+									: ''
+								return fileName + rangeStr
+							})()}
 
 							{selection.type === 'File' && selection.state.wasAddedAsCurrentFile && messageIdx === undefined && currentURI?.fsPath === selection.uri.fsPath ?
 								<span className={`text-[8px] 'void-opacity-60 text-void-fg-4`}>
@@ -1579,7 +1589,10 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 	const hasReasoning = !!reasoningStr
 	const isDoneReasoning = !!chatMessage.displayContent
 	const thread = chatThreadsService.getCurrentThread()
-
+	if (!thread) {
+		// If no current thread, return null (shouldn't happen in normal flow)
+		return null;
+	}
 
 	const chatMessageLocation: ChatMessageLocation = useMemo(() => ({
 		threadId: thread.id,
@@ -3937,7 +3950,7 @@ export const SidebarChat = () => {
 	const currentThread = chatThreadsService.getCurrentThread()
 	const previousMessages = currentThread?.messages ?? []
 
-	const selections = currentThread.state.stagingSelections
+	const selections = currentThread?.state.stagingSelections ?? []
 	const setSelections = (s: StagingSelectionItem[]) => { chatThreadsService.setCurrentThreadState({ stagingSelections: s }) }
 
 	// stream state
@@ -4073,6 +4086,7 @@ export const SidebarChat = () => {
 
 		if (isDisabled && !_forceSubmit) return
 		if (isRunning) return
+		if (!currentThread) return
 
 		// use subscribed state - currentThread.id is already from subscribed state
 		const threadId = currentThread.id
@@ -4081,23 +4095,51 @@ export const SidebarChat = () => {
 		// send message to LLM
 		const userMessage = _forceSubmit || textAreaRef.current?.value || ''
 
-			// Resolve @references in the input into staging selections before sending
-			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection
-			try {
-				const toolsService = accessor.get('IToolsService')
-				const workspaceService = accessor.get('IWorkspaceContextService')
-				const editorService = accessor.get('IEditorService')
-				const languageService = accessor.get('ILanguageService')
-				const historyService = accessor.get('IHistoryService')
-				const notificationService = accessor.get('INotificationService')
-				let outlineService: any = undefined
-				try { outlineService = accessor.get('IOutlineModelService') } catch {}
+		/**
+		 * ADD TO CHAT IMPLEMENTATION
+		 *
+		 * This section handles resolving @references in the user's input message into staging selections.
+		 * Users can reference files, folders, code selections, and special tokens using @ syntax.
+		 *
+		 * Supported reference formats:
+		 * - @"path/to/file.ts" - Quoted file paths (handles spaces and special chars)
+		 * - @path/to/file.ts - Unquoted file paths
+		 * - @path/to/file.ts:10 - File with line number
+		 * - @path/to/file.ts:10-20 - File with line range
+		 * - @selection - Current editor selection
+		 * - @workspace - Entire workspace
+		 * - @recent - Recently opened files
+		 * - @folder - Current folder
+		 *
+		 * The implementation:
+		 * 1. Extracts all @references from the user message using regex
+		 * 2. Resolves each reference to a URI or special action
+		 * 3. Adds resolved references as "staging selections" which are attached to the chat message
+		 * 4. Prevents duplicate attachments by tracking existing URIs
+		 */
+		try {
+			const toolsService = accessor.get('IToolsService')
+			const workspaceService = accessor.get('IWorkspaceContextService')
+			const editorService = accessor.get('IEditorService')
+			const languageService = accessor.get('ILanguageService')
+			const historyService = accessor.get('IHistoryService')
+			const notificationService = accessor.get('INotificationService')
+			let outlineService: any = undefined
+			try { outlineService = accessor.get('IOutlineModelService') } catch {}
 
-			// Collect existing URIs to avoid duplicate attachments
+			/**
+			 * Track existing URIs to prevent duplicate attachments.
+			 * We check both the current thread's staging selections and any new selections
+			 * we're about to add.
+			 */
 			const existing = new Set<string>()
 			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || []
 			for (const s of existingSelections) existing.add(s.uri?.fsPath || '')
 
+			/**
+			 * Helper function to add a file selection to the chat.
+			 * Automatically detects the language and prevents duplicates.
+			 */
 			const addFileSelection = async (uri: any) => {
 				if (!uri) return
 				const key = uri.fsPath || uri.path || ''
@@ -4112,6 +4154,10 @@ export const SidebarChat = () => {
 				await chatThreadsService.addNewStagingSelection(newSel)
 			}
 
+			/**
+			 * Helper function to add a folder selection to the chat.
+			 * Folders don't have a language, so we set it to undefined.
+			 */
 			const addFolderSelection = async (uri: any) => {
 				if (!uri) return
 				const key = uri.fsPath || uri.path || ''
@@ -4126,6 +4172,15 @@ export const SidebarChat = () => {
 				await chatThreadsService.addNewStagingSelection(newSel)
 			}
 
+			/**
+			 * Extract all @reference tokens from the user message.
+			 *
+			 * Pattern 1: Quoted paths @"..." - handles paths with spaces
+			 * Pattern 2: Bare @word tokens - matches @path/to/file.ts:10-20 format
+			 *   - Supports file paths with dots, dashes, underscores, slashes
+			 *   - Supports line numbers: @file.ts:10
+			 *   - Supports line ranges: @file.ts:10-20
+			 */
 			const tokens: string[] = []
 			{
 				// Extract quoted paths first: @"..."
@@ -4138,6 +4193,10 @@ export const SidebarChat = () => {
 				}
 			}
 
+			/**
+			 * Special tokens that trigger specific behaviors rather than file lookups.
+			 * These are handled separately from file path resolution.
+			 */
 			const special = new Set(['selection', 'workspace', 'recent', 'folder'])
 
 			// Track unresolved references for error reporting
@@ -4364,16 +4423,17 @@ export const SidebarChat = () => {
 			console.error('Error while sending message in chat:', e)
 		}
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id])
+	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread?.id])
 
 	const onAbort = async () => {
+		if (!currentThread) return
 		const threadId = currentThread.id
 		await chatThreadsService.abortRunning(threadId)
 	}
 
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(CORTEXIDE_CTRL_L_ACTION_ID)?.getLabel()
 
-	const threadId = currentThread.id
+	const threadId = currentThread?.id
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
 
 
@@ -4488,7 +4548,7 @@ export const SidebarChat = () => {
 				<ErrorDisplay
 					message={latestError.message}
 					fullError={latestError.fullError}
-					onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
+					onDismiss={() => { if (currentThread) chatThreadsService.dismissStreamError(currentThread.id) }}
 					showDismiss={true}
 				/>
 
@@ -4618,13 +4678,29 @@ export const SidebarChat = () => {
 		{selections.length > 0 && (
 			<div className='mt-1 flex flex-wrap gap-1 px-1'>
 				{selections.map((sel, idx) => {
+					/**
+					 * Extract file/folder name from URI.
+					 * For folders, get the last segment of the path.
+					 * For files, use getBasename to get just the filename.
+					 *
+					 * IMPORTANT: Always use fsPath first, then fall back to path if needed.
+					 * The URI object has fsPath for file system paths and path for other schemes.
+					 */
+					const uriPath = sel.uri.fsPath || sel.uri.path || ''
 					const name = sel.type === 'Folder'
-						? (sel.uri?.path?.split('/').filter(Boolean).pop() || 'folder')
-						: (sel.uri?.path?.split('/').pop() || 'file')
-					const fullPath = sel.uri?.fsPath || sel.uri?.path || name
-					const rangeLabel = (sel as any).range ? ` • ${(sel as any).range.startLineNumber}-${(sel as any).range.endLineNumber}` : ''
-					const tooltipText = (sel as any).range
-						? `${fullPath} (lines ${(sel as any).range.startLineNumber}-${(sel as any).range.endLineNumber})`
+						? (uriPath.split('/').filter(Boolean).pop() || 'folder')
+						: (uriPath ? getBasename(uriPath) : 'file')
+					const fullPath = uriPath || name
+
+					/**
+					 * For CodeSelection type, range is [startLine, endLine] (array of two numbers).
+					 * Access it as range[0] and range[1], not as range.startLineNumber/endLineNumber.
+					 */
+					const rangeLabel = sel.type === 'CodeSelection'
+						? ` • ${sel.range[0]}-${sel.range[1]}`
+						: ''
+					const tooltipText = sel.type === 'CodeSelection'
+						? `${fullPath} (lines ${sel.range[0]}-${sel.range[1]})`
 						: fullPath
 					return (
 						<span
@@ -4730,24 +4806,41 @@ export const SidebarChat = () => {
 		{ id: 'void.debugCode', label: 'Debug' },
 	]
 
-	const QuickActionsBar = () => (
-		<div className='w-full flex items-center justify-center gap-2 flex-wrap mt-3 select-none px-1'>
-			{quickActions.map(({ id, label }) => {
-				const kb = keybindingService.lookupKeybinding(id)?.getLabel()
-				return (
-					<button
-						key={id}
-						className='px-3 py-1.5 rounded-full bg-gradient-to-br from-[var(--cortex-surface-2)] via-[var(--cortex-surface-3)] to-[var(--cortex-surface-4)] border border-void-border-3 text-xs text-void-fg-1 shadow-[0_3px_12px_rgba(0,0,0,0.45)] hover:-translate-y-0.5 transition-all duration-150 ease-out void-focus-ring'
-						onClick={() => commandService.executeCommand(id)}
-						title={kb ? `${label} (${kb})` : label}
-					>
-						<span>{label}</span>
-						{kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
-					</button>
-				)
-			})}
-		</div>
-	)
+	const QuickActionsBar = () => {
+		const notificationService = accessor.get('INotificationService')
+
+		const handleQuickAction = async (id: string, label: string) => {
+			try {
+				await commandService.executeCommand(id)
+			} catch (error) {
+				// Handle command execution errors gracefully
+				const errorMessage = error instanceof Error ? error.message : String(error)
+				console.error(`Error executing quick action ${id}:`, error)
+				notificationService.warn(`Failed to execute ${label}: ${errorMessage}`)
+			}
+		}
+
+		return (
+			<div className='w-full flex items-center justify-center gap-2 flex-wrap mt-3 select-none px-1'>
+				{quickActions.map(({ id, label }) => {
+					const kb = keybindingService.lookupKeybinding(id)?.getLabel()
+					return (
+						<button
+							key={id}
+							className='px-3 py-1.5 rounded-full bg-gradient-to-br from-[var(--cortex-surface-2)] via-[var(--cortex-surface-3)] to-[var(--cortex-surface-4)] border border-void-border-3 text-xs text-void-fg-1 shadow-[0_3px_12px_rgba(0,0,0,0.45)] hover:-translate-y-0.5 transition-all duration-150 ease-out void-focus-ring disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0'
+							onClick={() => handleQuickAction(id, label)}
+							disabled={isRunning}
+							title={kb ? `${label} (${kb})` : label}
+							aria-label={label}
+						>
+							<span>{label}</span>
+							{kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
+						</button>
+					)
+				})}
+			</div>
+		)
+	}
 
 	// Lightweight context chips: active file and model
 	const ContextChipsBar = () => {
@@ -4842,6 +4935,32 @@ export const SidebarChat = () => {
 		</ErrorBoundary>
 	</div>
 
+
+	// Early return if no current thread - show landing page
+	if (!currentThread || !threadId) {
+		return (
+			<Fragment>
+				<ErrorBoundary>
+					<ChatTabsBar />
+				</ErrorBoundary>
+				<div className='px-3'>
+					<ErrorBoundary>
+						{landingPageInput}
+					</ErrorBoundary>
+					<ErrorBoundary>
+						<ContextChipsBar />
+					</ErrorBoundary>
+					<ErrorBoundary>
+						<QuickActionsBar />
+					</ErrorBoundary>
+					<ErrorBoundary>
+						<div className='pt-6 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Suggestions</div>
+						{initiallySuggestedPromptsHTML}
+					</ErrorBoundary>
+				</div>
+			</Fragment>
+		);
+	}
 
 	return (
 		<Fragment key={threadId} // force rerender when change thread

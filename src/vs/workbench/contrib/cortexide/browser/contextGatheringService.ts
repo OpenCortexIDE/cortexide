@@ -323,10 +323,15 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 	}
 
 	private async _findContainerFunction(model: ITextModel, pos: Position): Promise<DocumentSymbol | null> {
+		// Validate line number is within valid range
+		const lineCount = model.getLineCount();
+		if (lineCount === 0) return null;
+
+		const validLineNumber = Math.max(1, Math.min(pos.lineNumber, lineCount));
 		const searchRange = new Range(
-			Math.max(pos.lineNumber - 1, 1), 1,
-			Math.min(pos.lineNumber + 1, model.getLineCount()),
-			model.getLineMaxColumn(pos.lineNumber)
+			Math.max(validLineNumber - 1, 1), 1,
+			Math.min(validLineNumber + 1, lineCount),
+			model.getLineMaxColumn(validLineNumber)
 		);
 		const symbols = await this._getSymbolsInRange(model, searchRange);
 		const funcs = symbols.filter(s =>

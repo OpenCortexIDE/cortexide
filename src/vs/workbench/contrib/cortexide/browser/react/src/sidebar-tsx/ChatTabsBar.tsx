@@ -133,9 +133,9 @@ export const ChatTabsBar: React.FC = () => {
 					/>
 				))}
 			</div>
-			{/* New tab button */}
+			{/* New tab button - made larger for better visibility and usability */}
 			<button
-				className="px-2 py-1.5 rounded-t-lg bg-void-bg-1/40 hover:bg-void-bg-1/60 text-void-fg-2 hover:text-void-fg-1 transition-all duration-150 text-xs border-b-2 border-transparent hover:border-void-border-3 flex-shrink-0"
+				className="px-3 py-2 rounded-t-lg bg-void-bg-1/40 hover:bg-void-bg-1/60 text-void-fg-2 hover:text-void-fg-1 transition-all duration-150 text-base font-semibold border-b-2 border-transparent hover:border-void-border-3 flex-shrink-0 min-w-[32px] h-[32px] flex items-center justify-center"
 				onClick={handleNewTab}
 				data-tooltip-id='void-tooltip'
 				data-tooltip-place='top'

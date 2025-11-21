@@ -17,7 +17,7 @@ export default defineConfig({
 	],
 	outDir: './out',
 	format: ['esm'],
-	splitting: false,
+	splitting: true, // Enable code splitting for better performance
 
 	// dts: true,
 	// sourcemap: true,

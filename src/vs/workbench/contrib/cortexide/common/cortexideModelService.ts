@@ -47,16 +47,36 @@ class CortexideModelService extends Disposable implements ICortexideModelService
 	}
 
 	saveModel = async (uri: URI) => {
+		// Force save even if not dirty, to ensure changes are written to disk
 		await this._textFileService.save(uri, { // we want [our change] -> [save] so it's all treated as one change.
-			skipSaveParticipants: true // avoid triggering extensions etc (if they reformat the page, it will add another item to the undo stack)
+			skipSaveParticipants: true, // avoid triggering extensions etc (if they reformat the page, it will add another item to the undo stack)
+			force: true // Force save even if model doesn't appear dirty
 		})
 	}
 
 	initializeModel = async (uri: URI) => {
 		try {
 			// Validate URI is actually a URI instance
+			// If it's a plain object, try to revive it using URI.revive
+			if (!uri) {
+				console.debug('InitializeModel error: Invalid URI provided (null/undefined)', uri);
+				return;
+			}
+
+			// Check if uri is a plain object that needs to be revived (e.g., from JSON serialization)
+			if (typeof uri.fsPath !== 'string' && typeof uri === 'object' && uri !== null) {
+				try {
+					// Try to revive the URI if it's a serialized URI object
+					uri = URI.revive(uri as any);
+				} catch (e) {
+					console.debug('InitializeModel error: Invalid URI provided [object Object] - could not revive:', uri);
+					return;
+				}
+			}
+
+			// Final validation after potential revival
 			if (!uri || typeof uri.fsPath !== 'string') {
-				console.debug('InitializeModel error: Invalid URI provided', uri);
+				console.debug('InitializeModel error: Invalid URI provided after revival', uri);
 				return;
 			}
 

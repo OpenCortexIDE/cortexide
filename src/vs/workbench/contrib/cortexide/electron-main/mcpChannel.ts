@@ -69,12 +69,12 @@ export class MCPChannel implements IServerChannel {
 	) { }
 
 	// browser uses this to listen for changes
-	listen(_: unknown, event: string): Event<unknown> {
+	listen<T>(_: unknown, event: string): Event<T> {
 
 		// server events
-		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event; }
-		else if (event === 'onUpdate_server') { return this.mcpEmitters.serverEvent.onUpdate.event; }
-		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event; }
+		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event as Event<T>; }
+		else if (event === 'onUpdate_server') { return this.mcpEmitters.serverEvent.onUpdate.event as Event<T>; }
+		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event as Event<T>; }
 		// else if (event === 'onLoading_server') return this.mcpEmitters.serverEvent.onChangeLoading.event;
 
 		// tool call events
@@ -84,21 +84,25 @@ export class MCPChannel implements IServerChannel {
 	}
 
 	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
-	async call(_: unknown, command: string, params: unknown): Promise<unknown> {
+	async call<T>(_: unknown, command: string, params?: unknown): Promise<T> {
 		try {
 			if (command === 'refreshMCPServers') {
-				await this._refreshMCPServers(params);
+				await this._refreshMCPServers(params as { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[]; });
+				return undefined as T;
 			}
 			else if (command === 'closeAllMCPServers') {
 				await this._closeAllMCPServers();
+				return undefined as T;
 			}
 			else if (command === 'toggleMCPServer') {
-				await this._toggleMCPServer(params.serverName, params.isOn);
+				const p = params as { serverName: string; isOn: boolean };
+				await this._toggleMCPServer(p.serverName, p.isOn);
+				return undefined as T;
 			}
 			else if (command === 'callTool') {
-				const p: MCPToolCallParams = params;
+				const p = params as MCPToolCallParams;
 				const response = await this._safeCallTool(p.serverName, p.toolName, p.params);
-				return response;
+				return response as T;
 			}
 			else {
 				throw new Error(`CortexIDE: command "${command}" not recognized.`);
@@ -106,6 +110,7 @@ export class MCPChannel implements IServerChannel {
 		}
 		catch (e) {
 			console.error('mcp channel: Call Error:', e);
+			throw e;
 		}
 	}
 
@@ -342,22 +347,31 @@ export class MCPChannel implements IServerChannel {
 		// Call the tool with the provided parameters
 		const response = await client.callTool({
 			name: removeMCPToolNamePrefix(toolName),
-			arguments: params
+			arguments: params as { [x: string]: unknown } | undefined
 		});
 		const { content } = response as CallToolResult;
-		const returnValue = content[0];
+		if (!content || content.length === 0) {
+			throw new Error(`Tool call error: Empty response from tool ${toolName} on server ${serverName}`);
+		}
+
+		const firstContent = content[0];
+		if (!firstContent || typeof firstContent !== 'object') {
+			throw new Error(`Tool call error: Invalid response format from tool ${toolName} on server ${serverName}`);
+		}
+
+		const returnValue = firstContent as { type?: string; text?: string; [x: string]: unknown };
 
 		if (returnValue.type === 'text') {
 			// handle text response
 
 			if (response.isError) {
-				throw new Error(`Tool call error: ${returnValue.text}`);
+				throw new Error(`Tool call error: ${(returnValue.text as string | undefined) || 'Unknown error'}`);
 			}
 
 			// handle success
 			return {
 				event: 'text',
-				text: returnValue.text,
+				text: (returnValue.text as string | undefined) || '',
 				toolName,
 				serverName,
 			};
@@ -375,7 +389,7 @@ export class MCPChannel implements IServerChannel {
 		// 	// handle resource response
 		// }
 
-		throw new Error(`Tool call error: We don\'t support ${returnValue.type} tool response yet for tool ${toolName} on server ${serverName}`);
+		throw new Error(`Tool call error: We don\'t support ${returnValue.type || 'unknown'} tool response yet for tool ${toolName} on server ${serverName}`);
 	}
 
 	// tool call error wrapper
@@ -418,5 +432,6 @@ export class MCPChannel implements IServerChannel {
 		}
 	}
 }
+
 
 

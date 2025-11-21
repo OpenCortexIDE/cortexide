@@ -53,11 +53,6 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			success: {} as { [eventId: string]: ((params: EventModelListOnSuccessParams<OpenaiCompatibleModelResponse>) => void) },
 			error: {} as { [eventId: string]: ((params: EventModelListOnErrorParams<OpenaiCompatibleModelResponse>) => void) },
 		}
-	} satisfies {
-		[providerName in 'ollama' | 'openAICompat']: {
-			success: { [eventId: string]: ((params: EventModelListOnSuccessParams<unknown>) => void) };
-			error: { [eventId: string]: ((params: EventModelListOnErrorParams<unknown>) => void) };
-		}
 	};
 
 	constructor(
@@ -152,7 +147,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 							hasAnySecrets = true;
 							totalMatches.push(...detection.matches);
 							// Redact the message content
-							(msg as unknown).content = detection.redactedText;
+							(msg as { content: string }).content = detection.redactedText;
 						}
 					} else if (Array.isArray(msg.content)) {
 						// Handle array content (e.g., OpenAI format with images)
@@ -162,7 +157,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 								if (detection.hasSecrets) {
 									hasAnySecrets = true;
 									totalMatches.push(...detection.matches);
-									(part as unknown).text = detection.redactedText;
+									(part as { text: string }).text = detection.redactedText;
 								}
 							}
 						}
@@ -175,7 +170,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 							if (detection.hasSecrets) {
 								hasAnySecrets = true;
 								totalMatches.push(...detection.matches);
-								(part as unknown).text = detection.redactedText;
+								(part as { text: string }).text = detection.redactedText;
 							}
 						}
 					}
@@ -186,7 +181,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			if (hasAnySecrets) {
 				const countByType = new Map<string, number>();
 				for (const match of totalMatches) {
-					const name = match.pattern.name;
+					const name = (match as { pattern: { name: string } }).pattern.name;
 					countByType.set(name, (countByType.get(name) || 0) + 1);
 				}
 
