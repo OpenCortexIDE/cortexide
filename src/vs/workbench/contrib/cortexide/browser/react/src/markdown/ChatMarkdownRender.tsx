@@ -608,52 +608,128 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 	// This reduces parsing overhead and aligns with throttled state updates
 	const [debouncedString, setDebouncedString] = useState(redactedString)
 	const rafRef = useRef<number | undefined>()
+	const idleRef = useRef<number | undefined>()
 	const lastUpdateRef = useRef<string>(redactedString)
+	const lastParsedLengthRef = useRef<number>(0)
+	const parseTimeoutRef = useRef<NodeJS.Timeout | undefined>()
 
 	useEffect(() => {
 		// Update ref immediately to track latest content
 		lastUpdateRef.current = redactedString
 
-		// For very short strings, update immediately (likely complete)
-		if (redactedString.length < 500) {
-			setDebouncedString(redactedString)
-			return
+		// Clear any pending timeouts
+		if (parseTimeoutRef.current) {
+			clearTimeout(parseTimeoutRef.current)
 		}
-
-		// For longer strings, batch updates using requestAnimationFrame
-		// This syncs with browser repaint (60fps) and reduces parsing overhead
 		if (rafRef.current) {
 			cancelAnimationFrame(rafRef.current)
 		}
+		if (idleRef.current && window.cancelIdleCallback) {
+			window.cancelIdleCallback(idleRef.current)
+		}
 
-		rafRef.current = requestAnimationFrame(() => {
-			// Use the latest content at the time of the frame
-			setDebouncedString(lastUpdateRef.current)
-			rafRef.current = undefined
-		})
+		// For very short strings, update immediately (likely complete)
+		if (redactedString.length < 500) {
+			setDebouncedString(redactedString)
+			lastParsedLengthRef.current = redactedString.length
+			return
+		}
+
+		// Calculate how much content has been added since last parse
+		const newContentLength = redactedString.length - lastParsedLengthRef.current
+		const isSignificantUpdate = newContentLength > 1000 // Only parse if >1KB new content
+
+		// For medium strings (500-10k), use throttled RAF updates
+		if (redactedString.length < 10_000) {
+			// Throttle: only update if significant new content or enough time passed
+			if (isSignificantUpdate) {
+				rafRef.current = requestAnimationFrame(() => {
+					setDebouncedString(lastUpdateRef.current)
+					lastParsedLengthRef.current = lastUpdateRef.current.length
+					rafRef.current = undefined
+				})
+			} else {
+				// Delay update for small increments
+				parseTimeoutRef.current = setTimeout(() => {
+					rafRef.current = requestAnimationFrame(() => {
+						setDebouncedString(lastUpdateRef.current)
+						lastParsedLengthRef.current = lastUpdateRef.current.length
+						rafRef.current = undefined
+					})
+				}, 100) // 100ms delay for small updates
+			}
+		} else {
+			// For very long strings (>10k), use requestIdleCallback for parsing
+			// This prevents blocking the main thread during streaming
+			const scheduleIdleParse = () => {
+				if (window.requestIdleCallback) {
+					idleRef.current = window.requestIdleCallback(
+						() => {
+							rafRef.current = requestAnimationFrame(() => {
+								setDebouncedString(lastUpdateRef.current)
+								lastParsedLengthRef.current = lastUpdateRef.current.length
+								rafRef.current = undefined
+							})
+							idleRef.current = undefined
+						},
+						{ timeout: 200 } // Max 200ms wait
+					)
+				} else {
+					// Fallback: use setTimeout for browsers without requestIdleCallback
+					parseTimeoutRef.current = setTimeout(() => {
+						rafRef.current = requestAnimationFrame(() => {
+							setDebouncedString(lastUpdateRef.current)
+							lastParsedLengthRef.current = lastUpdateRef.current.length
+							rafRef.current = undefined
+						})
+					}, 200)
+				}
+			}
+
+			// Only parse if significant new content (avoid parsing on every tiny update)
+			if (isSignificantUpdate) {
+				scheduleIdleParse()
+			} else {
+				// For small updates, delay even more
+				parseTimeoutRef.current = setTimeout(scheduleIdleParse, 300)
+			}
+		}
 
 		return () => {
+			if (parseTimeoutRef.current) {
+				clearTimeout(parseTimeoutRef.current)
+			}
 			if (rafRef.current) {
 				cancelAnimationFrame(rafRef.current)
+			}
+			if (idleRef.current && window.cancelIdleCallback) {
+				window.cancelIdleCallback(idleRef.current)
 			}
 		}
 	}, [redactedString])
 
-	// Parse markdown tokens (debounced + optimized for streaming)
-	// Use incremental parsing: only parse new content when string grows significantly
+	// Parse markdown tokens (optimized for streaming with incremental parsing)
 	const tokens = useMemo(() => {
-		// For very long strings during streaming, use incremental approach
-		// Only re-parse if content changed significantly (avoid re-parsing on every small update)
+		if (!debouncedString) return []
+
+		// For very long strings, use a more efficient parsing strategy
 		if (debouncedString.length > 10_000) {
-			// For long content, use marked's async option if available, otherwise sync
 			try {
+				// Use marked's lexer with optimized options
 				return marked.lexer(debouncedString, { async: false })
 			} catch (e) {
 				// Fallback: return empty tokens on error
+				console.warn('Markdown parsing error:', e)
 				return []
 			}
 		}
-		return marked.lexer(debouncedString)
+		
+		try {
+			return marked.lexer(debouncedString)
+		} catch (e) {
+			console.warn('Markdown parsing error:', e)
+			return []
+		}
 	}, [debouncedString])
 
 	return (

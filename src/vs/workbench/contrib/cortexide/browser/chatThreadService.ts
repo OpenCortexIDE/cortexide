@@ -2974,8 +2974,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (context) {
 							context.currentBatchSize++;
 							const now = performance.now();
-							// Flush batch if enough time has passed (target 60fps = ~16.67ms)
-							if (now - context.lastBatchTime >= 16.67) {
+							// Adaptive batching: use longer intervals for longer content to reduce parsing overhead
+							// For very long responses, batch less frequently to avoid blocking
+							const batchInterval = fullText.length > 10_000 ? 50 : (fullText.length > 5_000 ? 33 : 16.67);
+							// Flush batch if enough time has passed
+							if (now - context.lastBatchTime >= batchInterval) {
 								if (context.renderBatchSizes.length < 100) {
 									context.renderBatchSizes.push(context.currentBatchSize);
 								}
@@ -2984,22 +2987,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
-						// Use requestAnimationFrame for smooth updates
-						requestAnimationFrame(() => {
-							// Guard again: Check if message is done before updating state (prevents race conditions)
-							if (messageIsDone) {
-								return;
-							}
-							// Also check if stream state is still 'LLM' (another guard against late updates)
-							const currentState = this.streamState[threadId];
-							if (currentState?.isRunning !== 'LLM') {
-								return;
-							}
+						// Use requestAnimationFrame for smooth updates, but throttle more aggressively for long content
+						// This prevents excessive re-renders during high-frequency streaming
+						const shouldUpdate = fullText.length < 10_000 || 
+							(fullText.length - (this.streamState[threadId]?.llmInfo?.displayContentSoFar?.length ?? 0)) > 500;
+						
+						if (shouldUpdate) {
+							requestAnimationFrame(() => {
+								// Guard again: Check if message is done before updating state (prevents race conditions)
+								if (messageIsDone) {
+									return;
+								}
+								// Also check if stream state is still 'LLM' (another guard against late updates)
+								const currentState = this.streamState[threadId];
+								if (currentState?.isRunning !== 'LLM') {
+									return;
+								}
 
-							// Record render frame for FPS tracking
-							chatLatencyAudit.recordRenderFrame(finalRequestId);
-							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
-						});
+								// Record render frame for FPS tracking
+								chatLatencyAudit.recordRenderFrame(finalRequestId);
+								this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
+							});
+						}
 					},
 					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
 						// Mark message as done to prevent late onText updates
