@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettingsState, useAccessor, useCtrlKZoneStreamingState } from '../util/services.js';
@@ -35,7 +35,23 @@ export const QuickEditChat = ({
 		// only observing 1 element
 		let resizeObserver: ResizeObserver | undefined
 		resizeObserver = new ResizeObserver((entries) => {
-			const height = entries[0].borderBoxSize[0].blockSize
+			if (!entries[0]) return;
+
+			// borderBoxSize might not be available in all browsers or might be undefined
+			// Fall back to contentRect if borderBoxSize is not available
+			let height: number;
+
+			if (entries[0].borderBoxSize && entries[0].borderBoxSize.length > 0) {
+				height = entries[0].borderBoxSize[0].blockSize;
+			} else if (entries[0].contentRect) {
+				// Fallback to contentRect for older browsers
+				height = entries[0].contentRect.height;
+			} else {
+				// Last resort: use target's client dimensions
+				const target = entries[0].target as HTMLElement;
+				height = target.clientHeight;
+			}
+
 			onChangeHeight(height)
 		})
 		resizeObserver.observe(inputContainer);

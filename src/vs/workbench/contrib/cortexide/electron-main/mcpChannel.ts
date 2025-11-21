@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 // registered in app.ts
 // can't make a service responsible for this, because it needs
@@ -23,32 +23,32 @@ const getClientConfig = (serverName: string) => {
 		name: `${serverName}-client`,
 		version: '0.1.0',
 		// debug: true,
-	}
-}
+	};
+};
 
-type MCPServerNonError = MCPServer & { status: Omit<MCPServer['status'], 'error'> }
-type MCPServerError = MCPServer & { status: 'error' }
+type MCPServerNonError = MCPServer & { status: Omit<MCPServer['status'], 'error'> };
+type MCPServerError = MCPServer & { status: 'error' };
 
 
 
 type ClientInfo = {
-	_client: Client, // _client is the client that connects with an mcp client. We're calling mcp clients "server" everywhere except here for naming consistency.
-	mcpServerEntryJSON: MCPConfigFileEntryJSON,
-	mcpServer: MCPServerNonError,
+	_client: Client; // _client is the client that connects with an mcp client. We're calling mcp clients "server" everywhere except here for naming consistency.
+	mcpServerEntryJSON: MCPConfigFileEntryJSON;
+	mcpServer: MCPServerNonError;
 } | {
-	_client?: undefined,
-	mcpServerEntryJSON: MCPConfigFileEntryJSON,
-	mcpServer: MCPServerError,
-}
+	_client?: undefined;
+	mcpServerEntryJSON: MCPConfigFileEntryJSON;
+	mcpServer: MCPServerError;
+};
 
 type InfoOfClientId = {
-	[clientId: string]: ClientInfo
-}
+	[clientId: string]: ClientInfo;
+};
 
 export class MCPChannel implements IServerChannel {
 
-	private readonly infoOfClientId: InfoOfClientId = {}
-	private readonly _refreshingServerNames: Set<string> = new Set()
+	private readonly infoOfClientId: InfoOfClientId = {};
+	private readonly _refreshingServerNames: Set<string> = new Set();
 
 	// mcp emitters
 	private readonly mcpEmitters = {
@@ -59,60 +59,60 @@ export class MCPChannel implements IServerChannel {
 		}
 	} satisfies {
 		serverEvent: {
-			onAdd: Emitter<MCPServerEventResponse>,
-			onUpdate: Emitter<MCPServerEventResponse>,
-			onDelete: Emitter<MCPServerEventResponse>,
-		}
-	}
+			onAdd: Emitter<MCPServerEventResponse>;
+			onUpdate: Emitter<MCPServerEventResponse>;
+			onDelete: Emitter<MCPServerEventResponse>;
+		};
+	};
 
 	constructor(
 	) { }
 
 	// browser uses this to listen for changes
-	listen(_: unknown, event: string): Event<any> {
+	listen(_: unknown, event: string): Event<unknown> {
 
 		// server events
-		if (event === 'onAdd_server') return this.mcpEmitters.serverEvent.onAdd.event;
-		else if (event === 'onUpdate_server') return this.mcpEmitters.serverEvent.onUpdate.event;
-		else if (event === 'onDelete_server') return this.mcpEmitters.serverEvent.onDelete.event;
+		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event; }
+		else if (event === 'onUpdate_server') { return this.mcpEmitters.serverEvent.onUpdate.event; }
+		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event; }
 		// else if (event === 'onLoading_server') return this.mcpEmitters.serverEvent.onChangeLoading.event;
 
 		// tool call events
 
 		// handle unknown events
-		else throw new Error(`Event not found: ${event}`);
+		else { throw new Error(`Event not found: ${event}`); }
 	}
 
 	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
-	async call(_: unknown, command: string, params: any): Promise<any> {
+	async call(_: unknown, command: string, params: unknown): Promise<unknown> {
 		try {
 			if (command === 'refreshMCPServers') {
-				await this._refreshMCPServers(params)
+				await this._refreshMCPServers(params);
 			}
 			else if (command === 'closeAllMCPServers') {
-				await this._closeAllMCPServers()
+				await this._closeAllMCPServers();
 			}
 			else if (command === 'toggleMCPServer') {
-				await this._toggleMCPServer(params.serverName, params.isOn)
+				await this._toggleMCPServer(params.serverName, params.isOn);
 			}
 			else if (command === 'callTool') {
-				const p: MCPToolCallParams = params
-				const response = await this._safeCallTool(p.serverName, p.toolName, p.params)
-				return response
+				const p: MCPToolCallParams = params;
+				const response = await this._safeCallTool(p.serverName, p.toolName, p.params);
+				return response;
 			}
 			else {
-				throw new Error(`CortexIDE: command "${command}" not recognized.`)
+				throw new Error(`CortexIDE: command "${command}" not recognized.`);
 			}
 		}
 		catch (e) {
-			console.error('mcp channel: Call Error:', e)
+			console.error('mcp channel: Call Error:', e);
 		}
 	}
 
 	// server functions
 
 
-	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON, userStateOfName: MCPUserStateOfName, addedServerNames: string[], removedServerNames: string[], updatedServerNames: string[] }) {
+	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[] }) {
 
 		const {
 			mcpConfigFileJSON,
@@ -120,78 +120,108 @@ export class MCPChannel implements IServerChannel {
 			addedServerNames,
 			removedServerNames,
 			updatedServerNames,
-		} = params
+		} = params;
 
-		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON
+		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON;
 
-		const allChanges: { type: 'added' | 'removed' | 'updated', serverName: string }[] = [
+		const allChanges: { type: 'added' | 'removed' | 'updated'; serverName: string }[] = [
 			...addedServerNames.map(n => ({ serverName: n, type: 'added' }) as const),
 			...removedServerNames.map(n => ({ serverName: n, type: 'removed' }) as const),
 			...updatedServerNames.map(n => ({ serverName: n, type: 'updated' }) as const),
-		]
+		];
 
 		await Promise.all(
 			allChanges.map(async ({ serverName, type }) => {
 
 				// check if already refreshing
-				if (this._refreshingServerNames.has(serverName)) return
-				this._refreshingServerNames.add(serverName)
+				if (this._refreshingServerNames.has(serverName)) { return; }
+				this._refreshingServerNames.add(serverName);
 
 				const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 
 				// close and delete the old client
 				if (type === 'removed' || type === 'updated') {
-					await this._closeClient(serverName)
-					delete this.infoOfClientId[serverName]
-					this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
+					await this._closeClient(serverName);
+					delete this.infoOfClientId[serverName];
+					this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } });
 				}
 
 				// create a new client
 				if (type === 'added' || type === 'updated') {
-					const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
-					this.infoOfClientId[serverName] = clientInfo
-					this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+					const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn);
+					this.infoOfClientId[serverName] = clientInfo;
+					this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } });
 				}
 			})
-		)
+		);
 
 		allChanges.forEach(({ serverName, type }) => {
-			this._refreshingServerNames.delete(serverName)
-		})
+			this._refreshingServerNames.delete(serverName);
+		});
 
 	}
 
 	private async _createClientUnsafe(server: MCPConfigFileEntryJSON, serverName: string, isOn: boolean): Promise<ClientInfo> {
 
-		const clientConfig = getClientConfig(serverName)
-		const client = new Client(clientConfig)
+		const clientConfig = getClientConfig(serverName);
+		const client = new Client(clientConfig);
 		let transport: Transport;
 		let info: MCPServerNonError;
 
 		if (server.url) {
-			// first try HTTP, fall back to SSE
-			try {
-				transport = new StreamableHTTPClientTransport(server.url);
+			// Ensure URL is a URL object (convert from string if needed)
+			const url = typeof server.url === 'string' ? new URL(server.url) : server.url;
+
+			// Check if type is explicitly specified
+			if (server.type === 'sse') {
+				// Use SSE transport directly
+				transport = new SSEClientTransport(url);
+				await client.connect(transport);
+				console.log(`Connected via SSE to ${serverName}`);
+				const { tools } = await client.listTools();
+				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }));
+				info = {
+					status: isOn ? 'success' : 'offline',
+					tools: toolsWithUniqueName,
+					command: url.toString(),
+				};
+			} else if (server.type === 'http') {
+				// Use HTTP transport directly
+				transport = new StreamableHTTPClientTransport(url);
 				await client.connect(transport);
 				console.log(`Connected via HTTP to ${serverName}`);
-				const { tools } = await client.listTools()
-				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+				const { tools } = await client.listTools();
+				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }));
 				info = {
 					status: isOn ? 'success' : 'offline',
 					tools: toolsWithUniqueName,
-					command: server.url.toString(),
-				}
-			} catch (httpErr) {
-				console.warn(`HTTP failed for ${serverName}, trying SSE…`, httpErr);
-				transport = new SSEClientTransport(server.url);
-				await client.connect(transport);
-				const { tools } = await client.listTools()
-				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
-				console.log(`Connected via SSE to ${serverName}`);
-				info = {
-					status: isOn ? 'success' : 'offline',
-					tools: toolsWithUniqueName,
-					command: server.url.toString(),
+					command: url.toString(),
+				};
+			} else {
+				// No type specified: first try HTTP, fall back to SSE
+				try {
+					transport = new StreamableHTTPClientTransport(url);
+					await client.connect(transport);
+					console.log(`Connected via HTTP to ${serverName}`);
+					const { tools } = await client.listTools();
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }));
+					info = {
+						status: isOn ? 'success' : 'offline',
+						tools: toolsWithUniqueName,
+						command: url.toString(),
+					};
+				} catch (httpErr) {
+					console.warn(`HTTP failed for ${serverName}, trying SSE…`, httpErr);
+					transport = new SSEClientTransport(url);
+					await client.connect(transport);
+					const { tools } = await client.listTools();
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }));
+					console.log(`Connected via SSE to ${serverName}`);
+					info = {
+						status: isOn ? 'success' : 'offline',
+						tools: toolsWithUniqueName,
+						command: url.toString(),
+					};
 				}
 			}
 		} else if (server.command) {
@@ -205,28 +235,28 @@ export class MCPChannel implements IServerChannel {
 				} as Record<string, string>,
 			});
 
-			await client.connect(transport)
+			await client.connect(transport);
 
 			// Get the tools from the server
-			const { tools } = await client.listTools()
-			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+			const { tools } = await client.listTools();
+			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }));
 
 			// Create a full command string for display
-			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`
+			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`;
 
 			// Format server object
 			info = {
 				status: isOn ? 'success' : 'offline',
 				tools: toolsWithUniqueName,
 				command: fullCommand,
-			}
+			};
 
 		} else {
 			throw new Error(`No url or command for server ${serverName}`);
 		}
 
 
-		return { _client: client, mcpServerEntryJSON: server, mcpServer: info }
+		return { _client: client, mcpServerEntryJSON: server, mcpServer: info };
 	}
 
 	private _addUniquePrefix(base: string) {
@@ -235,54 +265,55 @@ export class MCPChannel implements IServerChannel {
 
 	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {
 		try {
-			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn)
-			return c
+			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn);
+			return c;
 		} catch (err) {
-			console.error(`❌ Failed to connect to server "${serverName}":`, err)
-			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`
-			const c: MCPServerError = { status: 'error', error: err + '', command: fullCommand, }
-			return { mcpServerEntryJSON: serverConfig, mcpServer: c, }
+			// allow-any-unicode-next-line
+			console.error(`❌ Failed to connect to server "${serverName}":`, err);
+			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
+			const c: MCPServerError = { status: 'error', error: err + '', command: fullCommand, };
+			return { mcpServerEntryJSON: serverConfig, mcpServer: c, };
 		}
 	}
 
 	private async _closeAllMCPServers() {
 		for (const serverName in this.infoOfClientId) {
-			await this._closeClient(serverName)
-			delete this.infoOfClientId[serverName]
+			await this._closeClient(serverName);
+			delete this.infoOfClientId[serverName];
 		}
 		console.log('Closed all MCP servers');
 	}
 
 	private async _closeClient(serverName: string) {
-		const info = this.infoOfClientId[serverName]
-		if (!info) return
-		const { _client: client } = info
+		const info = this.infoOfClientId[serverName];
+		if (!info) { return; }
+		const { _client: client } = info;
 		if (client) {
-			await client.close()
+			await client.close();
 		}
 		console.log(`Closed MCP server ${serverName}`);
 	}
 
 
 	private async _toggleMCPServer(serverName: string, isOn: boolean) {
-		const prevServer = this.infoOfClientId[serverName]?.mcpServer
+		const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 		// Handle turning on the server
 		if (isOn) {
 			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn)
+			const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn);
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {
 					name: serverName,
 					newServer: clientInfo.mcpServer,
 					prevServer: prevServer,
 				}
-			})
+			});
 		}
 		// Handle turning off the server
 		else {
 			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			this._closeClient(serverName)
-			delete this.infoOfClientId[serverName]._client
+			this._closeClient(serverName);
+			delete this.infoOfClientId[serverName]._client;
 
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {
@@ -296,31 +327,31 @@ export class MCPChannel implements IServerChannel {
 					},
 					prevServer: prevServer,
 				}
-			})
+			});
 		}
 	}
 
 	// tool call functions
 
-	private async _callTool(serverName: string, toolName: string, params: any): Promise<RawMCPToolCall> {
-		const server = this.infoOfClientId[serverName]
-		if (!server) throw new Error(`Server ${serverName} not found`)
-		const { _client: client } = server
-		if (!client) throw new Error(`Client for server ${serverName} not found`)
+	private async _callTool(serverName: string, toolName: string, params: unknown): Promise<RawMCPToolCall> {
+		const server = this.infoOfClientId[serverName];
+		if (!server) { throw new Error(`Server ${serverName} not found`); }
+		const { _client: client } = server;
+		if (!client) { throw new Error(`Client for server ${serverName} not found`); }
 
 		// Call the tool with the provided parameters
 		const response = await client.callTool({
 			name: removeMCPToolNamePrefix(toolName),
 			arguments: params
-		})
-		const { content } = response as CallToolResult
-		const returnValue = content[0]
+		});
+		const { content } = response as CallToolResult;
+		const returnValue = content[0];
 
 		if (returnValue.type === 'text') {
 			// handle text response
 
 			if (response.isError) {
-				throw new Error(`Tool call error: ${returnValue.text}`)
+				throw new Error(`Tool call error: ${returnValue.text}`);
 			}
 
 			// handle success
@@ -329,7 +360,7 @@ export class MCPChannel implements IServerChannel {
 				text: returnValue.text,
 				toolName,
 				serverName,
-			}
+			};
 		}
 
 		// if (returnValue.type === 'audio') {
@@ -344,32 +375,27 @@ export class MCPChannel implements IServerChannel {
 		// 	// handle resource response
 		// }
 
-		throw new Error(`Tool call error: We don\'t support ${returnValue.type} tool response yet for tool ${toolName} on server ${serverName}`)
+		throw new Error(`Tool call error: We don\'t support ${returnValue.type} tool response yet for tool ${toolName} on server ${serverName}`);
 	}
 
 	// tool call error wrapper
-	private async _safeCallTool(serverName: string, toolName: string, params: any): Promise<RawMCPToolCall> {
+	private async _safeCallTool(serverName: string, toolName: string, params: unknown): Promise<RawMCPToolCall> {
 		try {
-			const response = await this._callTool(serverName, toolName, params)
-			return response
+			const response = await this._callTool(serverName, toolName, params);
+			return response;
 		} catch (err) {
 
 			let errorMessage: string;
 
 			if (typeof err === 'object' && err !== null && err['code']) {
-				const code = err.code
-				let codeDescription = ''
-				if (code === -32700)
-					codeDescription = 'Parse Error';
-				if (code === -32600)
-					codeDescription = 'Invalid Request';
-				if (code === -32601)
-					codeDescription = 'Method Not Found';
-				if (code === -32602)
-					codeDescription = 'Invalid Parameters';
-				if (code === -32603)
-					codeDescription = 'Internal Error';
-				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`
+				const code = err.code;
+				let codeDescription = '';
+				if (code === -32700) { codeDescription = 'Parse Error'; }
+				if (code === -32600) { codeDescription = 'Invalid Request'; }
+				if (code === -32601) { codeDescription = 'Method Not Found'; }
+				if (code === -32602) { codeDescription = 'Invalid Parameters'; }
+				if (code === -32603) { codeDescription = 'Internal Error'; }
+				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`;
 			}
 			// Check if it's an MCP error with a code
 			else if (typeof err === 'string') {
@@ -380,14 +406,15 @@ export class MCPChannel implements IServerChannel {
 				errorMessage = JSON.stringify(err, null, 2);
 			}
 
+			// allow-any-unicode-next-line
 			const fullErrorMessage = `❌ Failed to call tool "${toolName}" on server "${serverName}": ${errorMessage}`;
 			const errorResponse: MCPToolErrorResponse = {
 				event: 'error',
 				text: fullErrorMessage,
 				toolName,
 				serverName,
-			}
-			return errorResponse
+			};
+			return errorResponse;
 		}
 	}
 }

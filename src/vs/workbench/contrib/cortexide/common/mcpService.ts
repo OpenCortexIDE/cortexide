@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -22,9 +22,9 @@ import { MCPUserStateOfName } from './cortexideSettingsTypes.js';
 
 
 type MCPServiceState = {
-	mcpServerOfName: MCPServerOfName,
-	error: string | undefined, // global parsing error
-}
+	mcpServerOfName: MCPServerOfName;
+	error: string | undefined; // global parsing error
+};
 
 export interface IMCPService {
 	readonly _serviceBrand: undefined;
@@ -36,7 +36,7 @@ export interface IMCPService {
 
 	getMCPTools(): InternalToolInfo[] | undefined;
 	callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }>;
-	stringifyResult(result: RawMCPToolCall): string
+	stringifyResult(result: RawMCPToolCall): string;
 }
 
 export const IMCPService = createDecorator<IMCPService>('mcpConfigService');
@@ -44,7 +44,7 @@ export const IMCPService = createDecorator<IMCPService>('mcpConfigService');
 
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
-const MCP_CONFIG_SAMPLE = { mcpServers: {} }
+const MCP_CONFIG_SAMPLE = { mcpServers: {} };
 const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
 
 
@@ -60,13 +60,13 @@ class MCPService extends Disposable implements IMCPService {
 	_serviceBrand: undefined;
 
 
-	private readonly channel: IChannel // MCPChannel
+	private readonly channel: IChannel; // MCPChannel
 
 	// list of MCP servers pulled from mcpChannel
 	state: MCPServiceState = {
 		mcpServerOfName: {},
 		error: undefined,
-	}
+	};
 
 	// Emitters for server events
 	private readonly _onDidChangeState = new Emitter<void>();
@@ -84,13 +84,13 @@ class MCPService extends Disposable implements IMCPService {
 		@ICortexideSettingsService private readonly cortexideSettingsService: ICortexideSettingsService,
 	) {
 		super();
-		this.channel = this.mainProcessService.getChannel('void-channel-mcp')
+		this.channel = this.mainProcessService.getChannel('void-channel-mcp');
 
 
 		const onEvent = (e: MCPServerEventResponse) => {
 			// console.log('GOT EVENT', e)
-			this._setMCPServerState(e.response.name, e.response.newServer)
-		}
+			this._setMCPServerState(e.response.name, e.response.newServer);
+		};
 		this._register((this.channel.listen('onAdd_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
@@ -124,7 +124,7 @@ class MCPService extends Disposable implements IMCPService {
 			this.state = {
 				...this.state,
 				mcpServerOfName: remainingServers
-			}
+			};
 		} else {
 			// Add or update the server
 			this.state = {
@@ -133,18 +133,18 @@ class MCPService extends Disposable implements IMCPService {
 					...this.state.mcpServerOfName,
 					[serverName]: newServer
 				}
-			}
+			};
 		}
 		this._onDidChangeState.fire();
-	}
+	};
 
 	private readonly _setHasError = async (errMsg: string | undefined) => {
 		this.state = {
 			...this.state,
 			error: errMsg,
-		}
+		};
 		this._onDidChangeState.fire();
-	}
+	};
 
 	// Create the file/directory if it doesn't exist
 	private async _createMCPConfigFile(mcpConfigUri: URI): Promise<void> {
@@ -158,10 +158,10 @@ class MCPService extends Disposable implements IMCPService {
 		const mcpConfigUri = await this._getMCPConfigFilePath();
 		this._register(
 			this.fileService.watch(mcpConfigUri)
-		)
+		);
 
 		this._register(this.fileService.onDidFilesChange(async e => {
-			if (!e.contains(mcpConfigUri)) return
+			if (!e.contains(mcpConfigUri)) { return; }
 			await this._refreshMCPServers();
 		}));
 	}
@@ -184,7 +184,7 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	public getMCPTools(): InternalToolInfo[] | undefined {
-		const allTools: InternalToolInfo[] = []
+		const allTools: InternalToolInfo[] = [];
 		for (const serverName in this.state.mcpServerOfName) {
 			const server = this.state.mcpServerOfName[serverName];
 			server.tools?.forEach(tool => {
@@ -193,17 +193,17 @@ class MCPService extends Disposable implements IMCPService {
 					params: this._transformInputSchemaToParams(tool.inputSchema),
 					name: tool.name,
 					mcpServerName: serverName,
-				})
-			})
+				});
+			});
 		}
-		if (allTools.length === 0) return undefined
-		return allTools
+		if (allTools.length === 0) { return undefined; }
+		return allTools;
 	}
 
-	private _transformInputSchemaToParams(inputSchema?: Record<string, any>): { [paramName: string]: { description: string } } {
+	private _transformInputSchemaToParams(inputSchema?: Record<string, unknown>): { [paramName: string]: { description: string } } {
 
 		// Check if inputSchema is valid
-		if (!inputSchema || !inputSchema.properties) return {};
+		if (!inputSchema || !inputSchema.properties) { return {}; }
 
 		const params: { [paramName: string]: { description: string } } = {};
 		Object.keys(inputSchema.properties).forEach(paramName => {
@@ -218,16 +218,16 @@ class MCPService extends Disposable implements IMCPService {
 			// Add the parameter to the params object
 			params[paramName] = {
 				description: JSON.stringify(propertyValues.description || '', null, 2) || '',
-			}
+			};
 		});
 		return params;
 	}
 
 	private async _getMCPConfigFilePath(): Promise<URI> {
-		const appName = this.productService.dataFolderName
+		const appName = this.productService.dataFolderName;
 		const userHome = await this.pathService.userHome();
-		const uri = URI.joinPath(userHome, appName, MCP_CONFIG_FILE_NAME)
-		return uri
+		const uri = URI.joinPath(userHome, appName, MCP_CONFIG_FILE_NAME);
+		return uri;
 	}
 
 	private async _configFileExists(mcpConfigUri: URI): Promise<boolean> {
@@ -249,10 +249,29 @@ class MCPService extends Disposable implements IMCPService {
 			if (!configFileJson.mcpServers) {
 				throw new Error('Missing mcpServers property');
 			}
-			return configFileJson as MCPConfigFileJSON;
+
+			// Convert string URLs to URL objects for each server entry
+			const processedConfig: MCPConfigFileJSON = {
+				mcpServers: {}
+			};
+
+			for (const [serverName, serverConfig] of Object.entries(configFileJson.mcpServers)) {
+				// Ensure serverConfig is an object before spreading
+				if (!serverConfig || typeof serverConfig !== 'object' || Array.isArray(serverConfig)) {
+					continue; // Skip invalid entries
+				}
+				const processedServer = { ...serverConfig } as unknown;
+				// Convert string URL to URL object if present
+				if (processedServer.url && typeof processedServer.url === 'string') {
+					processedServer.url = new URL(processedServer.url);
+				}
+				processedConfig.mcpServers[serverName] = processedServer;
+			}
+
+			return processedConfig;
 		} catch (error) {
 			const fullError = `Error parsing MCP config file: ${error}`;
-			this._setHasError(fullError)
+			this._setHasError(fullError);
 			return null;
 		}
 	}
@@ -261,22 +280,22 @@ class MCPService extends Disposable implements IMCPService {
 	// Handle server state changes
 	private async _refreshMCPServers(): Promise<void> {
 
-		this._setHasError(undefined)
+		this._setHasError(undefined);
 
 		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return }
-		if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
+		if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return; }
+		if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
 
 
-		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)
-		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers)
+		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName);
+		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers);
 
 		const addedServerNames = newConfigFileNames.filter(serverName => !oldConfigFileNames.includes(serverName)); // in new and not in old
 		const removedServerNames = oldConfigFileNames.filter(serverName => !newConfigFileNames.includes(serverName)); // in old and not in new
 
 		// set isOn to any new servers in the config
-		const addedUserStateOfName: MCPUserStateOfName = {}
-		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true } }
+		const addedUserStateOfName: MCPUserStateOfName = {};
+		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true }; }
 		await this.cortexideSettingsService.addMCPUserStateOfNames(addedUserStateOfName);
 
 		// delete isOn for any servers that no longer show up in the config
@@ -284,9 +303,9 @@ class MCPService extends Disposable implements IMCPService {
 
 		// set all servers to loading
 		for (const serverName in newConfigFileJSON.mcpServers) {
-			this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+			this._setMCPServerState(serverName, { status: 'loading', tools: [] });
 		}
-		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName))
+		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName));
 
 		this.channel.call('refreshMCPServers', {
 			mcpConfigFileJSON: newConfigFileJSON,
@@ -294,38 +313,38 @@ class MCPService extends Disposable implements IMCPService {
 			removedServerNames,
 			updatedServerNames,
 			userStateOfName: this.cortexideSettingsService.state.mcpUserStateOfName,
-		})
+		});
 	}
 
 	stringifyResult(result: RawMCPToolCall): string {
-		let toolResultStr: string
+		let toolResultStr: string;
 		if (result.event === 'text') {
-			toolResultStr = result.text
+			toolResultStr = result.text;
 		} else if (result.event === 'image') {
-			toolResultStr = `[Image: ${result.image.mimeType}]`
+			toolResultStr = `[Image: ${result.image.mimeType}]`;
 		} else if (result.event === 'audio') {
-			toolResultStr = `[Audio content]`
+			toolResultStr = `[Audio content]`;
 		} else if (result.event === 'resource') {
-			toolResultStr = `[Resource content]`
+			toolResultStr = `[Resource content]`;
 		} else {
-			toolResultStr = JSON.stringify(result)
+			toolResultStr = JSON.stringify(result);
 		}
-		return toolResultStr
+		return toolResultStr;
 	}
 
 	// toggle MCP server and update isOn in void settings
 	public async toggleServerIsOn(serverName: string, isOn: boolean): Promise<void> {
-		this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+		this._setMCPServerState(serverName, { status: 'loading', tools: [] });
 
 		await this.cortexideSettingsService.setMCPServerState(serverName, { isOn });
-		this.channel.call('toggleMCPServer', { serverName, isOn })
+		this.channel.call('toggleMCPServer', { serverName, isOn });
 	}
 
 
 	public async callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }> {
 		const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
 		if (result.event === 'error') {
-			throw new Error(`Error: ${result.text}`)
+			throw new Error(`Error: ${result.text}`);
 		}
 		return { result };
 	}

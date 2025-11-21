@@ -1,12 +1,11 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
-import { ProviderName, ModelSelection } from './cortexideSettingsTypes.js';
+import { ProviderName, ModelSelection, localProviderNames } from './cortexideSettingsTypes.js';
 import { getModelCapabilities, CortexideStaticModelInfo } from './modelCapabilities.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
-import { localProviderNames } from './cortexideSettingsTypes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -106,7 +105,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private getCachedCapabilities(
 		modelSelection: ModelSelection,
-		settingsState: any
+		settingsState: unknown
 	): ReturnType<typeof getModelCapabilities> {
 		const key = `${modelSelection.providerName}:${modelSelection.modelName}:${this.capabilityCacheVersion}`;
 		if (this.capabilityCache.has(key)) {
@@ -197,23 +196,37 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Get all available models
 		const availableModels = this.getAvailableModels(settingsState);
 
+		// Validate that we have at least one model available
+		if (availableModels.length === 0) {
+			console.error('[ModelRouter] ERROR: No models available for routing. All providers may be disabled or misconfigured.');
+			// Return a decision that indicates failure (will be caught by caller)
+			return {
+				modelSelection: { providerName: 'auto', modelName: 'auto' }, // Placeholder to indicate failure
+				confidence: 0.0,
+				reasoning: 'No models available. Please configure at least one model provider in settings.',
+				qualityTier: 'abstain',
+				shouldAbstain: true,
+				abstainReason: 'No models available. Please configure at least one model provider in settings.',
+			};
+		}
+
 		// Check if online models are available (for codebase questions, we strongly prefer online models)
 		const hasOnlineModels = availableModels.some(m => {
-			if (m.providerName === 'auto') return false;
+			if (m.providerName === 'auto') { return false; }
 			return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 		});
 
 		// Debug: Log available models for codebase questions
 		const isCodebaseQuestionCheck = (context.requiresComplexReasoning && context.taskType === 'code' && !context.hasCode) ||
-		                                 (context.contextSize && context.contextSize > 15000) ||
-		                                 (context.taskType === 'code' && context.isLongMessage && !context.hasCode);
+			(context.contextSize && context.contextSize > 15000) ||
+			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 		if (isCodebaseQuestionCheck) {
 			const onlineModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 			});
 			const localModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				return (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 			});
 			console.log('[ModelRouter] Codebase question detected:', {
@@ -232,7 +245,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (context.isSimpleQuestion && !context.hasImages && !context.hasPDFs && !context.requiresComplexReasoning && !context.contextSize) {
 			// Quick heuristic: prefer fast online models for simple questions
 			const fastModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				const name = m.modelName.toLowerCase();
 				return name.includes('mini') || name.includes('haiku') || name.includes('flash') || name.includes('nano') || name.includes('3.5-turbo');
 			});
@@ -255,7 +268,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Ultra-fast path: Vision tasks → vision model (skip all scoring)
 		if ((context.taskType === 'vision' || context.hasImages) && !context.requiresComplexReasoning && !context.contextSize) {
 			const visionModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(m, settingsState);
 				return this.isVisionCapable(m, capabilities);
 			});
@@ -284,15 +297,15 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// For codebase questions: STRONGLY prefer online models - filter out local models if online models exist
 		// Detect codebase questions: complex reasoning + code task without code blocks, OR explicit context size requirement
 		const isCodebaseQuestionForFilter = (context.requiresComplexReasoning && context.taskType === 'code' && !context.hasCode) ||
-		                                    (context.contextSize && context.contextSize > 15000) ||
-		                                    (context.taskType === 'code' && context.isLongMessage && !context.hasCode);
+			(context.contextSize && context.contextSize > 15000) ||
+			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 
 		if (isCodebaseQuestionForFilter && hasOnlineModels) {
 			// For codebase questions with online models available, ONLY consider online models
 			// This ensures we never select local models for codebase questions when better options exist
 			const beforeFilter = candidateModels.length;
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const isLocal = (localProviderNames as readonly ProviderName[]).includes(model.providerName as ProviderName);
 				return !isLocal;
 			});
@@ -319,7 +332,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Filter by vision requirement
 		if (context.taskType === 'vision' || context.hasImages || context.taskType === 'pdf' || context.hasPDFs) {
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(model, settingsState);
 				return this.isVisionCapable(model, capabilities);
 			});
@@ -333,7 +346,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (context.contextSize) {
 			const requiredContextSize = context.contextSize; // Narrow type for TypeScript
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(model, settingsState);
 				const availableContext = capabilities.contextWindow - (capabilities.reservedOutputTokenSpace || 4096);
 				return availableContext >= requiredContextSize;
@@ -390,8 +403,21 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		if (scored.length === 0) {
+			console.error('[ModelRouter] ERROR: No models passed scoring. This should not happen if models are available.');
 			// Fallback: try local models even if privacy not required
-			return this.routeToLocalModel(context);
+			const localFallback = this.routeToLocalModel(context);
+			// If local fallback also fails, return error indication
+			if (localFallback.modelSelection.providerName === 'auto' && localFallback.modelSelection.modelName === 'auto') {
+				return {
+					modelSelection: { providerName: 'auto', modelName: 'auto' }, // Placeholder to indicate failure
+					confidence: 0.0,
+					reasoning: 'No suitable models found. Please configure at least one model provider in settings.',
+					qualityTier: 'abstain',
+					shouldAbstain: true,
+					abstainReason: 'No suitable models found. Please configure at least one model provider in settings.',
+				};
+			}
+			return localFallback;
 		}
 
 		const best = scored[0];
@@ -421,9 +447,22 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Safety check: ensure we never return 'auto' as a model selection
 		// (This should never happen due to filtering, but add safeguard)
 		if (finalModel.providerName === 'auto' && finalModel.modelName === 'auto') {
-			// This should never happen, but if it does, fall back to local models
-			console.error('[ModelRouter] Error: Attempted to return "auto" model selection. Falling back to local model.');
-			return this.routeToLocalModel(context);
+			// This should never happen, but if it does, try to find any available model
+			console.error('[ModelRouter] ERROR: Attempted to return "auto" model selection. This indicates a bug in routing logic.');
+			// Try local models as fallback
+			const localFallback = this.routeToLocalModel(context);
+			// If local fallback also returns invalid, return error indication
+			if (localFallback.modelSelection.providerName === 'auto' && localFallback.modelSelection.modelName === 'auto') {
+				return {
+					modelSelection: { providerName: 'auto', modelName: 'auto' }, // Placeholder to indicate failure
+					confidence: 0.0,
+					reasoning: 'Routing failed: No valid models found. Please configure at least one model provider.',
+					qualityTier: 'abstain',
+					shouldAbstain: true,
+					abstainReason: 'Routing failed: No valid models found. Please configure at least one model provider.',
+				};
+			}
+			return localFallback;
 		}
 
 		// Record routing decision for evaluation
@@ -439,8 +478,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Debug: Warn if local model selected for codebase question when online models available
 		// Detect codebase questions: complex reasoning + code task without code blocks, OR explicit context size requirement
 		const isCodebaseQuestionForDebug = (context.requiresComplexReasoning && context.taskType === 'code' && !context.hasCode) ||
-		                                   (context.contextSize && context.contextSize > 15000) ||
-		                                   (context.taskType === 'code' && context.isLongMessage && !context.hasCode);
+			(context.contextSize && context.contextSize > 15000) ||
+			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 
 		if (isCodebaseQuestionForDebug) {
 			const isLocal = (localProviderNames as readonly ProviderName[]).includes(finalModel.providerName as ProviderName);
@@ -514,7 +553,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private findFastCheapModel(
 		models: ModelSelection[],
-		settingsState: any
+		settingsState: unknown
 	): ModelSelection | null {
 		// Filter out 'auto' provider
 		const validModels = models.filter(m => m.providerName !== 'auto');
@@ -556,9 +595,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		// Complex tasks need escalation
 		if (context.requiresComplexReasoning ||
-		    context.isMultiStepTask ||
-		    (context.contextSize && context.contextSize > 100_000) ||
-		    context.isSecurityTask) {
+			context.isMultiStepTask ||
+			(context.contextSize && context.contextSize > 100_000) ||
+			context.isSecurityTask) {
 			return 'escalate';
 		}
 
@@ -609,7 +648,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get per-model timeout based on task and model characteristics
 	 */
-	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: any): number {
+	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: unknown): number {
 		// Skip 'auto' provider
 		if (model.providerName === 'auto') {
 			return 60_000; // Default timeout
@@ -670,11 +709,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		parts.push(`Task: ${context.taskType}`);
 
 		// Add key context
-		if (context.hasImages) parts.push('with images');
-		if (context.hasPDFs) parts.push('with PDFs');
-		if (context.hasCode) parts.push('with code');
-		if (context.requiresComplexReasoning) parts.push('complex reasoning');
-		if (context.contextSize) parts.push(`~${Math.round(context.contextSize / 1000)}k tokens`);
+		if (context.hasImages) { parts.push('with images'); }
+		if (context.hasPDFs) { parts.push('with PDFs'); }
+		if (context.hasCode) { parts.push('with code'); }
+		if (context.requiresComplexReasoning) { parts.push('complex reasoning'); }
+		if (context.contextSize) { parts.push(`~${Math.round(context.contextSize / 1000)}k tokens`); }
 
 		// Add quality tier
 		if (decision.qualityTier) {
@@ -693,12 +732,12 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get all available models from settings
 	 */
-	private getAvailableModels(settingsState: any): ModelSelection[] {
+	private getAvailableModels(settingsState: unknown): ModelSelection[] {
 		const models: ModelSelection[] = [];
 
 		for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
-			if (!providerSettings._didFillInProviderSettings) continue;
+			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
 				if (!modelInfo.isHidden) {
@@ -720,7 +759,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	private scoreModel(
 		modelSelection: ModelSelection,
 		context: TaskContext,
-		settingsState: any,
+		settingsState: unknown,
 		hasOnlineModels: boolean = false
 	): number {
 		// Skip "auto" - it's not a real model
@@ -797,10 +836,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			if (isLocal) {
 				// Check if it's a slow local model
 				const isSlowLocalModel = name.includes('13b') ||
-				                         name.includes('70b') ||
-				                         name.includes('llama3') && !name.includes('8b') ||
-				                         name.includes('mistral') && !name.includes('7b') ||
-				                         name.includes('mixtral');
+					name.includes('70b') ||
+					name.includes('llama3') && !name.includes('8b') ||
+					name.includes('mistral') && !name.includes('7b') ||
+					name.includes('mixtral');
 
 				if (isSlowLocalModel) {
 					score -= 50; // Very strong penalty for slow local models on simple chat
@@ -841,8 +880,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// Codebase questions need large context and good reasoning - prioritize accordingly
 			// Detect codebase questions: complex reasoning + code task without code blocks, OR explicit context size requirement
 			const isCodebaseQuestion = (context.requiresComplexReasoning && context.taskType === 'code' && !context.hasCode) ||
-			                           (context.contextSize && context.contextSize > 15000) || // High context requirement suggests codebase question
-			                           (context.taskType === 'code' && context.isLongMessage && !context.hasCode);
+				(context.contextSize && context.contextSize > 15000) || // High context requirement suggests codebase question
+				(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 
 			if (isCodebaseQuestion) {
 				// Codebase questions: prioritize large context windows and reasoning
@@ -1048,21 +1087,21 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// Fast local models typically have "fast", "small", "tiny", "1b", "3b", "7b" in name
 				// Slow local models are usually larger: "13b", "70b", "llama3", "mistral", etc.
 				const isFastLocalModel = name.includes('fast') ||
-				                         name.includes('small') ||
-				                         name.includes('tiny') ||
-				                         name.includes('1b') ||
-				                         name.includes('3b') ||
-				                         name.includes('7b') && !name.includes('70b') ||
-				                         name.includes('qwen2.5-0.5b') ||
-				                         name.includes('qwen2.5-1.5b') ||
-				                         name.includes('phi-3-mini') ||
-				                         name.includes('gemma-2b');
+					name.includes('small') ||
+					name.includes('tiny') ||
+					name.includes('1b') ||
+					name.includes('3b') ||
+					name.includes('7b') && !name.includes('70b') ||
+					name.includes('qwen2.5-0.5b') ||
+					name.includes('qwen2.5-1.5b') ||
+					name.includes('phi-3-mini') ||
+					name.includes('gemma-2b');
 
 				const isSlowLocalModel = name.includes('13b') ||
-				                         name.includes('70b') ||
-				                         name.includes('llama3') && !name.includes('8b') ||
-				                         name.includes('mistral') && !name.includes('7b') ||
-				                         name.includes('mixtral');
+					name.includes('70b') ||
+					name.includes('llama3') && !name.includes('8b') ||
+					name.includes('mistral') && !name.includes('7b') ||
+					name.includes('mixtral');
 
 				if (isFastLocalModel) {
 					score += 25; // Bonus for fast local models
@@ -1264,7 +1303,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const provider = modelSelection.providerName.toLowerCase();
 
 		// Known vision-capable models
-		if (provider === 'gemini') return true; // all Gemini models support vision
+		if (provider === 'gemini') { return true; } // all Gemini models support vision
 		if (provider === 'anthropic') {
 			return name.includes('3.5') || name.includes('3.7') || name.includes('4') || name.includes('opus') || name.includes('sonnet');
 		}
@@ -1288,7 +1327,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Collect available local models
 		for (const providerName of localProviderNames) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
-			if (!providerSettings._didFillInProviderSettings) continue;
+			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
 				if (!modelInfo.isHidden) {
@@ -1301,12 +1340,16 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		if (localModels.length === 0) {
+			// Don't return a hardcoded model that might not exist - return error indication instead
+			// This will trigger fallback logic in chatThreadService
+			console.error('[ModelRouter] ERROR: No local models available for routeToLocalModel');
 			return {
-				modelSelection: { providerName: 'ollama', modelName: 'llama3.1' }, // fallback
-				confidence: 0.3,
-				reasoning: 'No local models available; using fallback. Please configure a local provider.',
-				qualityTier: 'standard',
-				timeoutMs: 30_000,
+				modelSelection: { providerName: 'auto', modelName: 'auto' }, // Placeholder to indicate failure
+				confidence: 0.0,
+				reasoning: 'No local models available. Please configure a local provider.',
+				qualityTier: 'abstain',
+				shouldAbstain: true,
+				abstainReason: 'No local models available. Please configure a local provider.',
 			};
 		}
 
@@ -1344,7 +1387,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		modelSelection: ModelSelection,
 		context: TaskContext,
 		score: number,
-		settingsState: any
+		settingsState: unknown
 	): string {
 		// Guard: "auto" is not a real model
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {

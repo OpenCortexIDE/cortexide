@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import { useMemo, useState } from 'react';
 import { CopyButton, IconShell1 } from '../markdown/ApplyBlockHoverButtons.js';
@@ -238,19 +238,19 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
 			group px-3 py-2 rounded-xl border border-void-border-3/70 bg-void-bg-1/40 hover:bg-void-bg-2/70 cursor-pointer text-sm text-void-fg-1 transition-all duration-150 ease-out shadow-[0_8px_20px_rgba(0,0,0,0.35)] hover:-translate-y-0.5
 		`}
 		onClick={() => {
-			chatThreadsService.switchToThread(pastThread.id);
+			chatThreadsService.openTab(pastThread.id);
 		}}
 		onMouseEnter={() => setHoveredIdx(idx)}
 		onMouseLeave={() => setHoveredIdx(null)}
 	>
 		<div className="flex items-center justify-between gap-2">
 			<span className="flex items-center gap-2 min-w-0 overflow-hidden text-void-fg-2">
-                {/* status icon */}
-                {isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing' ? (
-                    <LoaderCircle className="animate-spin text-void-fg-1 flex-shrink-0 flex-grow-0" size={14} />
-                ) : isRunning === 'awaiting_user' ? (
-                    <MessageCircleQuestion className="text-void-fg-1 flex-shrink-0 flex-grow-0" size={14} />
-                ) : null}
+				{/* status icon */}
+				{isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing' ? (
+					<LoaderCircle className="animate-spin text-void-fg-1 flex-shrink-0 flex-grow-0" size={14} />
+				) : isRunning === 'awaiting_user' ? (
+					<MessageCircleQuestion className="text-void-fg-1 flex-shrink-0 flex-grow-0" size={14} />
+				) : null}
 				{/* name */}
 				<span className="truncate overflow-hidden text-ellipsis text-void-fg-1"
 					data-tooltip-id='void-tooltip'

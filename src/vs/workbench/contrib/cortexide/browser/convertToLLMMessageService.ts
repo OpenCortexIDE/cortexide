@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -69,7 +74,7 @@ import { IRepoIndexerService } from './repoIndexerService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IMemoriesService } from '../common/memoriesService.js';
 
-export const EMPTY_MESSAGE = '(empty message)'
+export const EMPTY_MESSAGE = '(empty message)';
 
 
 
@@ -87,39 +92,39 @@ type SimpleLLMMessage = {
 	role: 'assistant';
 	content: string;
 	anthropicReasoning: AnthropicReasoning[] | null;
-}
+};
 
 
 
-const CHARS_PER_TOKEN = 4 // assume abysmal chars per token
-const TRIM_TO_LEN = 120
+const CHARS_PER_TOKEN = 4; // assume abysmal chars per token
+const TRIM_TO_LEN = 120;
 // Safety clamp to avoid hitting provider TPM limits (e.g., OpenAI 30k TPM)
 // 20k tokens (~80k chars) gives more conservative headroom for output tokens and image tokens
 // Images can add significant tokens (~85 per 512x512 tile), so we need more headroom
-const MAX_INPUT_TOKENS_SAFETY = 20_000
+const MAX_INPUT_TOKENS_SAFETY = 20_000;
 
 // Estimate tokens for images in OpenAI format
 // OpenAI uses ~85 tokens per 512x512 tile, plus base overhead
 // For detailed images, tokens scale with image dimensions
 // Reference: https://platform.openai.com/docs/guides/vision#calculating-costs
 const estimateImageTokens = (images: ChatImageAttachment[] | undefined): number => {
-	if (!images || images.length === 0) return 0
-	let totalTokens = 0
+	if (!images || images.length === 0) { return 0; }
+	let totalTokens = 0;
 	for (const img of images) {
 		// Base overhead per image: ~85 tokens
-		totalTokens += 85
+		totalTokens += 85;
 		// Estimate tokens based on image dimensions
 		// Images are resized to fit within 2048x2048, then scaled so shortest side is 768px
 		// Each 512x512 tile costs ~170 tokens (85 for base + 85 for detail)
 		// For a rough estimate, use image size as a proxy
 		// Base64 encoding increases size by ~33%, so we estimate conservatively
-		const base64Size = Math.ceil((img.size || img.data.length) * 1.33)
+		const base64Size = Math.ceil((img.size || img.data.length) * 1.33);
 		// Very rough estimate: ~1 token per 100 bytes of base64 (conservative)
 		// This accounts for the fact that images are tokenized more efficiently than text
-		totalTokens += Math.ceil(base64Size / 100)
+		totalTokens += Math.ceil(base64Size / 100);
 	}
-	return totalTokens
-}
+	return totalTokens;
+};
 
 
 
@@ -147,16 +152,21 @@ openai on developer system message - https://cdn.openai.com/spec/model-spec-2024
 */
 
 
-const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOrOpenAILLMMessage[] => {
+const prepareMessages_openai_tools = (messages: SimpleLLMMessage[], providerName?: ProviderName): AnthropicOrOpenAILLMMessage[] => {
 
-	const newMessages: OpenAILLMChatMessage[] = [];
+	const newMessages: AnthropicOrOpenAILLMMessage[] = [];
+
+	// v0.dev uses Anthropic-style image format even though it's OpenAI-compatible for tools
+	// Check if this is v0 by checking if providerName is openAICompatible
+	// (We can make this more specific later if needed, e.g., by checking endpoint)
+	const useAnthropicImageFormat = providerName === 'openAICompatible';
 
 	for (let i = 0; i < messages.length; i += 1) {
-		const currMsg = messages[i]
+		const currMsg = messages[i];
 
 		if (currMsg.role === 'user') {
-			// Convert images to OpenAI format if present
-			const contentParts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
+			// Convert images to OpenAI format if present (or Anthropic format for v0)
+			const contentParts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } } | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } }> = [];
 			const hasImages = currMsg.images && currMsg.images.length > 0;
 
 			// Prepare text content
@@ -208,7 +218,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					// Ensure image.data is a Uint8Array
 					// TypeScript knows image.data is Uint8Array from the type definition, but we validate at runtime
 					// Use 'any' to bypass TypeScript's type narrowing for runtime validation
-					const data: any = image.data;
+					const data: unknown = image.data;
 					let imageData: Uint8Array;
 
 					if (data instanceof Uint8Array) {
@@ -289,7 +299,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 									for (let i = start; i < end; i++) {
 										// Use hasOwnProperty check to avoid getters/prototype issues
 										if (Object.prototype.hasOwnProperty.call(data, String(i))) {
-											const val = (data as any)[String(i)];
+											const val = (data as unknown)[String(i)];
 											if (typeof val === 'number' && val >= 0 && val <= 255 && Number.isInteger(val)) {
 												values.push(val);
 											} else if (val !== undefined && val !== null) {
@@ -369,7 +379,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					}
 
 					// Use VS Code's built-in base64 encoder (already tested and optimized)
-					let base64 = uint8ArrayToBase64(imageData);
+					const base64 = uint8ArrayToBase64(imageData);
 
 					// Validate base64 format - must contain only valid base64 characters
 					// OpenAI is strict: base64 must be clean, no whitespace, proper padding
@@ -392,61 +402,95 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 						throw new Error('Invalid base64 encoding: too many padding characters');
 					}
 
-					// Construct data URL - OpenAI expects format: data:image/<type>;base64,<base64>
-					// Ensure no whitespace in the final URL
-					const dataUrl = `data:${mimeType};base64,${base64}`.trim();
+					// v0.dev uses Anthropic-style image format instead of OpenAI format
+					if (useAnthropicImageFormat) {
+						// Use Anthropic format: { type: 'image', source: { type: 'base64', media_type, data } }
+						contentParts.push({
+							type: 'image',
+							source: {
+								type: 'base64',
+								media_type: mimeType,
+								data: base64,
+							},
+						} as unknown); // Type assertion needed because contentParts type is union
+					} else {
+						// Use OpenAI format: { type: 'image_url', image_url: { url: dataUrl } }
+						// Construct data URL - OpenAI expects format: data:image/<type>;base64,<base64>
+						// Ensure no whitespace in the final URL
+						const dataUrl = `data:${mimeType};base64,${base64}`.trim();
 
-					// Additional validation: ensure data URL is reasonable size
-					if (dataUrl.length > 30 * 1024 * 1024) { // 30MB as safety limit
-						console.error('Data URL too large:', dataUrl.length);
-						throw new Error('Image data URL is too large');
+						// Additional validation: ensure data URL is reasonable size
+						if (dataUrl.length > 30 * 1024 * 1024) { // 30MB as safety limit
+							console.error('Data URL too large:', dataUrl.length);
+							throw new Error('Image data URL is too large');
+						}
+
+						contentParts.push({
+							type: 'image_url',
+							image_url: { url: dataUrl },
+						});
 					}
-
-					contentParts.push({
-						type: 'image_url',
-						image_url: { url: dataUrl },
-					});
 				}
 			}
 
 			// Use array format if we have images or multiple parts, otherwise use string
 			// For OpenAI, if we have images, we MUST use array format with at least text + images
-			const userMsg: OpenAILLMChatMessage = {
-				role: 'user',
-				content: hasImages ? contentParts : (contentParts.length > 0 ? contentParts : (textContent || '')),
-			};
-			newMessages.push(userMsg);
-			continue
+			// For v0 (Anthropic format), we also need array format
+			if (useAnthropicImageFormat && hasImages) {
+				// For Anthropic format, ensure contentParts only contains valid Anthropic types
+				const anthropicContentParts: Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } }> = contentParts.filter((part): part is { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string } } =>
+					part.type === 'text' || part.type === 'image'
+				) as unknown;
+				const userMsg: AnthropicLLMChatMessage = {
+					role: 'user',
+					content: anthropicContentParts.length > 0 ? anthropicContentParts : (textContent || ''),
+				};
+				newMessages.push(userMsg);
+			} else {
+				// For OpenAI format, ensure contentParts only contains valid OpenAI types
+				const openAIContentParts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = contentParts.filter((part): part is { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } } =>
+					part.type === 'text' || part.type === 'image_url'
+				) as unknown;
+				const userMsg: OpenAILLMChatMessage = {
+					role: 'user',
+					content: hasImages ? openAIContentParts : (openAIContentParts.length > 0 ? openAIContentParts : (textContent || '')),
+				};
+				newMessages.push(userMsg);
+			}
+			continue;
 		}
 
 		if (currMsg.role !== 'tool') {
-			newMessages.push(currMsg as OpenAILLMChatMessage)
-			continue
+			newMessages.push(currMsg as AnthropicOrOpenAILLMMessage);
+			continue;
 		}
 
 		// edit previous assistant message to have called the tool
-		const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined
+		// Note: This function is for OpenAI-style tools, so assistant messages are always OpenAI format
+		const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined;
 		if (prevMsg?.role === 'assistant') {
-			prevMsg.tool_calls = [{
+			// Type assertion: In prepareMessages_openai_tools, assistant messages are always OpenAI format
+			const openAIMsg = prevMsg as Extract<OpenAILLMChatMessage, { role: 'assistant' }>;
+			openAIMsg.tool_calls = [{
 				type: 'function',
 				id: currMsg.id,
 				function: {
 					name: currMsg.name,
 					arguments: JSON.stringify(currMsg.rawParams)
 				}
-			}]
+			}];
 		}
 
-		// add the tool
+		// add the tool (OpenAI format)
 		newMessages.push({
 			role: 'tool',
 			tool_call_id: currMsg.id,
 			content: currMsg.content,
-		})
+		} as OpenAILLMChatMessage);
 	}
-	return newMessages
+	return newMessages;
 
-}
+};
 
 
 
@@ -479,31 +523,31 @@ assistant: ...content, call(name, id, params)
 user: ...content, result(id, content)
 */
 
-type AnthropicOrOpenAILLMMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage
+type AnthropicOrOpenAILLMMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage;
 
 const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
 	const newMessages: (AnthropicLLMChatMessage | (SimpleLLMMessage & { role: 'tool' }))[] = messages;
 
 	for (let i = 0; i < messages.length; i += 1) {
-		const currMsg = messages[i]
+		const currMsg = messages[i];
 
 		// add anthropic reasoning
 		if (currMsg.role === 'assistant') {
 			if (currMsg.anthropicReasoning && supportsAnthropicReasoning) {
-				const content = currMsg.content
+				const content = currMsg.content;
 				newMessages[i] = {
 					role: 'assistant',
 					content: content ? [...currMsg.anthropicReasoning, { type: 'text' as const, text: content }] : currMsg.anthropicReasoning
-				}
+				};
 			}
 			else {
 				newMessages[i] = {
 					role: 'assistant',
 					content: currMsg.content,
 					// strip away anthropicReasoning
-				}
+				};
 			}
-			continue
+			continue;
 		}
 
 		if (currMsg.role === 'user') {
@@ -546,8 +590,8 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 					// Anthropic SDK expects specific MIME types, cast appropriately
 					const mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' =
 						image.mimeType === 'image/svg+xml' ? 'image/png' :
-						(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
-							? image.mimeType : 'image/png');
+							(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
+								? image.mimeType : 'image/png');
 					contentParts.push({
 						type: 'image',
 						source: {
@@ -566,32 +610,32 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 				content: hasImages ? contentParts : (contentParts.length > 0 ? contentParts : (textContent || '')),
 			};
 			newMessages[i] = userMsg;
-			continue
+			continue;
 		}
 
 		if (currMsg.role === 'tool') {
 			// add anthropic tools
-			const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined
+			const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined;
 
 			// make it so the assistant called the tool
 			if (prevMsg?.role === 'assistant') {
-				if (typeof prevMsg.content === 'string') prevMsg.content = [{ type: 'text', text: prevMsg.content }]
-				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams })
+				if (typeof prevMsg.content === 'string') { prevMsg.content = [{ type: 'text', text: prevMsg.content }]; }
+				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams });
 			}
 
 			// turn each tool into a user message with tool results at the end
 			newMessages[i] = {
 				role: 'user',
 				content: [{ type: 'tool_result', tool_use_id: currMsg.id, content: currMsg.content }]
-			}
-			continue
+			};
+			continue;
 		}
 
 	}
 
 	// we just removed the tools
-	return newMessages as AnthropicLLMChatMessage[]
-}
+	return newMessages as AnthropicLLMChatMessage[];
+};
 
 
 const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
@@ -599,30 +643,29 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 	const llmChatMessages: AnthropicOrOpenAILLMMessage[] = [];
 	for (let i = 0; i < messages.length; i += 1) {
 
-		const c = messages[i]
-		const next = 0 <= i + 1 && i + 1 <= messages.length - 1 ? messages[i + 1] : null
+		const c = messages[i];
+		const next = 0 <= i + 1 && i + 1 <= messages.length - 1 ? messages[i + 1] : null;
 
 		if (c.role === 'assistant') {
 			// if called a tool (message after it), re-add its XML to the message
 			// alternatively, could just hold onto the original output, but this way requires less piping raw strings everywhere
-			let content: AnthropicOrOpenAILLMMessage['content'] = c.content
+			let content: AnthropicOrOpenAILLMMessage['content'] = c.content;
 			if (next?.role === 'tool') {
-				content = `${content}\n\n${reParsedToolXMLString(next.name, next.rawParams)}`
+				content = `${content}\n\n${reParsedToolXMLString(next.name, next.rawParams)}`;
 			}
 
 			// anthropic reasoning
 			if (c.anthropicReasoning && supportsAnthropicReasoning) {
-				content = content ? [...c.anthropicReasoning, { type: 'text' as const, text: content }] : c.anthropicReasoning
+				content = content ? [...c.anthropicReasoning, { type: 'text' as const, text: content }] : c.anthropicReasoning;
 			}
 			llmChatMessages.push({
 				role: 'assistant',
 				content
-			})
+			});
 		}
 		// add user or tool to the previous user message
 		else if (c.role === 'user' || c.role === 'tool') {
-			if (c.role === 'tool')
-				c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`
+			if (c.role === 'tool') { c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`; }
 
 			if (llmChatMessages.length === 0 || llmChatMessages[llmChatMessages.length - 1].role !== 'user') {
 				// Convert images to Anthropic format if present (only for user messages)
@@ -664,8 +707,8 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 						// Anthropic SDK expects specific MIME types, cast appropriately
 						const mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' =
 							image.mimeType === 'image/svg+xml' ? 'image/png' :
-							(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
-								? image.mimeType : 'image/png');
+								(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
+									? image.mimeType : 'image/png');
 						contentParts.push({
 							type: 'image',
 							source: {
@@ -700,8 +743,8 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 								const base64 = uint8ArrayToBase64(image.data);
 								const mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' =
 									image.mimeType === 'image/svg+xml' ? 'image/png' :
-									(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
-										? image.mimeType : 'image/png');
+										(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
+											? image.mimeType : 'image/png');
 								contentArray.push({
 									type: 'image',
 									source: {
@@ -711,7 +754,7 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 									},
 								});
 							}
-							lastMsg.content = contentArray as any;
+							lastMsg.content = contentArray as unknown;
 						} else {
 							// No images, just append text
 							lastMsg.content += '\n\n' + c.content;
@@ -737,8 +780,8 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 								// Anthropic SDK expects specific MIME types, cast appropriately
 								const mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' =
 									image.mimeType === 'image/svg+xml' ? 'image/png' :
-									(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
-										? image.mimeType : 'image/png');
+										(image.mimeType === 'image/png' || image.mimeType === 'image/jpeg' || image.mimeType === 'image/webp' || image.mimeType === 'image/gif'
+											? image.mimeType : 'image/png');
 								contentArray.push({
 									type: 'image',
 									source: {
@@ -754,8 +797,8 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 			}
 		}
 	}
-	return llmChatMessages
-}
+	return llmChatMessages;
+};
 
 
 // --- CHAT ---
@@ -769,97 +812,99 @@ const prepareOpenAIOrAnthropicMessages = ({
 	supportsAnthropicReasoning,
 	contextWindow,
 	reservedOutputTokenSpace,
+	providerName,
 }: {
-	messages: SimpleLLMMessage[],
-	systemMessage: string,
-	aiInstructions: string,
-	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined,
-	supportsAnthropicReasoning: boolean,
-	contextWindow: number,
-	reservedOutputTokenSpace: number | null | undefined,
-}): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
+	messages: SimpleLLMMessage[];
+	systemMessage: string;
+	aiInstructions: string;
+	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated';
+	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined;
+	supportsAnthropicReasoning: boolean;
+	contextWindow: number;
+	reservedOutputTokenSpace: number | null | undefined;
+	providerName: ProviderName;
+}): { messages: AnthropicOrOpenAILLMMessage[]; separateSystemMessage: string | undefined } => {
 
 	reservedOutputTokenSpace = Math.max(
 		contextWindow * 1 / 2, // reserve at least 1/4 of the token window length
 		reservedOutputTokenSpace ?? 4_096 // defaults to 4096
-	)
+	);
 	// Optimized: shallow clone + selective deep clone only for mutable fields
 	// Images (Uint8Array) are large and don't need cloning since we won't mutate them
-	let messages: (SimpleLLMMessage | { role: 'system', content: string })[] = messages_.map(msg => {
+	let messages: (SimpleLLMMessage | { role: 'system'; content: string })[] = messages_.map(msg => {
 		if (msg.role === 'user' && msg.images) {
 			// Shallow clone but keep images reference (we don't mutate images)
-			return { ...msg, images: msg.images }
+			return { ...msg, images: msg.images };
 		}
 		// For other messages, shallow clone is sufficient since content is string
-		return { ...msg }
-	}) as (SimpleLLMMessage | { role: 'system', content: string })[]
+		return { ...msg };
+	}) as (SimpleLLMMessage | { role: 'system'; content: string })[];
 
 	// ================ system message ================
 	// A COMPLETE HACK: last message is system message for context purposes
 
-	const sysMsgParts: string[] = []
-	if (aiInstructions) sysMsgParts.push(`GUIDELINES (from the user's .voidrules file):\n${aiInstructions}`)
-	if (systemMessage) sysMsgParts.push(systemMessage)
-	const combinedSystemMessage = sysMsgParts.join('\n\n')
+	const sysMsgParts: string[] = [];
+	if (aiInstructions) { sysMsgParts.push(`GUIDELINES (from the user's .voidrules file):\n${aiInstructions}`); }
+	if (systemMessage) { sysMsgParts.push(systemMessage); }
+	const combinedSystemMessage = sysMsgParts.join('\n\n');
 
-	messages.unshift({ role: 'system', content: combinedSystemMessage })
+	messages.unshift({ role: 'system', content: combinedSystemMessage });
 
 	// ================ trim ================
-	messages = messages.map(m => ({ ...m, content: m.role !== 'tool' ? m.content.trim() : m.content }))
+	messages = messages.map(m => ({ ...m, content: m.role !== 'tool' ? m.content.trim() : m.content }));
 
-	type MesType = (typeof messages)[0]
+	type MesType = (typeof messages)[0];
 
-    // ================ fit into context ================
+	// ================ fit into context ================
 
 	// the higher the weight, the higher the desire to truncate - TRIM HIGHEST WEIGHT MESSAGES
-	const alreadyTrimmedIdxes = new Set<number>()
+	const alreadyTrimmedIdxes = new Set<number>();
 	const weight = (message: MesType, messages: MesType[], idx: number) => {
-		const base = message.content.length
+		const base = message.content.length;
 
-		let multiplier: number
-		multiplier = 1 + (messages.length - 1 - idx) / messages.length // slow rampdown from 2 to 1 as index increases
+		let multiplier: number;
+		multiplier = 1 + (messages.length - 1 - idx) / messages.length; // slow rampdown from 2 to 1 as index increases
 		if (message.role === 'user') {
-			multiplier *= 1
+			multiplier *= 1;
 		}
 		else if (message.role === 'system') {
-			multiplier *= .01 // very low weight
+			multiplier *= .01; // very low weight
 		}
 		else {
-			multiplier *= 10 // llm tokens are far less valuable than user tokens
+			multiplier *= 10; // llm tokens are far less valuable than user tokens
 		}
 
 		// any already modified message should not be trimmed again
 		if (alreadyTrimmedIdxes.has(idx)) {
-			multiplier = 0
+			multiplier = 0;
 		}
 		// 1st and last messages should be very low weight
 		if (idx <= 1 || idx >= messages.length - 1 - 3) {
-			multiplier *= .05
+			multiplier *= .05;
 		}
-		return base * multiplier
-	}
+		return base * multiplier;
+	};
 
 	const _findLargestByWeight = (messages_: MesType[]) => {
-		let largestIndex = -1
-		let largestWeight = -Infinity
+		let largestIndex = -1;
+		let largestWeight = -Infinity;
 		for (let i = 0; i < messages.length; i += 1) {
-			const m = messages[i]
-			const w = weight(m, messages_, i)
+			const m = messages[i];
+			const w = weight(m, messages_, i);
 			if (w > largestWeight) {
-				largestWeight = w
-				largestIndex = i
+				largestWeight = w;
+				largestIndex = i;
 			}
 		}
-		return largestIndex
-	}
+		return largestIndex;
+	};
 
-    let totalLen = 0
-    for (const m of messages) { totalLen += m.content.length }
+	let totalLen = 0;
+	for (const m of messages) { totalLen += m.content.length; }
 	const charsNeedToTrim = totalLen - Math.max(
 		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN, // can be 0, in which case charsNeedToTrim=everything, bad
 		5_000 // ensure we don't trim at least 5k chars (just a random small value)
-	)
+	);
 
 
 	// <----------------------------------------->
@@ -867,27 +912,27 @@ const prepareOpenAIOrAnthropicMessages = ({
 	//                        |    contextWindow |
 	//                     contextWindow - maxOut|putTokens
 	//                                          totalLen
-	let remainingCharsToTrim = charsNeedToTrim
-	let i = 0
+	let remainingCharsToTrim = charsNeedToTrim;
+	let i = 0;
 
 	while (remainingCharsToTrim > 0) {
-		i += 1
-		if (i > 100) break
+		i += 1;
+		if (i > 100) { break; }
 
-		const trimIdx = _findLargestByWeight(messages)
-		const m = messages[trimIdx]
+		const trimIdx = _findLargestByWeight(messages);
+		const m = messages[trimIdx];
 
 		// if can finish here, do
-		const numCharsWillTrim = m.content.length - TRIM_TO_LEN
+		const numCharsWillTrim = m.content.length - TRIM_TO_LEN;
 		if (numCharsWillTrim > remainingCharsToTrim) {
 			// trim remainingCharsToTrim + '...'.length chars
-			m.content = m.content.slice(0, m.content.length - remainingCharsToTrim - '...'.length).trim() + '...'
-			break
+			m.content = m.content.slice(0, m.content.length - remainingCharsToTrim - '...'.length).trim() + '...';
+			break;
 		}
 
-		remainingCharsToTrim -= numCharsWillTrim
-		m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
-		alreadyTrimmedIdxes.add(trimIdx)
+		remainingCharsToTrim -= numCharsWillTrim;
+		m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...';
+		alreadyTrimmedIdxes.add(trimIdx);
 	}
 
 	// ================ safety clamp to avoid TPM overage ================
@@ -895,91 +940,88 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// This accounts for text tokens, image tokens, system messages, tool definitions, and message structure overhead
 	const safetyTrim = () => {
 		// Estimate total tokens: text content + images + system message overhead
-		let textChars = 0
-		let imageTokens = 0
+		let textChars = 0;
+		let imageTokens = 0;
 		for (const m of messages) {
-			textChars += m.content.length
+			textChars += m.content.length;
 			// Check if message has images (SimpleLLMMessage with images property)
 			if ('images' in m && m.images) {
-				imageTokens += estimateImageTokens(m.images)
+				imageTokens += estimateImageTokens(m.images);
 			}
 		}
 
 		// Add system message tokens (will be added separately or prepended)
-		const systemMessageTokens = Math.ceil(combinedSystemMessage.length / CHARS_PER_TOKEN)
+		const systemMessageTokens = Math.ceil(combinedSystemMessage.length / CHARS_PER_TOKEN);
 
 		// Message structure overhead: JSON formatting, role names, etc.
 		// Estimate ~8 tokens per message for structure (role, content wrapper, etc.)
-		const messageStructureOverhead = messages.length * 8
+		const messageStructureOverhead = messages.length * 8;
 
 		// Native tool definitions overhead (when using openai-style, tools are sent separately)
 		// Conservative estimate: ~500-2000 tokens depending on number of tools
 		// Since we don't have tool info here, use a conservative buffer
-		const nativeToolDefinitionsOverhead = specialToolFormat === 'openai-style' ? 1000 : 0
+		const nativeToolDefinitionsOverhead = specialToolFormat === 'openai-style' ? 1000 : 0;
 
 		// Total estimated tokens
-		const textTokens = Math.ceil(textChars / CHARS_PER_TOKEN)
-		const totalEstimatedTokens = textTokens + imageTokens + systemMessageTokens + messageStructureOverhead + nativeToolDefinitionsOverhead
+		const textTokens = Math.ceil(textChars / CHARS_PER_TOKEN);
+		const totalEstimatedTokens = textTokens + imageTokens + systemMessageTokens + messageStructureOverhead + nativeToolDefinitionsOverhead;
 
 		// If we're under the limit, no need to trim
-		if (totalEstimatedTokens <= MAX_INPUT_TOKENS_SAFETY) return
+		if (totalEstimatedTokens <= MAX_INPUT_TOKENS_SAFETY) { return; }
 
 		// Need to trim more aggressively
-		const excessTokens = totalEstimatedTokens - MAX_INPUT_TOKENS_SAFETY
-		const excessChars = excessTokens * CHARS_PER_TOKEN
+		const excessTokens = totalEstimatedTokens - MAX_INPUT_TOKENS_SAFETY;
+		const excessChars = excessTokens * CHARS_PER_TOKEN;
 
-		let guardLoops = 0
-		let charsTrimmed = 0
+		let guardLoops = 0;
+		let charsTrimmed = 0;
 		while (charsTrimmed < excessChars && guardLoops < 200) {
-			guardLoops += 1
-			const trimIdx = _findLargestByWeight(messages)
-			const m = messages[trimIdx]
+			guardLoops += 1;
+			const trimIdx = _findLargestByWeight(messages);
+			const m = messages[trimIdx];
 			if (m.content.length <= TRIM_TO_LEN) {
 				// Already tiny, skip to next largest
-				alreadyTrimmedIdxes.add(trimIdx)
-				continue
+				alreadyTrimmedIdxes.add(trimIdx);
+				continue;
 			}
-			const before = m.content.length
-			m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
-			alreadyTrimmedIdxes.add(trimIdx)
-			charsTrimmed += (before - m.content.length)
+			const before = m.content.length;
+			m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...';
+			alreadyTrimmedIdxes.add(trimIdx);
+			charsTrimmed += (before - m.content.length);
 		}
-	}
+	};
 
-	safetyTrim()
+	safetyTrim();
 
 	// ================ system message hack ================
-	const newSysMsg = messages.shift()!.content
+	const newSysMsg = messages.shift()!.content;
 
 
 	// ================ tools and anthropicReasoning ================
 	// SYSTEM MESSAGE HACK: we shifted (removed) the system message role, so now SimpleLLMMessage[] is valid
 
-	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = []
+	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = [];
 	if (!specialToolFormat) { // XML tool behavior
-		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning);
 	}
 	else if (specialToolFormat === 'anthropic-style') {
-		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning);
 	}
 	else if (specialToolFormat === 'openai-style') {
-		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
+		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[], providerName);
 	}
-	const llmMessages = llmChatMessages
+	const llmMessages = llmChatMessages;
 
 
 	// ================ system message add as first llmMessage ================
 
-	let separateSystemMessageStr: string | undefined = undefined
+	let separateSystemMessageStr: string | undefined = undefined;
 
 	// if supports system message
 	if (supportsSystemMessage) {
-		if (supportsSystemMessage === 'separated')
-			separateSystemMessageStr = newSysMsg
-		else if (supportsSystemMessage === 'system-role')
-			llmMessages.unshift({ role: 'system', content: newSysMsg }) // add new first message
-		else if (supportsSystemMessage === 'developer-role')
-			llmMessages.unshift({ role: 'developer', content: newSysMsg }) // add new first message
+		if (supportsSystemMessage === 'separated') { separateSystemMessageStr = newSysMsg; }
+		else if (supportsSystemMessage === 'system-role') { llmMessages.unshift({ role: 'system', content: newSysMsg }); } // add new first message
+		else if (supportsSystemMessage === 'developer-role') { llmMessages.unshift({ role: 'developer', content: newSysMsg }); } // add new first message
 	}
 	// if does not support system message
 	else {
@@ -995,53 +1037,53 @@ const prepareOpenAIOrAnthropicMessages = ({
 			llmMessages.splice(0, 1); // delete first message
 			llmMessages.unshift(newFirstMessage); // add new first message
 		} else {
-		// Content is an array (may contain images/text parts)
-		// Prepend system message to the first text part, or add a new text part
-		const contentArray = [...firstMsg.content] as any[];
-		const firstTextIndex = contentArray.findIndex((c: any) => c.type === 'text');
+			// Content is an array (may contain images/text parts)
+			// Prepend system message to the first text part, or add a new text part
+			const contentArray = [...firstMsg.content] as unknown[];
+			const firstTextIndex = contentArray.findIndex((c: unknown) => c.type === 'text');
 
-		if (firstTextIndex !== -1) {
-			// Prepend to existing text part
-			contentArray[firstTextIndex] = {
-				type: 'text',
-				text: systemMsgPrefix + (contentArray[firstTextIndex] as any).text
+			if (firstTextIndex !== -1) {
+				// Prepend to existing text part
+				contentArray[firstTextIndex] = {
+					type: 'text',
+					text: systemMsgPrefix + (contentArray[firstTextIndex] as unknown).text
+				};
+			} else {
+				// No text part exists, add one at the beginning
+				contentArray.unshift({
+					type: 'text',
+					text: systemMsgPrefix.trim()
+				});
+			}
+
+			const newFirstMessage: AnthropicOrOpenAILLMMessage = {
+				role: 'user',
+				content: contentArray
 			};
-		} else {
-			// No text part exists, add one at the beginning
-			contentArray.unshift({
-				type: 'text',
-				text: systemMsgPrefix.trim()
-			});
-		}
-
-		const newFirstMessage: AnthropicOrOpenAILLMMessage = {
-			role: 'user',
-			content: contentArray
-		};
-		llmMessages.splice(0, 1); // delete first message
-		llmMessages.unshift(newFirstMessage); // add new first message
+			llmMessages.splice(0, 1); // delete first message
+			llmMessages.unshift(newFirstMessage); // add new first message
 		}
 	}
 
 
 	// ================ no empty message ================
 	for (let i = 0; i < llmMessages.length; i += 1) {
-		const currMsg: AnthropicOrOpenAILLMMessage = llmMessages[i]
-		const nextMsg: AnthropicOrOpenAILLMMessage | undefined = llmMessages[i + 1]
+		const currMsg: AnthropicOrOpenAILLMMessage = llmMessages[i];
+		const nextMsg: AnthropicOrOpenAILLMMessage | undefined = llmMessages[i + 1];
 
-		if (currMsg.role === 'tool') continue
+		if (currMsg.role === 'tool') { continue; }
 
 		// if content is a string, replace string with empty msg
 		if (typeof currMsg.content === 'string') {
-			currMsg.content = currMsg.content || EMPTY_MESSAGE
+			currMsg.content = currMsg.content || EMPTY_MESSAGE;
 		}
 		else {
 			// allowed to be empty if has a tool in it or following it
 			if (currMsg.content.find(c => c.type === 'tool_result' || c.type === 'tool_use')) {
-				currMsg.content = currMsg.content.filter(c => !(c.type === 'text' && !c.text)) as any
-				continue
+				currMsg.content = currMsg.content.filter(c => !(c.type === 'text' && !c.text)) as unknown;
+				continue;
 			}
-			if (nextMsg?.role === 'tool') continue
+			if (nextMsg?.role === 'tool') { continue; }
 
 			// Check if we have images in the content array
 			const hasImagesInContent = currMsg.content.some(c => c.type === 'image' || c.type === 'image_url');
@@ -1054,67 +1096,67 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 				if (textPartIndex === -1) {
 					// No text part exists, add one at the beginning
-					currMsg.content.unshift({ type: 'text', text: imageAnalysisPrompt } as any);
+					currMsg.content.unshift({ type: 'text', text: imageAnalysisPrompt } as unknown);
 				} else {
 					// Text part exists, ensure it's not empty
 					const textPart = currMsg.content[textPartIndex];
 					if (textPart.type === 'text' && (!textPart.text || textPart.text.trim() === '' || textPart.text === EMPTY_MESSAGE)) {
 						// Replace empty text with proper image analysis prompt
-						currMsg.content[textPartIndex] = { type: 'text', text: imageAnalysisPrompt } as any;
+						currMsg.content[textPartIndex] = { type: 'text', text: imageAnalysisPrompt } as unknown;
 					}
 				}
 			} else {
 				// No images, just replace empty text with EMPTY_MESSAGE
 				for (const c of currMsg.content) {
-					if (c.type === 'text') c.text = c.text || EMPTY_MESSAGE
+					if (c.type === 'text') { c.text = c.text || EMPTY_MESSAGE; }
 				}
 			}
 
 			// If array is completely empty, add a text entry
-			if (currMsg.content.length === 0) currMsg.content = [{ type: 'text', text: EMPTY_MESSAGE }]
+			if (currMsg.content.length === 0) { currMsg.content = [{ type: 'text', text: EMPTY_MESSAGE }]; }
 		}
 	}
 
 	return {
 		messages: llmMessages,
 		separateSystemMessage: separateSystemMessageStr,
-	} as const
-}
+	} as const;
+};
 
 
 
 
-type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0]
-type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0]
+type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0];
+type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0];
 const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
-	let latestToolName: ToolName | undefined = undefined
+	let latestToolName: ToolName | undefined = undefined;
 	const messages2: GeminiLLMChatMessage[] = messages.map((m): GeminiLLMChatMessage | null => {
 		if (m.role === 'assistant') {
 			if (typeof m.content === 'string') {
-				return { role: 'model', parts: [{ text: m.content }] }
+				return { role: 'model', parts: [{ text: m.content }] };
 			}
 			else {
 				const parts: GeminiModelPart[] = m.content.map((c): GeminiModelPart | null => {
 					if (c.type === 'text') {
-						return { text: c.text }
+						return { text: c.text };
 					}
 					else if (c.type === 'tool_use') {
-						latestToolName = c.name
-						return { functionCall: { id: c.id, name: c.name, args: c.input } }
+						latestToolName = c.name;
+						return { functionCall: { id: c.id, name: c.name, args: c.input } };
 					}
-					else return null
-				}).filter(m => !!m)
-				return { role: 'model', parts, }
+					else { return null; }
+				}).filter(m => !!m);
+				return { role: 'model', parts, };
 			}
 		}
 		else if (m.role === 'user') {
 			if (typeof m.content === 'string') {
-				return { role: 'user', parts: [{ text: m.content }] } satisfies GeminiLLMChatMessage
+				return { role: 'user', parts: [{ text: m.content }] } satisfies GeminiLLMChatMessage;
 			}
 			else {
 				const parts: GeminiUserPart[] = m.content.map((c): GeminiUserPart | null => {
 					if (c.type === 'text') {
-						return { text: c.text }
+						return { text: c.text };
 					}
 					else if (c.type === 'image') {
 						// Convert Anthropic image format to Gemini inlineData format
@@ -1123,14 +1165,14 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 								mimeType: c.source.media_type,
 								data: c.source.data,
 							},
-						}
+						};
 					}
 					else if (c.type === 'tool_result') {
-						if (!latestToolName) return null
-						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } }
+						if (!latestToolName) { return null; }
+						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } };
 					}
-					else return null
-				}).filter(m => !!m)
+					else { return null; }
+				}).filter(m => !!m);
 
 				// Ensure we have at least one part, and if we have images, ensure we have text
 				const hasImages = parts.some(p => 'inlineData' in p);
@@ -1143,51 +1185,51 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 					parts.unshift({ text: '(empty message)' });
 				}
 
-				return { role: 'user', parts, }
+				return { role: 'user', parts, };
 			}
 
 		}
-		else return null
-	}).filter(m => !!m)
+		else { return null; }
+	}).filter(m => !!m);
 
-	return messages2
-}
+	return messages2;
+};
 
 
 const prepareMessages = (params: {
-	messages: SimpleLLMMessage[],
-	systemMessage: string,
-	aiInstructions: string,
-	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined,
-	supportsAnthropicReasoning: boolean,
-	contextWindow: number,
-	reservedOutputTokenSpace: number | null | undefined,
-	providerName: ProviderName
-}): { messages: LLMChatMessage[], separateSystemMessage: string | undefined } => {
+	messages: SimpleLLMMessage[];
+	systemMessage: string;
+	aiInstructions: string;
+	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated';
+	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined;
+	supportsAnthropicReasoning: boolean;
+	contextWindow: number;
+	reservedOutputTokenSpace: number | null | undefined;
+	providerName: ProviderName;
+}): { messages: LLMChatMessage[]; separateSystemMessage: string | undefined } => {
 
-	const specialFormat = params.specialToolFormat // this is just for ts stupidness
+	const specialFormat = params.specialToolFormat; // this is just for ts stupidness
 
 	// if need to convert to gemini style of messaes, do that (treat as anthropic style, then convert to gemini style)
 	if (params.providerName === 'gemini' || specialFormat === 'gemini-style') {
-		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined })
-		const messages = res.messages as AnthropicLLMChatMessage[]
-		const messages2 = prepareGeminiMessages(messages)
-		return { messages: messages2, separateSystemMessage: res.separateSystemMessage }
+		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined, providerName: params.providerName });
+		const messages = res.messages as AnthropicLLMChatMessage[];
+		const messages2 = prepareGeminiMessages(messages);
+		return { messages: messages2, separateSystemMessage: res.separateSystemMessage };
 	}
 
-	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat })
-}
+	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat, providerName: params.providerName });
+};
 
 
 
 
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
-	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null> }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
-	prepareFIMMessage(opts: { messages: LLMFIMMessage, }): { prefix: string, suffix: string, stopTokens: string[] }
-	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[], metrics: any } | null>
+	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[]; systemMessage: string; modelSelection: ModelSelection | null; featureName: FeatureName }) => { messages: LLMChatMessage[]; separateSystemMessage: string | undefined };
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: unknown } | null> }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined }>;
+	prepareFIMMessage(opts: { messages: LLMFIMMessage }): { prefix: string; suffix: string; stopTokens: string[] };
+	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: unknown } | null>;
 }
 
 export const IConvertToLLMMessageService = createDecorator<IConvertToLLMMessageService>('ConvertToLLMMessageService');
@@ -1214,7 +1256,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMemoriesService private readonly memoriesService: IMemoriesService,
 	) {
-		super()
+		super();
 	}
 
 	// Read .voidrules files from workspace folders
@@ -1223,15 +1265,15 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const workspaceFolders = this.workspaceContextService.getWorkspace().folders;
 			let voidRules = '';
 			for (const folder of workspaceFolders) {
-				const uri = URI.joinPath(folder.uri, '.voidrules')
-				const { model } = this.cortexideModelService.getModel(uri)
-				if (!model) continue
+				const uri = URI.joinPath(folder.uri, '.voidrules');
+				const { model } = this.cortexideModelService.getModel(uri);
+				if (!model) { continue; }
 				voidRules += model.getValue(EndOfLinePreference.LF) + '\n\n';
 			}
 			return voidRules.trim();
 		}
 		catch (e) {
-			return ''
+			return '';
 		}
 	}
 
@@ -1240,16 +1282,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const globalAIInstructions = this.cortexideSettingsService.state.globalSettings.aiInstructions;
 		const voidRulesFileContent = this._getVoidRulesFileContents();
 
-		const ans: string[] = []
-		if (globalAIInstructions) ans.push(globalAIInstructions)
-		if (voidRulesFileContent) ans.push(voidRulesFileContent)
-		return ans.join('\n\n')
+		const ans: string[] = [];
+		if (globalAIInstructions) { ans.push(globalAIInstructions); }
+		if (voidRulesFileContent) { ans.push(voidRulesFileContent); }
+		return ans.join('\n\n');
 	}
 
 
 	// system message with caching
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
-		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
+		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
@@ -1268,15 +1310,15 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' ?
 				`...Directories string cut off, use tools to read more...`
 				: `...Directories string cut off, ask user for more if necessary...`
-		})
+		});
 
 		// Always include XML tool definitions in Agent Mode, even if native format is available
 		// This ensures tools are visible to the LLM in both formats
-		const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent'
+		const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent';
 
-		const mcpTools = this.mcpService.getMCPTools()
+		const mcpTools = this.mcpService.getMCPTools();
 
-		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
+		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds();
 
 		// Get relevant memories for the current context (use active file and recent user messages as query)
 		let relevantMemories: string | undefined;
@@ -1298,8 +1340,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				if (memories.length > 0) {
 					const memoryLines = memories.map(m => {
 						const typeLabel = m.entry.type === 'decision' ? 'Decision' :
-						                 m.entry.type === 'preference' ? 'Preference' :
-						                 m.entry.type === 'recentFile' ? 'Recent File' : 'Context';
+							m.entry.type === 'preference' ? 'Preference' :
+								m.entry.type === 'recentFile' ? 'Recent File' : 'Context';
 						return `- [${typeLabel}] ${m.entry.key}: ${m.entry.value}`;
 					});
 					relevantMemories = memoryLines.join('\n');
@@ -1310,7 +1352,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1324,8 +1366,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		return systemMessage
-	}
+		return systemMessage;
+	};
 
 
 
@@ -1333,17 +1375,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	// --- LLM Chat messages ---
 
 	private _chatMessagesToSimpleMessages(chatMessages: ChatMessage[]): SimpleLLMMessage[] {
-		const simpleLLMMessages: SimpleLLMMessage[] = []
+		const simpleLLMMessages: SimpleLLMMessage[] = [];
 
 		for (const m of chatMessages) {
-			if (m.role === 'checkpoint') continue
-			if (m.role === 'interrupted_streaming_tool') continue
+			if (m.role === 'checkpoint') { continue; }
+			if (m.role === 'interrupted_streaming_tool') { continue; }
 			if (m.role === 'assistant') {
 				simpleLLMMessages.push({
 					role: m.role,
 					content: m.displayContent,
 					anthropicReasoning: m.anthropicReasoning,
-				})
+				});
 			}
 			else if (m.role === 'tool') {
 				simpleLLMMessages.push({
@@ -1352,36 +1394,36 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					name: m.name,
 					id: m.id,
 					rawParams: m.rawParams,
-				})
+				});
 			}
 			else if (m.role === 'user') {
 				simpleLLMMessages.push({
 					role: m.role,
 					content: m.content,
 					images: m.images,
-				})
+				});
 			}
 		}
-		return simpleLLMMessages
+		return simpleLLMMessages;
 	}
 
 	prepareLLMSimpleMessages: IConvertToLLMMessageService['prepareLLMSimpleMessages'] = ({ simpleMessages, systemMessage, modelSelection, featureName }) => {
-		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
+		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
-		const { overridesOfModel } = this.cortexideSettingsService.state
+		const { overridesOfModel } = this.cortexideSettingsService.state;
 
-		const { providerName, modelName } = modelSelection
+		const { providerName, modelName } = modelSelection;
 		// Skip "auto" - it's not a real provider
 		if (providerName === 'auto' && modelName === 'auto') {
-			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first')
+			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first');
 		}
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(providerName, modelName, overridesOfModel)
+		} = getModelCapabilities(providerName, modelName, overridesOfModel);
 
-		const modelSelectionOptions = this.cortexideSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
+		const modelSelectionOptions = this.cortexideSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName];
 
 		// Get combined AI instructions
 		const aiInstructions = this._getCombinedAIInstructions();
@@ -1389,8 +1431,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Keep this method synchronous (indexer enrichment handled in Chat flow)
 		const enrichedSystemMessage = systemMessage;
 
-		const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
-		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel })
+		const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel);
+		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel });
 
 		const { messages, separateSystemMessage } = prepareMessages({
 			messages: simpleMessages,
@@ -1402,9 +1444,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName,
-		})
+		});
 		return { messages, separateSystemMessage };
-	}
+	};
 	startRepoIndexerQuery: IConvertToLLMMessageService['startRepoIndexerQuery'] = async (chatMessages, chatMode) => {
 		// PERFORMANCE: Start repo indexer query early (can be done in parallel with router decision)
 		if (!this.cortexideSettingsService.state.globalSettings.enableRepoIndexer) {
@@ -1423,38 +1465,38 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			return result;
 		} catch (error) {
 			// Try to warm index if query failed (might not exist yet)
-			this.repoIndexerService.warmIndex(undefined).catch(() => {});
+			this.repoIndexerService.warmIndex(undefined).catch(() => { });
 			return null;
 		}
-	}
+	};
 
 	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise }) => {
-		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
+		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
-		const { overridesOfModel } = this.cortexideSettingsService.state
+		const { overridesOfModel } = this.cortexideSettingsService.state;
 
-		const { providerName, modelName } = modelSelection
+		const { providerName, modelName } = modelSelection;
 		// Skip "auto" - it's not a real provider
 		if (providerName === 'auto' && modelName === 'auto') {
-			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first')
+			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first');
 		}
 		// At this point, TypeScript knows providerName is not "auto", but we need to assert it for the type system
-		const validProviderName = providerName as Exclude<typeof providerName, 'auto'>
+		const validProviderName = providerName as Exclude<typeof providerName, 'auto'>;
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(validProviderName, modelName, overridesOfModel)
+		} = getModelCapabilities(validProviderName, modelName, overridesOfModel);
 
 		const { disableSystemMessage } = this.cortexideSettingsService.state.globalSettings;
-		const fullSystemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat)
+		const fullSystemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat);
 		let systemMessage = disableSystemMessage ? '' : fullSystemMessage;
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)
 		// PERFORMANCE: Use pre-started promise if available (from parallel execution), otherwise start now
 		if (this.cortexideSettingsService.state.globalSettings.enableRepoIndexer && !disableSystemMessage) {
 			let indexResults: string[] | null = null;
-			let metrics: any = null;
+			let metrics: unknown = null;
 
 			if (repoIndexerPromise) {
 				// Use pre-started query (from parallel execution with router)
@@ -1475,7 +1517,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 							indexResults = result.results;
 							metrics = result.metrics;
 						} catch (err) {
-							this.repoIndexerService.warmIndex(undefined).catch(() => {});
+							this.repoIndexerService.warmIndex(undefined).catch(() => { });
 						}
 					}
 				}
@@ -1490,7 +1532,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 						indexResults = result.results;
 						metrics = result.metrics;
 					} catch (error) {
-						this.repoIndexerService.warmIndex(undefined).catch(() => {});
+						this.repoIndexerService.warmIndex(undefined).catch(() => { });
 					}
 				}
 			}
@@ -1517,48 +1559,48 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			} else if (!repoIndexerPromise) {
 				// Index might be empty - try to warm it in background (only if we started query ourselves)
-				this.repoIndexerService.warmIndex(undefined).catch(() => {});
+				this.repoIndexerService.warmIndex(undefined).catch(() => { });
 			}
 		}
 
 		// Get model options (providerName is already validated above)
-		const modelSelectionOptions = this.cortexideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName]
+		const modelSelectionOptions = this.cortexideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName];
 
 		// Get combined AI instructions
 		const aiInstructions = this._getCombinedAIInstructions();
-		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
-		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
-		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
+		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel);
+		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel });
+		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages);
 
 		// Smart context truncation: Prioritize recent messages and user selections
-		const estimateTokens = (text: string) => Math.ceil(text.length / 4)
-		const approximateTotalTokens = (msgs: { role: string, content: string }[], sys: string, instr: string) =>
-			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr))
-		const rot = reservedOutputTokenSpace ?? 0
+		const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+		const approximateTotalTokens = (msgs: { role: string; content: string }[], sys: string, instr: string) =>
+			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr));
+		const rot = reservedOutputTokenSpace ?? 0;
 		// More aggressive budget: use 75% instead of 80% to leave more room for output
-		const budget = Math.max(256, Math.floor(contextWindow * 0.75) - rot)
-		const beforeTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+		const budget = Math.max(256, Math.floor(contextWindow * 0.75) - rot);
+		const beforeTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 
 		if (beforeTokens > budget && llmMessages.length > 6) {
 			// Smart truncation: Keep recent messages + prioritize user messages with selections
-			const keepTailCount = 6
-			const head = llmMessages.slice(0, Math.max(0, llmMessages.length - keepTailCount))
-			const tail = llmMessages.slice(-keepTailCount)
+			const keepTailCount = 6;
+			const head = llmMessages.slice(0, Math.max(0, llmMessages.length - keepTailCount));
+			const tail = llmMessages.slice(-keepTailCount);
 
 			// Prioritize user messages (they contain selections/context)
-			const userMessages = head.filter(m => m.role === 'user')
-			const otherMessages = head.filter(m => m.role !== 'user')
+			const userMessages = head.filter(m => m.role === 'user');
+			const otherMessages = head.filter(m => m.role !== 'user');
 
 			// Keep more user messages, truncate assistant messages more aggressively
-			const userSummary = userMessages.map(m => `${m.role}: ${m.content.slice(0, 2000)}`).join('\n').slice(0, 2500) // Reduced from 3000
-			const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, 500)}`).join('\n').slice(0, 800) // Reduced from 1000
+			const userSummary = userMessages.map(m => `${m.role}: ${m.content.slice(0, 2000)}`).join('\n').slice(0, 2500); // Reduced from 3000
+			const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, 500)}`).join('\n').slice(0, 800); // Reduced from 1000
 
-			const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '')
-			const summary = `\n\n<chat_summary>\nPrior conversation summarized (${head.length} messages). Key points:\n${headConcat.slice(0, 800)}${headConcat.length > 800 ? '…' : ''}\n</chat_summary>` // Reduced from 1000
-			systemMessage = (systemMessage || '') + summary
-			llmMessages = tail
-			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
-			try { this.notificationService.info(`Context: ~${beforeTokens} → ~${afterTokens} tokens (smart truncation)`)} catch {}
+			const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '');
+			const summary = `\n\n<chat_summary>\nPrior conversation summarized (${head.length} messages). Key points:\n${headConcat.slice(0, 800)}${headConcat.length > 800 ? '…' : ''}\n</chat_summary>`; // Reduced from 1000
+			systemMessage = (systemMessage || '') + summary;
+			llmMessages = tail;
+			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
+			try { this.notificationService.info(`Context: ~${beforeTokens} → ~${afterTokens} tokens (smart truncation)`); } catch { }
 		}
 
 		const { messages, separateSystemMessage } = prepareMessages({
@@ -1571,9 +1613,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName: validProviderName,
-		})
+		});
 		return { messages, separateSystemMessage };
-	}
+	};
 
 
 	// --- FIM ---
@@ -1582,18 +1624,18 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Get combined AI instructions with the provided aiInstructions as the base
 		const combinedInstructions = this._getCombinedAIInstructions();
 
-		let prefix = `\
+		const prefix = `\
 ${!combinedInstructions ? '' : `\
 // Instructions:
 // Do not output an explanation. Try to avoid outputting comments. Only output the middle code.
 ${combinedInstructions.split('\n').map(line => `//${line}`).join('\n')}`}
 
-${messages.prefix}`
+${messages.prefix}`;
 
-		const suffix = messages.suffix
-		const stopTokens = messages.stopTokens
-		return { prefix, suffix, stopTokens }
-	}
+		const suffix = messages.suffix;
+		const stopTokens = messages.stopTokens;
+		return { prefix, suffix, stopTokens };
+	};
 
 
 }
@@ -1627,6 +1669,7 @@ gemini response:
 	"function_response": {
 		"name": "get_weather",
 			"response": {
+			// allow-any-unicode-next-line
 			"temperature": "15°C",
 				"condition": "Cloudy"
 		}

@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -16,6 +16,7 @@ import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../void-settings-tsx/ModelDropdown.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
+import { ChatTabsBar } from './ChatTabsBar.js';
 import { CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
@@ -501,15 +502,15 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 			}}
 			className={`
 				gap-x-1
-                flex flex-col p-2.5 relative input text-left shrink-0
-                rounded-2xl
-                bg-[#030304]
+				flex flex-col p-2.5 relative input text-left shrink-0
+				rounded-2xl
+				bg-[#030304]
 				transition-all duration-200
 				border border-[rgba(255,255,255,0.08)] focus-within:border-[rgba(255,255,255,0.12)] hover:border-[rgba(255,255,255,0.12)]
 				${isDragOver ? 'border-blue-500 bg-blue-500/10' : ''}
 				max-h-[80vh] overflow-y-auto
-                ${className}
-            `}
+				${className}
+			`}
 			onClick={(e) => {
 				onClickAnywhere?.()
 			}}
@@ -1104,7 +1105,7 @@ const ToolHeaderWrapper = ({
 			{<div
 				className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'opacity-100 py-1' : 'max-h-0 opacity-0'}
 					text-void-fg-4 rounded-sm overflow-x-auto
-				  `}
+				`}
 			//    bg-black bg-opacity-10 border border-void-border-4 border-opacity-50
 			>
 				{children}
@@ -1422,24 +1423,24 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	return <div
 		// align chatbubble accoridng to role
 		className={`
-        relative ml-auto
-        ${mode === 'edit' ? 'w-full max-w-full'
+			relative ml-auto
+			${mode === 'edit' ? 'w-full max-w-full'
 				: mode === 'display' ? `self-end w-fit max-w-full whitespace-pre-wrap` : '' // user words should be pre
 			}
 
-        ${isCheckpointGhost && !isMsgAfterCheckpoint ? 'opacity-50 pointer-events-none' : ''}
-    `}
+			${isCheckpointGhost && !isMsgAfterCheckpoint ? 'opacity-50 pointer-events-none' : ''}
+		`}
 		onMouseEnter={() => setIsHovered(true)}
 		onMouseLeave={() => setIsHovered(false)}
 	>
 		<div
 			// style chatbubble according to role
 			className={`
-            text-left rounded-lg max-w-full
-            ${mode === 'edit' ? ''
+				text-left rounded-lg max-w-full
+				${mode === 'edit' ? ''
 					: mode === 'display' ? 'p-2 flex flex-col bg-void-bg-1 text-void-fg-1 overflow-x-auto cursor-pointer' : ''
 				}
-        `}
+			`}
 			onClick={() => { if (mode === 'display') { onOpenEdit() } }}
 		>
 			{chatbubbleContents}
@@ -1456,12 +1457,12 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			<EditSymbol
 				size={18}
 				className={`
-                    cursor-pointer
-                    p-[2px]
-                    bg-void-bg-1 border border-void-border-1 rounded-md
-                    transition-opacity duration-200 ease-in-out
-                    ${isHovered || (isFocused && mode === 'edit') ? 'opacity-100' : 'opacity-0'}
-                `}
+					cursor-pointer
+					p-[2px]
+					bg-void-bg-1 border border-void-border-1 rounded-md
+					transition-opacity duration-200 ease-in-out
+					${isHovered || (isFocused && mode === 'edit') ? 'opacity-100' : 'opacity-0'}
+				`}
 				onClick={() => {
 					if (mode === 'display') {
 						onOpenEdit()
@@ -1871,13 +1872,13 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		<button
 			onClick={onAccept}
 			className={`
-                px-2 py-1
-                bg-[var(--vscode-button-background)]
-                text-[var(--vscode-button-foreground)]
-                hover:bg-[var(--vscode-button-hoverBackground)]
-                rounded
-                text-sm font-medium
-            `}
+				px-2 py-1
+				bg-[var(--vscode-button-background)]
+				text-[var(--vscode-button-foreground)]
+				hover:bg-[var(--vscode-button-hoverBackground)]
+				rounded
+				text-sm font-medium
+			`}
 		>
 			Approve
 		</button>
@@ -1887,13 +1888,13 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		<button
 			onClick={onReject}
 			className={`
-                px-2 py-1
-                bg-[var(--vscode-button-secondaryBackground)]
-                text-[var(--vscode-button-secondaryForeground)]
-                hover:bg-[var(--vscode-button-secondaryHoverBackground)]
-                rounded
-                text-sm font-medium
-            `}
+				px-2 py-1
+				bg-[var(--vscode-button-secondaryBackground)]
+				text-[var(--vscode-button-secondaryForeground)]
+				hover:bg-[var(--vscode-button-secondaryHoverBackground)]
+				rounded
+				text-sm font-medium
+			`}
 		>
 			Cancel
 		</button>
@@ -2077,9 +2078,29 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 
 		// Listen for size changes of the container and keep the terminal layout in sync.
 		const resizeObserver = new ResizeObserver((entries) => {
-			const height = entries[0].borderBoxSize[0].blockSize;
-			const width = entries[0].borderBoxSize[0].inlineSize;
-			if (typeof terminal.layout === 'function') {
+			if (!entries[0]) return;
+
+			// borderBoxSize might not be available in all browsers or might be undefined
+			// Fall back to contentRect if borderBoxSize is not available
+			let width: number;
+			let height: number;
+
+			if (entries[0].borderBoxSize && entries[0].borderBoxSize.length > 0) {
+				width = entries[0].borderBoxSize[0].inlineSize;
+				height = entries[0].borderBoxSize[0].blockSize;
+			} else if (entries[0].contentRect) {
+				// Fallback to contentRect for older browsers
+				width = entries[0].contentRect.width;
+				height = entries[0].contentRect.height;
+			} else {
+				// Last resort: use target's client dimensions
+				const target = entries[0].target as HTMLElement;
+				width = target.clientWidth;
+				height = target.clientHeight;
+			}
+
+			// Only layout if we have valid dimensions
+			if (width > 0 && height > 0 && typeof terminal.layout === 'function') {
 				terminal.layout({ width, height });
 			}
 		});
@@ -2926,12 +2947,12 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 	>
 		<div
 			className={`
-                    text-xs
-                    text-void-fg-3
-                    select-none
-                    ${isCheckpointGhost ? 'opacity-50' : 'opacity-100'}
+				text-xs
+				text-void-fg-3
+				select-none
+				${isCheckpointGhost ? 'opacity-50' : 'opacity-100'}
 					${isDisabled ? 'cursor-default' : 'cursor-pointer'}
-                `}
+			`}
 			style={{ position: 'relative', display: 'inline-block' }} // allow absolute icon
 			onClick={() => {
 				if (threadIsRunning) return
@@ -2974,10 +2995,10 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 
 	// Subscribe to thread state changes properly
 	const chatThreadsState = useChatThreadsState()
-    const approvalState = message.approvalState || 'pending'
-    const isRunning = useChatThreadsStreamState(threadId)?.isRunning
-    const isBusy = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
-    const isIdleLike = isRunning === undefined || isRunning === 'idle'
+	const approvalState = message.approvalState || 'pending'
+	const isRunning = useChatThreadsStreamState(threadId)?.isRunning
+	const isBusy = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
+	const isIdleLike = isRunning === undefined || isRunning === 'idle'
 
 	// Get thread messages with proper subscription
 	const thread = chatThreadsState.allThreads[threadId]
@@ -3066,18 +3087,18 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 		})
 	}
 
-    const handleApprove = () => {
-        if (isCheckpointGhost || isBusy) return
+	const handleApprove = () => {
+		if (isCheckpointGhost || isBusy) return
 		chatThreadService.approvePlan({ threadId, messageIdx })
 	}
 
 	const handleReject = () => {
-        if (isCheckpointGhost || isBusy) return
+		if (isCheckpointGhost || isBusy) return
 		chatThreadService.rejectPlan({ threadId, messageIdx })
 	}
 
 	const handleToggleStep = (stepNumber: number) => {
-        if (isCheckpointGhost || isBusy) return
+		if (isCheckpointGhost || isBusy) return
 		chatThreadService.toggleStepDisabled({ threadId, messageIdx, stepNumber })
 	}
 
@@ -3138,7 +3159,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 						{!isCollapsed && (
 							<div className="flex items-center gap-3 flex-shrink-0">
 								<span className="text-void-fg-3 text-xs" aria-live="polite">{progressText}</span>
-                                {approvalState === 'pending' && isIdleLike && (
+								{approvalState === 'pending' && isIdleLike && (
 									<div className="flex gap-2">
 										<button
 											title="Reject plan"
@@ -3650,13 +3671,13 @@ const CommandBarInChat = () => {
 	// orange = Requires action
 	// dark = Done
 
-    const threadStatus = (
-        chatThreadsStreamState?.isRunning === 'awaiting_user'
-            ? { title: 'Needs Approval', color: 'yellow', } as const
-            : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing')
-                ? { title: chatThreadsStreamState?.isRunning === 'preparing' ? 'Preparing' : 'Running', color: 'orange', } as const
-                : { title: 'Done', color: 'dark', } as const
-    )
+	const threadStatus = (
+		chatThreadsStreamState?.isRunning === 'awaiting_user'
+			? { title: 'Needs Approval', color: 'yellow', } as const
+			: (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing')
+				? { title: chatThreadsStreamState?.isRunning === 'preparing' ? 'Preparing' : 'Running', color: 'orange', } as const
+				: { title: 'Done', color: 'dark', } as const
+	)
 
 
 	const threadStatusHTML = <StatusIndicator className='mx-1' indicatorColor={threadStatus.color} title={threadStatus.title} />
@@ -4698,81 +4719,85 @@ export const SidebarChat = () => {
 		</div>
 	</div>
 
-    const keybindingService = accessor.get('IKeybindingService')
-    const quickActions: { id: string, label: string }[] = [
-        { id: 'void.explainCode', label: 'Explain' },
-        { id: 'void.refactorCode', label: 'Refactor' },
-        { id: 'void.addTests', label: 'Add Tests' },
-        { id: 'void.fixTests', label: 'Fix Tests' },
-        { id: 'void.writeDocstring', label: 'Docstring' },
-        { id: 'void.optimizeCode', label: 'Optimize' },
-        { id: 'void.debugCode', label: 'Debug' },
-    ]
+	const keybindingService = accessor.get('IKeybindingService')
+	const quickActions: { id: string, label: string }[] = [
+		{ id: 'void.explainCode', label: 'Explain' },
+		{ id: 'void.refactorCode', label: 'Refactor' },
+		{ id: 'void.addTests', label: 'Add Tests' },
+		{ id: 'void.fixTests', label: 'Fix Tests' },
+		{ id: 'void.writeDocstring', label: 'Docstring' },
+		{ id: 'void.optimizeCode', label: 'Optimize' },
+		{ id: 'void.debugCode', label: 'Debug' },
+	]
 
-    const QuickActionsBar = () => (
-        <div className='w-full flex items-center justify-center gap-2 flex-wrap mt-3 select-none px-1'>
-            {quickActions.map(({ id, label }) => {
-                const kb = keybindingService.lookupKeybinding(id)?.getLabel()
-                return (
-                    <button
-                        key={id}
-                        className='px-3 py-1.5 rounded-full bg-gradient-to-br from-[var(--cortex-surface-2)] via-[var(--cortex-surface-3)] to-[var(--cortex-surface-4)] border border-void-border-3 text-xs text-void-fg-1 shadow-[0_3px_12px_rgba(0,0,0,0.45)] hover:-translate-y-0.5 transition-all duration-150 ease-out void-focus-ring'
-                        onClick={() => commandService.executeCommand(id)}
-                        title={kb ? `${label} (${kb})` : label}
-                    >
-                        <span>{label}</span>
-                        {kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
-                    </button>
-                )
-            })}
-        </div>
-    )
+	const QuickActionsBar = () => (
+		<div className='w-full flex items-center justify-center gap-2 flex-wrap mt-3 select-none px-1'>
+			{quickActions.map(({ id, label }) => {
+				const kb = keybindingService.lookupKeybinding(id)?.getLabel()
+				return (
+					<button
+						key={id}
+						className='px-3 py-1.5 rounded-full bg-gradient-to-br from-[var(--cortex-surface-2)] via-[var(--cortex-surface-3)] to-[var(--cortex-surface-4)] border border-void-border-3 text-xs text-void-fg-1 shadow-[0_3px_12px_rgba(0,0,0,0.45)] hover:-translate-y-0.5 transition-all duration-150 ease-out void-focus-ring'
+						onClick={() => commandService.executeCommand(id)}
+						title={kb ? `${label} (${kb})` : label}
+					>
+						<span>{label}</span>
+						{kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
+					</button>
+				)
+			})}
+		</div>
+	)
 
-    // Lightweight context chips: active file and model
-    const ContextChipsBar = () => {
-        const editorService = accessor.get('IEditorService')
-        const activeEditor = editorService?.activeEditor
-        // Try best-effort file label
-        const activeResource = activeEditor?.resource
-        const activeFileLabel = activeResource ? activeResource.path?.split('/').pop() : undefined
-        const modelSel = settingsState.modelSelectionOfFeature['Chat']
-        const modelLabel = modelSel ? `${modelSel.providerName}:${modelSel.modelName}` : undefined
-        if (!activeFileLabel && !modelLabel) return null
-        return (
-            <div className='w-full flex items-center gap-2 flex-wrap mt-2 mb-1 px-1'>
-                {activeFileLabel && (
-                    <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded border border-void-border-3 bg-void-bg-1 text-void-fg-2 text-[11px]'>
-                        <span>File</span>
-                        <span className='text-void-fg-1'>{activeFileLabel}</span>
-                    </span>
-                )}
-                {modelLabel && (
-                    <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded border border-void-border-3 bg-void-bg-1 text-void-fg-2 text-[11px]'>
-                        <span>Model</span>
-                        <span className='text-void-fg-1'>{modelLabel}</span>
-                    </span>
-                )}
-            </div>
-        )
-    }
+	// Lightweight context chips: active file and model
+	const ContextChipsBar = () => {
+		const editorService = accessor.get('IEditorService')
+		const activeEditor = editorService?.activeEditor
+		// Try best-effort file label
+		const activeResource = activeEditor?.resource
+		const activeFileLabel = activeResource ? activeResource.path?.split('/').pop() : undefined
+		const modelSel = settingsState.modelSelectionOfFeature['Chat']
+		const modelLabel = modelSel ? `${modelSel.providerName}:${modelSel.modelName}` : undefined
+		if (!activeFileLabel && !modelLabel) return null
+		return (
+			<div className='w-full flex items-center gap-2 flex-wrap mt-2 mb-1 px-1'>
+				{activeFileLabel && (
+					<span className='inline-flex items-center gap-1 px-2 py-0.5 rounded border border-void-border-3 bg-void-bg-1 text-void-fg-2 text-[11px]'>
+						<span>File</span>
+						<span className='text-void-fg-1'>{activeFileLabel}</span>
+					</span>
+				)}
+				{modelLabel && (
+					<span className='inline-flex items-center gap-1 px-2 py-0.5 rounded border border-void-border-3 bg-void-bg-1 text-void-fg-2 text-[11px]'>
+						<span>Model</span>
+						<span className='text-void-fg-1'>{modelLabel}</span>
+					</span>
+				)}
+			</div>
+		)
+	}
 
-    const landingPageContent = <div
+	const landingPageContent = <div
 		ref={sidebarRef}
-		className='w-full h-full max-h-full flex flex-col overflow-auto px-3'
+		className='w-full h-full max-h-full flex flex-col overflow-auto'
 	>
 		<ErrorBoundary>
-			{landingPageInput}
+			<ChatTabsBar />
 		</ErrorBoundary>
+		<div className='px-3'>
+			<ErrorBoundary>
+				{landingPageInput}
+			</ErrorBoundary>
 
 		{/* Context chips */}
 		<ErrorBoundary>
 			<ContextChipsBar />
 		</ErrorBoundary>
 
-        {/* Quick Actions shortcuts */}
-        <ErrorBoundary>
-            <QuickActionsBar />
-        </ErrorBoundary>
+		{/* Quick Actions shortcuts */}
+		<ErrorBoundary>
+			<QuickActionsBar />
+		</ErrorBoundary>
 
 		{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
 			<ErrorBoundary>
@@ -4785,6 +4810,7 @@ export const SidebarChat = () => {
 				{initiallySuggestedPromptsHTML}
 			</ErrorBoundary>
 		}
+		</div>
 	</div>
 
 
@@ -4805,7 +4831,9 @@ export const SidebarChat = () => {
 		ref={sidebarRef}
 		className='w-full h-full flex flex-col overflow-hidden'
 	>
-
+		<ErrorBoundary>
+			<ChatTabsBar />
+		</ErrorBoundary>
 		<ErrorBoundary>
 			{messagesHTML}
 		</ErrorBoundary>

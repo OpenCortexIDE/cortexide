@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -241,32 +246,32 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private _getIndexPath(): URI | null {
 		const workspace = this.workspaceContextService.getWorkspace();
-		if (!workspace.id) return null;
-		// Store index outside workspace in workspaceStorageHome, similar to how Cursor does it
-		// This keeps the workspace clean and prevents index files from being visible to users
-		return joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.json');
+		const workspaceFolder = workspace.folders[0]?.uri;
+		if (!workspaceFolder) { return null; }
+		// Store index in .cortexide directory within the workspace
+		return joinPath(workspaceFolder, '.cortexide', 'index.json');
 	}
 
 	private async _loadIndex(): Promise<void> {
 		const indexPath = this._getIndexPath();
-		if (!indexPath) return;
+		if (!indexPath) { return; }
 		try {
 			const content = await this.fileService.readFile(indexPath);
 			const data = JSON.parse(content.value.toString());
 			if (Array.isArray(data)) {
 				// Validate and deserialize index entries (convert arrays back to Sets)
-				this._index = data.filter((entry: any) =>
+				this._index = data.filter((entry: unknown) =>
 					entry &&
 					typeof entry.uri === 'string' &&
 					Array.isArray(entry.symbols) &&
 					typeof entry.snippet === 'string'
-				).map((entry: any) => ({
+				).map((entry: unknown) => ({
 					...entry,
 					// Convert arrays back to Sets for fast lookups
 					snippetTokens: entry.snippetTokens ? new Set(entry.snippetTokens) : undefined,
 					uriTokens: entry.uriTokens ? new Set(entry.uriTokens) : undefined,
 					symbolTokens: entry.symbolTokens ? new Set(entry.symbolTokens) : undefined,
-					chunks: entry.chunks?.map((chunk: any) => ({
+					chunks: entry.chunks?.map((chunk: unknown) => ({
 						...chunk,
 						tokens: chunk.tokens ? new Set(chunk.tokens) : undefined,
 						embedding: chunk.embedding && Array.isArray(chunk.embedding) ? chunk.embedding : undefined
@@ -283,32 +288,34 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				this._isWarmed = true;
 			}
 		} catch (error) {
-			// Try to migrate from old location (.cortexide/index.json in workspace)
+			// Try to migrate from old location (workspaceStorageHome)
 			await this._tryMigrateFromOldLocation();
 		}
 	}
 
 	private async _tryMigrateFromOldLocation(): Promise<void> {
-		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		const workspace = this.workspaceContextService.getWorkspace();
+		const workspaceFolder = workspace.folders[0]?.uri;
+		if (!workspaceFolder || !workspace.id) { return; }
 
-		const oldIndexPath = workspace.with({ path: `${workspace.path}/.cortexide/index.json` });
+		// Try to migrate from workspaceStorageHome (old location)
+		const oldIndexPath = joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.json');
 		try {
 			const content = await this.fileService.readFile(oldIndexPath);
 			const data = JSON.parse(content.value.toString());
 			if (Array.isArray(data)) {
 				// Validate and migrate index entries (convert arrays to Sets if present)
-				this._index = data.filter((entry: any) =>
+				this._index = data.filter((entry: unknown) =>
 					entry &&
 					typeof entry.uri === 'string' &&
 					Array.isArray(entry.symbols) &&
 					typeof entry.snippet === 'string'
-				).map((entry: any) => ({
+				).map((entry: unknown) => ({
 					...entry,
 					snippetTokens: entry.snippetTokens ? (Array.isArray(entry.snippetTokens) ? new Set(entry.snippetTokens) : entry.snippetTokens) : undefined,
 					uriTokens: entry.uriTokens ? (Array.isArray(entry.uriTokens) ? new Set(entry.uriTokens) : entry.uriTokens) : undefined,
 					symbolTokens: entry.symbolTokens ? (Array.isArray(entry.symbolTokens) ? new Set(entry.symbolTokens) : entry.symbolTokens) : undefined,
-					chunks: entry.chunks?.map((chunk: any) => ({
+					chunks: entry.chunks?.map((chunk: unknown) => ({
 						...chunk,
 						tokens: chunk.tokens ? (Array.isArray(chunk.tokens) ? new Set(chunk.tokens) : chunk.tokens) : undefined
 					})),
@@ -319,9 +326,9 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				// Rebuild inverted indexes from migrated data
 				this._rebuildInvertedIndexes();
 				this._isWarmed = true;
-				// Save to new location
+				// Save to new location (.cortexide/index.json)
 				await this._saveIndex();
-				console.debug('[RepoIndexer] Migrated index from old location to new location');
+				console.debug('[RepoIndexer] Migrated index from workspaceStorageHome to .cortexide/index.json');
 			}
 		} catch (error) {
 			// Old index doesn't exist or is invalid, will rebuild on demand
@@ -331,19 +338,19 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private async _saveIndex(): Promise<void> {
 		const indexPath = this._getIndexPath();
-		if (!indexPath) return;
+		if (!indexPath) { return; }
 		try {
 			// Serialize with Set conversion for JSON compatibility
 			// Optimize: remove undefined/null fields and use compact format
 			const serializableIndex = this._index.map(entry => {
-				const result: any = {
+				const result: unknown = {
 					uri: entry.uri,
 					symbols: entry.symbols,
 					snippet: entry.snippet
 				};
 				// Only include optional fields if they exist
-				if (entry.snippetStartLine) result.snippetStartLine = entry.snippetStartLine;
-				if (entry.snippetEndLine) result.snippetEndLine = entry.snippetEndLine;
+				if (entry.snippetStartLine) { result.snippetStartLine = entry.snippetStartLine; }
+				if (entry.snippetEndLine) { result.snippetEndLine = entry.snippetEndLine; }
 				if (entry.snippetTokens && entry.snippetTokens.size > 0) {
 					result.snippetTokens = Array.from(entry.snippetTokens);
 				}
@@ -355,7 +362,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				}
 				if (entry.chunks && entry.chunks.length > 0) {
 					result.chunks = entry.chunks.map(chunk => {
-						const chunkResult: any = {
+						const chunkResult: unknown = {
 							text: chunk.text,
 							startLine: chunk.startLine,
 							endLine: chunk.endLine
@@ -415,10 +422,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const walk = async (dir: URI): Promise<void> => {
 			try {
 				const entries = await this.fileService.resolve(dir);
-				if (!entries.children) return;
+				if (!entries.children) { return; }
 
 				for (const child of entries.children) {
-					if (shouldIgnore(child.resource.path)) continue;
+					if (shouldIgnore(child.resource.path)) { continue; }
 
 					if (child.isDirectory) {
 						await walk(child.resource);
@@ -451,7 +458,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				const astSymbols = await this.treeSitterService.extractSymbols(uri, fileContent);
 
 				// Convert AST symbols to string array
-				const extractNames = (sym: any): void => {
+				const extractNames = (sym: unknown): void => {
 					if (sym.name && !symbols.includes(sym.name)) {
 						symbols.push(sym.name);
 					}
@@ -479,21 +486,21 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			// Only extract symbols if model is already loaded (to avoid expensive model initialization)
 			// During rebuild, symbols will only be extracted for files that are already open/loaded
 			const model = this.modelService.getModel(uri);
-			if (!model) return symbols;
+			if (!model) { return symbols; }
 
 			const docSymbols = await this.languageFeaturesService.documentSymbolProvider.ordered(model);
-			if (!docSymbols || docSymbols.length === 0) return symbols;
+			if (!docSymbols || docSymbols.length === 0) { return symbols; }
 
 			for (const provider of docSymbols) {
-				const docSymbols_ = await provider.provideDocumentSymbols(model, {} as any);
+				const docSymbols_ = await provider.provideDocumentSymbols(model, {} as unknown);
 				if (docSymbols_) {
-					const extract = (sym: any): void => {
+					const extract = (sym: unknown): void => {
 						const name = sym.name || '';
 						if (name && !symbols.includes(name)) {
 							symbols.push(name);
 						}
 						if (sym.children) {
-							for (const child of sym.children) extract(child);
+							for (const child of sym.children) { extract(child); }
 						}
 					};
 					for (const sym of docSymbols_) {
@@ -673,7 +680,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 					currentPos += chunkSize - chunkOverlap;
 					chunkIndex++;
 
-					if (chunkEndPos >= text.length) break;
+					if (chunkEndPos >= text.length) { break; }
 				}
 			}
 
@@ -828,7 +835,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	async warmIndex(workspaceRoot?: URI): Promise<void> {
-		if (this._isWarmed) return;
+		if (this._isWarmed) { return; }
 
 		const workspace = this.workspaceContextService.getWorkspace();
 		if (!workspace.id) {
@@ -925,7 +932,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// If index is empty, try to warm it first (non-blocking)
 		if (this._index.length === 0 && !this._isWarmed) {
 			// Trigger background warmup without waiting
-			this.warmIndex(undefined).catch(() => {});
+			this.warmIndex(undefined).catch(() => { });
 		}
 
 		// First, try the on-disk index
@@ -1048,13 +1055,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 					const entryIndex = entriesToScore[i];
 					const entry = this._index[entryIndex];
-					if (!entry) continue;
+					if (!entry) { continue; }
 
 					// Score main snippet (using pre-computed tokens for faster matching)
 					const mainScore = this._scoreEntryFast(q, qTokens, entry);
 					if (mainScore > 0) {
 						scoredItems.push({ entry, score: mainScore, isChunk: false });
-						if (mainScore >= 5) highScoreCount++;
+						if (mainScore >= 5) { highScoreCount++; }
 					}
 
 					// Lazy chunk evaluation: only score chunks if main snippet score is promising
@@ -1066,7 +1073,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 							const chunkScore = this._scoreChunkFast(q, qTokens, chunk);
 							if (chunkScore > 0) {
 								scoredItems.push({ entry, chunk, score: chunkScore, isChunk: true });
-								if (chunkScore >= 5) highScoreCount++;
+								if (chunkScore >= 5) { highScoreCount++; }
 							}
 						}
 					}
@@ -1360,8 +1367,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Optimized BM25 reranking with pre-computed tokens and cached term frequencies
 	 */
 	private _rerankBM25Fast(query: string, qTokens: Set<string>, items: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }>, k: number): typeof items {
-		if (items.length === 0) return items;
-		if (qTokens.size === 0) return items;
+		if (items.length === 0) { return items; }
+		if (qTokens.size === 0) { return items; }
 
 		// Use cached average document length (much faster than computing per query)
 		const avgDocLength = this._getAvgDocLength() || items.reduce((sum, item) => {
@@ -1465,7 +1472,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		items: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }>,
 		k: number
 	): typeof items {
-		if (items.length === 0) return items;
+		if (items.length === 0) { return items; }
 
 		// If no query embedding, fall back to BM25-only
 		if (!queryEmbedding || queryEmbedding.length === 0) {
@@ -1514,7 +1521,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		vectorResults: Array<{ id: string; score: number }>,
 		k: number
 	): typeof items {
-		if (items.length === 0) return items;
+		if (items.length === 0) { return items; }
 
 		// Create a map of vector store scores by document ID
 		const vectorScoreMap = new Map<string, number>();
@@ -1581,7 +1588,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const heapifyUp = (idx: number) => {
 			while (idx > 0) {
 				const parent = Math.floor((idx - 1) / 2);
-				if (heap[parent].score <= heap[idx].score) break;
+				if (heap[parent].score <= heap[idx].score) { break; }
 				[heap[parent], heap[idx]] = [heap[idx], heap[parent]];
 				idx = parent;
 			}
@@ -1599,7 +1606,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				if (right < heap.length && heap[right].score < heap[smallest].score) {
 					smallest = right;
 				}
-				if (smallest === idx) break;
+				if (smallest === idx) { break; }
 				[heap[idx], heap[smallest]] = [heap[smallest], heap[idx]];
 				idx = smallest;
 			}
@@ -1632,8 +1639,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Optimized: Use sorted arrays with binary search for large sets (faster than Set.has)
 	 */
 	private _setIntersection(sets: Set<number>[]): Set<number> {
-		if (sets.length === 0) return new Set();
-		if (sets.length === 1) return new Set(sets[0]);
+		if (sets.length === 0) { return new Set(); }
+		if (sets.length === 1) { return new Set(sets[0]); }
 
 		// Start with the smallest set for efficiency
 		sets.sort((a, b) => a.size - b.size);
@@ -1673,7 +1680,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 
 			result = newResult;
-			if (result.size === 0) break; // Early exit
+			if (result.size === 0) { break; } // Early exit
 		}
 
 		return result;
@@ -1700,7 +1707,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		if (!workspace) { return; }
 
 		// Watch workspace for file changes (recursive, with exclusions)
 		const watcher = this.fileService.watch(workspace, {
@@ -1731,7 +1738,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private _handleFileChanges(e: FileChangesEvent): void {
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		if (!workspace) { return; }
 
 		// Process deleted files (immediate removal)
 		for (const resource of e.rawDeleted) {
@@ -1744,10 +1751,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
 
 			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) continue;
+			if (!shouldIndex) { continue; }
 
 			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) continue;
+			if (!path.startsWith(workspace.fsPath)) { continue; }
 
 			// Find and remove from index
 			const entryIndex = this._index.findIndex(entry => entry.uri === path);
@@ -1773,10 +1780,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
 
 			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) continue;
+			if (!shouldIndex) { continue; }
 
 			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) continue;
+			if (!path.startsWith(workspace.fsPath)) { continue; }
 
 			// Invalidate file content cache for updated files (will be refreshed on next read)
 			this._fileContentCache.delete(path);
@@ -1792,7 +1799,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	private async _processPendingUpdates(): Promise<void> {
-		if (this._pendingUpdates.size === 0) return;
+		if (this._pendingUpdates.size === 0) { return; }
 
 		const urisToUpdate = Array.from(this._pendingUpdates);
 		this._pendingUpdates.clear();
@@ -1916,7 +1923,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			} else if (entry.symbolTokens) {
 				// Token overlap in symbol name (using pre-computed tokens)
 				for (const token of qTokens) {
-					if (entry.symbolTokens.has(token)) score += 2;
+					if (entry.symbolTokens.has(token)) { score += 2; }
 				}
 			}
 		}
@@ -1931,7 +1938,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 		} else {
 			const uriLower = entry.uri.toLowerCase();
-			if (uriLower.includes(qLower)) score += 3;
+			if (uriLower.includes(qLower)) { score += 3; }
 		}
 
 		// Lexical overlap in snippet (weighted by token matches) - use pre-computed snippet tokens
@@ -1976,7 +1983,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// very naive token overlap
 		const qt = new Set(q.split(/[^a-z0-9_]+/g).filter(Boolean));
 		let score = 0;
-		for (const t of qt) if (doc.includes(t)) score += 1;
+		for (const t of qt) { if (doc.includes(t)) { score += 1; } }
 		return score;
 	}
 
@@ -2400,7 +2407,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 */
 	private _removeFromInvertedIndexes(entryIndex: number): void {
 		const entry = this._index[entryIndex];
-		if (!entry) return;
+		if (!entry) { return; }
 
 		// Remove from path index
 		this._pathIndex.delete(entry.uri.toLowerCase());

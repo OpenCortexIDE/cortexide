@@ -449,6 +449,8 @@
 		// DEV: a blob URL that loads the CSS via a dynamic @import-rule.
 		// DEV ---------------------------------------------------------------------------------------
 
+		const importMap: { imports: Record<string, string> } = { imports: {} };
+
 		if (Array.isArray(configuration.cssModules) && configuration.cssModules.length > 0) {
 			performance.mark('code/willAddCssLoader');
 
@@ -461,7 +463,6 @@
 				window.document.head.appendChild(link);
 			};
 
-			const importMap: { imports: Record<string, string> } = { imports: {} };
 			for (const cssModule of configuration.cssModules) {
 				const cssUrl = new URL(cssModule, baseUrl).href;
 				const jsSrc = `globalThis._VSCODE_CSS_LOAD('${cssUrl}');\n`;
@@ -469,6 +470,154 @@
 				importMap.imports[cssUrl] = URL.createObjectURL(blob);
 			}
 
+			performance.mark('code/didAddCssLoader');
+		}
+
+		// Add import maps for React bundle modules to fix vscode-file:// protocol relative import issues
+		// These modules are imported by React bundle chunks using absolute paths (vs/workbench/...) that need import maps
+		const reactBundleModules = [
+			'vs/workbench/contrib/cortexide/browser/actionIDs.js',
+			'vs/workbench/contrib/cortexide/browser/cortexideSettingsPane.js',
+			'vs/workbench/contrib/cortexide/browser/terminalToolService.js',
+			'vs/workbench/contrib/cortexide/common/cortexideSettingsTypes.js',
+			'vs/workbench/contrib/cortexide/common/cortexideSettingsService.js',
+			'vs/workbench/contrib/cortexide/common/sendLLMMessageService.js',
+			'vs/workbench/contrib/cortexide/common/refreshModelService.js',
+			'vs/workbench/contrib/cortexide/common/metricsService.js',
+			'vs/workbench/contrib/cortexide/common/cortexideModelService.js',
+			'vs/workbench/contrib/cortexide/common/mcpService.js',
+			'vs/workbench/contrib/cortexide/common/storageKeys.js',
+			'vs/workbench/contrib/cortexide/common/secretDetectionService.js',
+			'vs/workbench/contrib/cortexide/common/helpers/languageHelpers.js',
+			'vs/workbench/contrib/cortexide/common/helpers/util.js',
+			'vs/workbench/contrib/cortexide/common/helpers/extractCodeFromResult.js',
+			'vs/workbench/contrib/cortexide/common/sendLLMMessageTypes.js',
+			'vs/workbench/contrib/cortexide/common/modelCapabilities.js',
+			'vs/workbench/contrib/cortexide/common/toolsServiceTypes.js',
+			'vs/workbench/contrib/cortexide/common/prompt/prompts.js',
+			'vs/workbench/contrib/cortexide/common/mcpServiceTypes.js',
+			'vs/workbench/contrib/cortexide/common/pdfService.js',
+			'vs/workbench/contrib/cortexide/common/helpers/systemInfo.js',
+		];
+
+		// Also add common VS Code modules that might be imported
+		const commonVSCodeModules = [
+			'vs/base/common/uri.js',
+			'vs/base/common/path.js',
+			'vs/base/common/severity.js',
+			'vs/base/common/lifecycle.js',
+			'vs/base/common/errorMessage.js',
+			'vs/base/browser/ui/inputbox/inputBox.js',
+			'vs/base/browser/ui/selectBox/selectBox.js',
+			'vs/base/browser/ui/toggle/toggle.js',
+			'vs/base/common/network.js',
+			'vs/platform/theme/browser/defaultStyles.js',
+			'vs/platform/theme/common/colorUtils.js',
+			'vs/platform/theme/common/colorRegistry.js',
+			'vs/platform/theme/common/theme.js',
+			'vs/platform/storage/common/storage.js',
+			'vs/editor/common/editorCommon.js',
+			'vs/editor/browser/widget/codeEditor/codeEditorWidget.js',
+			'vs/editor/browser/widget/diffEditor/diffEditorWidget.js',
+		];
+
+		// Add React bundle chunk files to import maps (in case they're imported with absolute paths)
+		const reactChunkModules = [
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-RM77YOHK.js',
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-RJP66NWB.js',
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-PT4A2IRQ.js',
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-SWVXQVDT.js',
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-JSBRDJBE.js',
+			'vs/workbench/contrib/cortexide/browser/react/out/chunk-6FX43ENS.js',
+		];
+
+		const additionalReactDeps = [
+			'vs/editor/browser/services/codeEditorService.js',
+			'vs/editor/browser/widget/diffEditor/diffEditorWidget.js',
+			'vs/editor/browser/widget/codeEditor/codeEditorWidget.js',
+			'vs/editor/common/editorCommon.js',
+			'vs/editor/common/languages/language.js',
+			'vs/editor/common/languages/languageConfigurationRegistry.js',
+			'vs/editor/common/services/languageFeatures.js',
+			'vs/editor/common/services/model.js',
+			'vs/platform/accessibility/common/accessibility.js',
+			'vs/platform/clipboard/common/clipboardService.js',
+			'vs/platform/commands/common/commands.js',
+			'vs/platform/configuration/common/configuration.js',
+			'vs/platform/contextkey/common/contextkey.js',
+			'vs/platform/contextview/browser/contextView.js',
+			'vs/platform/environment/common/environment.js',
+			'vs/platform/extensionManagement/common/extensionManagement.js',
+			'vs/platform/files/common/files.js',
+			'vs/platform/hover/browser/hover.js',
+			'vs/platform/instantiation/common/instantiation.js',
+			'vs/platform/keybinding/common/keybinding.js',
+			'vs/platform/native/common/native.js',
+			'vs/platform/notification/common/notification.js',
+			'vs/platform/workspace/common/workspace.js',
+			'vs/platform/theme/common/themeService.js',
+			'vs/workbench/services/languageDetection/common/languageDetectionWorkerService.js',
+			'vs/workbench/services/search/common/search.js',
+			'vs/workbench/contrib/cortexide/browser/common/cortexideSettingsTypes.js',
+			'vs/workbench/contrib/cortexide/browser/extensionTransferService.js',
+			'vs/workbench/contrib/cortexide/browser/terminalToolService.js',
+			'vs/workbench/contrib/cortexide/chatThreadService.js',
+			'vs/workbench/contrib/cortexide/common/cortexideModelService.js',
+			'vs/workbench/contrib/cortexide/common/cortexideSettingsService.js',
+			'vs/workbench/contrib/cortexide/common/helpers/extractCodeFromResult.js',
+			'vs/workbench/contrib/cortexide/common/helpers/languageHelpers.js',
+			'vs/workbench/contrib/cortexide/common/helpers/systemInfo.js',
+			'vs/workbench/contrib/cortexide/common/helpers/util.js',
+			'vs/workbench/contrib/cortexide/common/mcpService.js',
+			'vs/workbench/contrib/cortexide/common/mcpServiceTypes.js',
+			'vs/workbench/contrib/cortexide/common/metricsService.js',
+			'vs/workbench/contrib/cortexide/common/modelCapabilities.js',
+			'vs/workbench/contrib/cortexide/common/pdfService.js',
+			'vs/workbench/contrib/cortexide/common/prompt/prompts.js',
+			'vs/workbench/contrib/cortexide/common/refreshModelService.js',
+			'vs/workbench/contrib/cortexide/common/secretDetectionService.js',
+			'vs/workbench/contrib/cortexide/common/sendLLMMessageService.js',
+			'vs/workbench/contrib/cortexide/common/sendLLMMessageTypes.js',
+			'vs/workbench/contrib/cortexide/common/storageKeys.js',
+			'vs/workbench/contrib/cortexide/common/toolsServiceTypes.js',
+			'vs/workbench/contrib/cortexide/convertToLLMMessageService.js',
+			'vs/workbench/contrib/cortexide/cortexideCommandBarService.js',
+			'vs/workbench/contrib/cortexide/editCodeServiceInterface.js',
+			'vs/workbench/contrib/cortexide/repoIndexerService.js',
+			'vs/workbench/contrib/cortexide/toolsService.js',
+			'vs/workbench/contrib/files/browser/files.js',
+			'vs/workbench/services/path/common/pathService.js',
+			'vs/workbench/contrib/terminal/browser/terminal.js',
+		];
+
+		for (const module of [...reactBundleModules, ...commonVSCodeModules, ...reactChunkModules, ...additionalReactDeps]) {
+			const moduleUrl = new URL(module, baseUrl).href;
+			importMap.imports[module] = moduleUrl;
+		}
+
+		// Provide aliases for modules that might be referenced without the /browser/ segment
+		const browserModuleAliases: Array<[string, string]> = [
+			['vs/workbench/contrib/cortexide/actionIDs.js', 'vs/workbench/contrib/cortexide/browser/actionIDs.js'],
+			['vs/workbench/contrib/cortexide/cortexideSettingsPane.js', 'vs/workbench/contrib/cortexide/browser/cortexideSettingsPane.js'],
+			['vs/workbench/contrib/cortexide/terminalToolService.js', 'vs/workbench/contrib/cortexide/browser/terminalToolService.js'],
+			['vs/workbench/contrib/cortexide/chatThreadService.js', 'vs/workbench/contrib/cortexide/browser/chatThreadService.js'],
+			['vs/workbench/contrib/cortexide/convertToLLMMessageService.js', 'vs/workbench/contrib/cortexide/browser/convertToLLMMessageService.js'],
+			['vs/workbench/contrib/cortexide/cortexideCommandBarService.js', 'vs/workbench/contrib/cortexide/browser/cortexideCommandBarService.js'],
+			['vs/workbench/contrib/cortexide/editCodeServiceInterface.js', 'vs/workbench/contrib/cortexide/browser/editCodeServiceInterface.js'],
+			['vs/workbench/contrib/cortexide/repoIndexerService.js', 'vs/workbench/contrib/cortexide/browser/repoIndexerService.js'],
+			['vs/workbench/contrib/cortexide/toolsService.js', 'vs/workbench/contrib/cortexide/browser/toolsService.js'],
+			['vs/workbench/contrib/cortexide/extensionTransferService.js', 'vs/workbench/contrib/cortexide/browser/extensionTransferService.js'],
+			['vs/workbench/contrib/cortexide/toolsService.js', 'vs/workbench/contrib/cortexide/browser/toolsService.js'],
+			// Aliases for old paths that might still be in bundled code
+			['vs/services/languageDetection/common/languageDetectionWorkerService.js', 'vs/workbench/services/languageDetection/common/languageDetectionWorkerService.js'],
+			['vs/services/search/common/search.js', 'vs/workbench/services/search/common/search.js'],
+			['vs/workbench/terminal/browser/terminal.js', 'vs/workbench/contrib/terminal/browser/terminal.js'],
+		];
+		for (const [alias, target] of browserModuleAliases) {
+			importMap.imports[alias] = new URL(target, baseUrl).href;
+		}
+
+		if (Object.keys(importMap.imports).length > 0) {
 			const ttp = window.trustedTypes?.createPolicy('vscode-bootstrapImportMap', { createScript(value) { return value; }, });
 			const importMapSrc = JSON.stringify(importMap, undefined, 2);
 			const importMapScript = document.createElement('script');
@@ -477,8 +626,6 @@
 			// @ts-expect-error
 			importMapScript.textContent = ttp?.createScript(importMapSrc) ?? importMapSrc;
 			window.document.head.appendChild(importMapScript);
-
-			performance.mark('code/didAddCssLoader');
 		}
 	}
 

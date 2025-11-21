@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * mcp-response-types.ts
  * --------------------------------------------------
@@ -9,21 +14,25 @@
  *   3. tools/call      -> ToolCallResponse
  *
  * They are distilled directly from the official MCP
+ * // allow-any-unicode-next-line
  * 2025‑03‑26 specification:
  *   • Tools list response examples
  *   • Prompts list response examples
  *   • Tool call response examples
  *
  * Use them to get full IntelliSense when working with
+ * // allow-any-unicode-next-line
  * @modelcontextprotocol/inspector‑cli responses.
  */
 
 
 /* -------------------------------------------------- */
+// allow-any-unicode-next-line
 /* Core JSON‑RPC envelope                              */
 /* -------------------------------------------------- */
 
 // export interface JsonRpcSuccess<T> {
+// 	// allow-any-unicode-next-line
 // 	/** JSON‑RPC version – always '2.0' */
 // 	jsonrpc: '2.0';
 // 	/** Request identifier echoed back by the server */
@@ -48,10 +57,12 @@
 export interface MCPTool {
 	/** Unique tool identifier */
 	name: string;
+	// allow-any-unicode-next-line
 	/** Human‑readable description */
 	description?: string;
 	/** JSON schema describing expected arguments */
 	inputSchema?: Record<string, unknown>;
+	// allow-any-unicode-next-line
 	/** Free‑form annotations describing behaviour, security, etc. */
 	annotations?: Record<string, unknown>;
 }
@@ -93,6 +104,7 @@ export interface MCPTool {
 // export interface Resource {
 // 	uri: string;
 // 	mimeType: string;
+// 	// allow-any-unicode-next-line
 // 	/** Either plain‑text or base64‑encoded binary data */
 // 	text?: string;
 // 	data?: string;
@@ -108,6 +120,7 @@ export interface MCPTool {
 // export interface ToolCallResult {
 // 	/** List of content parts (text, images, resources, etc.) */
 // 	content: ToolContent[];
+// 	// allow-any-unicode-next-line
 // 	/** True if the tool itself encountered a domain‑level error */
 // 	isError?: boolean;
 // }
@@ -123,7 +136,8 @@ export interface MCPConfigFileEntryJSON {
 	env?: Record<string, string>;
 
 	// URL-based server properties
-	url?: URL;
+	url?: string | URL; // Can be string (from JSON) or URL object
+	type?: 'http' | 'sse'; // Explicit transport type. If not specified, tries HTTP first, then SSE
 	headers?: Record<string, string>;
 }
 
@@ -136,16 +150,16 @@ export interface MCPConfigFileJSON {
 
 export type MCPServer = {
 	// Command-based server properties
-	tools: MCPTool[],
-	status: 'loading' | 'success' | 'offline',
-	command?: string,
-	error?: string,
+	tools: MCPTool[];
+	status: 'loading' | 'success' | 'offline';
+	command?: string;
+	error?: string;
 } | {
-	tools?: undefined,
-	status: 'error',
-	command?: string,
-	error: string,
-}
+	tools?: undefined;
+	status: 'error';
+	command?: string;
+	error: string;
+};
 
 export interface MCPServerOfName {
 	[serverName: string]: MCPServer;
@@ -155,14 +169,14 @@ export type MCPServerEvent = {
 	name: string;
 	prevServer?: MCPServer;
 	newServer?: MCPServer;
-}
-export type MCPServerEventResponse = { response: MCPServerEvent }
+};
+export type MCPServerEventResponse = { response: MCPServerEvent };
 
 export interface MCPConfigFileParseErrorResponse {
 	response: {
 		type: 'config-file-error';
 		error: string | null;
-	}
+	};
 }
 
 
@@ -216,8 +230,8 @@ type MCPToolResponseConstraints = {
 	'resource': {
 		text?: never;
 		image?: never;
-	}
-}
+	};
+};
 
 type MCPToolEventResponse<T extends MCPToolResponseType> = Omit<MCPToolResponseBase, 'event' | keyof MCPToolResponseConstraints> & MCPToolResponseConstraints[T] & { event: T };
 
@@ -238,5 +252,5 @@ export interface MCPToolCallParams {
 
 
 export const removeMCPToolNamePrefix = (name: string) => {
-	return name.split('_').slice(1).join('_')
-}
+	return name.split('_').slice(1).join('_');
+};
