@@ -101,7 +101,7 @@ export const defaultModelsOfProvider = {
 		'grok-3-mini-fast'
 	],
 	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
-		'gemini-2.5-pro-exp-03-25',
+		// 'gemini-2.5-pro-exp-03-25', // Not available in API v1beta
 		'gemini-2.5-flash-preview-04-17',
 		'gemini-2.0-flash',
 		'gemini-2.0-flash-lite',
@@ -416,7 +416,7 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		};
 	};
 
-	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) { return toFallback(geminiModelOptions, 'gemini-2.5-pro-exp-03-25'); }
+	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) { return toFallback(geminiModelOptions, 'gemini-2.5-pro-preview-05-06'); }
 
 	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) { return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022'); }
 	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }

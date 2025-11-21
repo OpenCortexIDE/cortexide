@@ -982,6 +982,11 @@ const sendGeminiChat = async ({
 				else if (error?.message?.includes('429')) {
 					onError({ message: 'Rate limit reached. ' + error, fullError: error });
 				}
+				else if (error?.message?.includes('404') || error?.message?.includes('NOT_FOUND') || error?.message?.includes('is not found')) {
+					// Model not found - provide helpful error message
+					const modelNotFoundMessage = `Model "${modelName}" is not available. The model may have been deprecated or is not supported in the current API version. Please try a different model.`;
+					onError({ message: modelNotFoundMessage, fullError: error });
+				}
 				else
 					onError({ message: error + '', fullError: error });
 			}
