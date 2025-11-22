@@ -27,16 +27,16 @@ function doesPathExist(filePath) {
 }
 
 /*
-
+ 
 This function finds `globalDesiredPath` given `localDesiredPath` and `currentPath`
-
+ 
 Diagram:
-
+ 
 ...basePath/
-└── void/
-	├── ...currentPath/ (defined globally)
-	└── ...localDesiredPath/ (defined locally)
-
+- void/
+  - ...currentPath/ (defined globally)
+  - ...localDesiredPath/ (defined locally)
+ 
 */
 function findDesiredPathFromLocalPath(localDesiredPath, currentPath) {
 
@@ -322,13 +322,16 @@ if (isWatch) {
 	// Check if src2/ exists; if not, do an initial scope-tailwind build
 	if (!fs.existsSync('src2')) {
 		try {
+			// allow-any-unicode-next-line
 			console.log('🔨 Running initial scope-tailwind build to create src2 folder...');
 			execSync(
 				'npx scope-tailwind ./src -o src2/ -s void-scope -c styles.css -p "void-"',
 				{ stdio: 'inherit' }
 			);
+			// allow-any-unicode-next-line
 			console.log('✅ src2/ created successfully.');
 		} catch (err) {
+			// allow-any-unicode-next-line
 			console.error('❌ Error running initial scope-tailwind build:', err);
 			process.exit(1);
 		}
@@ -378,9 +381,11 @@ if (isWatch) {
 		process.exit();
 	});
 
+	// allow-any-unicode-next-line
 	console.log('🔄 Watchers started! Press Ctrl+C to stop both watchers.');
 } else {
 	// Build mode
+	// allow-any-unicode-next-line
 	console.log('📦 Building...');
 
 	// Run scope-tailwind once
@@ -393,21 +398,21 @@ if (isWatch) {
 	console.log('🔧 Fixing import paths...');
 	fixImportPaths();
 
-	// Copy fixed files to out/ directory
+	// Copy fixed files to out/ and out-build/ directories
 	// IMPORTANT: fixImportPaths() must run BEFORE this copy step
 	// The files in src/vs/.../react/out/ have been fixed with absolute imports
-	// We need to copy those fixed files to out/vs/.../react/out/
-	console.log('📋 Copying files to out/ directory...');
+	// We need to copy those fixed files to both out/ and out-build/ directories
+	// Production builds use out-build/, while development uses out/
+	// allow-any-unicode-next-line
+	console.log('📋 Copying files to out/ and out-build/ directories...');
 	const srcOutDir = path.join(__dirname, 'out');
 	const outReactOutDir = path.join(__dirname, '../../../../../../../out/vs/workbench/contrib/cortexide/browser/react/out');
+	const outBuildReactOutDir = path.join(__dirname, '../../../../../../../out-build/vs/workbench/contrib/cortexide/browser/react/out');
 
 	if (!fs.existsSync(srcOutDir)) {
 		console.log('  Source out directory does not exist, skipping copy');
 	} else {
-		if (!fs.existsSync(outReactOutDir)) {
-			fs.mkdirSync(outReactOutDir, { recursive: true });
-		}
-
+		// Copy function that copies all files, not just .js files
 		function copyDir(src, dest) {
 			if (!fs.existsSync(dest)) {
 				fs.mkdirSync(dest, { recursive: true });
@@ -418,15 +423,30 @@ if (isWatch) {
 				const destPath = path.join(dest, entry.name);
 				if (entry.isDirectory()) {
 					copyDir(srcPath, destPath);
-				} else if (entry.isFile() && entry.name.endsWith('.js')) {
-					// Copy the fixed file (with absolute imports) to the out directory
+				} else if (entry.isFile()) {
+					// Copy all files (not just .js) - includes chunks, CSS, source maps, etc.
 					fs.copyFileSync(srcPath, destPath);
 				}
 			}
 		}
+
+		// Copy to out/ directory (for development)
+		if (!fs.existsSync(outReactOutDir)) {
+			fs.mkdirSync(outReactOutDir, { recursive: true });
+		}
 		copyDir(srcOutDir, outReactOutDir);
-		console.log('  Copied fixed files to out/ directory');
+		// allow-any-unicode-next-line
+		console.log('  ✓ Copied fixed files to out/ directory');
+
+		// Copy to out-build/ directory (for production builds)
+		if (!fs.existsSync(outBuildReactOutDir)) {
+			fs.mkdirSync(outBuildReactOutDir, { recursive: true });
+		}
+		copyDir(srcOutDir, outBuildReactOutDir);
+		// allow-any-unicode-next-line
+		console.log('  ✓ Copied fixed files to out-build/ directory');
 	}
 
+	// allow-any-unicode-next-line
 	console.log('✅ Build complete!');
 }

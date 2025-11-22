@@ -32,7 +32,13 @@ type VoidCommandBarModule = typeof import('./react/out/void-editor-widgets-tsx/i
 let mountVoidCommandBarPromise: Promise<VoidCommandBarModule['mountVoidCommandBar']> | undefined;
 function getMountVoidCommandBar() {
 	if (!mountVoidCommandBarPromise) {
-		mountVoidCommandBarPromise = import('./react/out/void-editor-widgets-tsx/index.js').then(m => m.mountVoidCommandBar);
+		mountVoidCommandBarPromise = import('./react/out/void-editor-widgets-tsx/index.js')
+			.then(m => m.mountVoidCommandBar)
+			.catch(error => {
+				console.error('[CortexideCommandBar] Failed to load React component:', error);
+				// Return a no-op function to prevent crashes
+				return () => { /* no-op */ };
+			});
 	}
 	return mountVoidCommandBarPromise;
 }
