@@ -723,7 +723,7 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 				return []
 			}
 		}
-		
+
 		try {
 			return marked.lexer(debouncedString)
 		} catch (e) {

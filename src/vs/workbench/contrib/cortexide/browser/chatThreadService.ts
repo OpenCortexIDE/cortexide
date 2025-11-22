@@ -3,52 +3,102 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { Disposable } from "../../../../base/common/lifecycle.js";
+import {
+	registerSingleton,
+	InstantiationType,
+} from "../../../../platform/instantiation/common/extensions.js";
+import { createDecorator } from "../../../../platform/instantiation/common/instantiation.js";
+import {
+	IStorageService,
+	StorageScope,
+	StorageTarget,
+} from "../../../../platform/storage/common/storage.js";
 
-import { URI } from '../../../../base/common/uri.js';
-import { Emitter, Event } from '../../../../base/common/event.js';
-import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
-import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
-import { generateUuid } from '../../../../base/common/uuid.js';
-import { FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, isAutoModelSelection } from '../common/cortexideSettingsTypes.js';
-import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
-import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
-import { IToolsService } from './toolsService.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
-import { Position } from '../../../../editor/common/core/position.js';
-import { IMetricsService } from '../common/metricsService.js';
-import { shorten } from '../../../../base/common/labels.js';
-import { ICortexideModelService } from '../common/cortexideModelService.js';
-import { findLast, findLastIdx } from '../../../../base/common/arraysFind.js';
-import { IEditCodeService } from './editCodeServiceInterface.js';
-import { CortexideFileSnapshot } from '../common/editCodeServiceTypes.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { truncate } from '../../../../base/common/strings.js';
-import { THREAD_STORAGE_KEY } from '../common/storageKeys.js';
-import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
-import { timeout } from '../../../../base/common/async.js';
-import { deepClone } from '../../../../base/common/objects.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { IDirectoryStrService } from '../common/directoryStrService.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
-import { IMCPService } from '../common/mcpService.js';
-import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
-import { preprocessImagesForQA } from './imageQAIntegration.js';
-import { ITaskAwareModelRouter, TaskContext, TaskType } from '../common/modelRouter.js';
-import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
-import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
-import { IModelService } from '../../../../editor/common/services/model.js';
-import { TextEdit } from '../../../../editor/common/core/edits/textEdit.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { localize } from '../../../../nls.js';
-import { IAuditLogService } from '../common/auditLogService.js';
-
+import { URI } from "../../../../base/common/uri.js";
+import { Emitter, Event } from "../../../../base/common/event.js";
+import { ILLMMessageService } from "../common/sendLLMMessageService.js";
+import {
+	chat_userMessageContent,
+	isABuiltinToolName,
+} from "../common/prompt/prompts.js";
+import {
+	AnthropicReasoning,
+	getErrorMessage,
+	RawToolCallObj,
+	RawToolParamsObj,
+} from "../common/sendLLMMessageTypes.js";
+import { generateUuid } from "../../../../base/common/uuid.js";
+import {
+	FeatureName,
+	ModelSelection,
+	ModelSelectionOptions,
+	ProviderName,
+	isAutoModelSelection,
+} from "../common/cortexideSettingsTypes.js";
+import { ICortexideSettingsService } from "../common/cortexideSettingsService.js";
+import {
+	approvalTypeOfBuiltinToolName,
+	BuiltinToolCallParams,
+	BuiltinToolResultType,
+	ToolCallParams,
+	ToolName,
+	ToolResult,
+} from "../common/toolsServiceTypes.js";
+import { IToolsService } from "./toolsService.js";
+import { CancellationToken } from "../../../../base/common/cancellation.js";
+import { ILanguageFeaturesService } from "../../../../editor/common/services/languageFeatures.js";
+import {
+	ChatMessage,
+	ChatImageAttachment,
+	ChatPDFAttachment,
+	CheckpointEntry,
+	CodespanLocationLink,
+	StagingSelectionItem,
+	ToolMessage,
+	PlanMessage,
+	PlanStep,
+	StepStatus,
+	ReviewMessage,
+} from "../common/chatThreadServiceTypes.js";
+import { Position } from "../../../../editor/common/core/position.js";
+import { IMetricsService } from "../common/metricsService.js";
+import { shorten } from "../../../../base/common/labels.js";
+import { ICortexideModelService } from "../common/cortexideModelService.js";
+import { findLast, findLastIdx } from "../../../../base/common/arraysFind.js";
+import { IEditCodeService } from "./editCodeServiceInterface.js";
+import { CortexideFileSnapshot } from "../common/editCodeServiceTypes.js";
+import {
+	INotificationService,
+	Severity,
+} from "../../../../platform/notification/common/notification.js";
+import { truncate } from "../../../../base/common/strings.js";
+import { THREAD_STORAGE_KEY } from "../common/storageKeys.js";
+import { IConvertToLLMMessageService } from "./convertToLLMMessageService.js";
+import { timeout } from "../../../../base/common/async.js";
+import { deepClone } from "../../../../base/common/objects.js";
+import { IWorkspaceContextService } from "../../../../platform/workspace/common/workspace.js";
+import { IDirectoryStrService } from "../common/directoryStrService.js";
+import { IFileService } from "../../../../platform/files/common/files.js";
+import { IMCPService } from "../common/mcpService.js";
+import { RawMCPToolCall } from "../common/mcpServiceTypes.js";
+import { preprocessImagesForQA } from "./imageQAIntegration.js";
+import {
+	ITaskAwareModelRouter,
+	TaskContext,
+	TaskType,
+} from "../common/modelRouter.js";
+import { chatLatencyAudit } from "../common/chatLatencyAudit.js";
+import {
+	IEditRiskScoringService,
+	EditContext,
+	EditRiskScore,
+} from "../common/editRiskScoringService.js";
+import { IModelService } from "../../../../editor/common/services/model.js";
+import { TextEdit } from "../../../../editor/common/core/edits/textEdit.js";
+import { ICommandService } from "../../../../platform/commands/common/commands.js";
+import { localize } from "../../../../nls.js";
+import { IAuditLogService } from "../common/auditLogService.js";
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -58,33 +108,40 @@ const MAX_RETRY_DELAY = 5000; // Cap at 5s
 const MAX_AGENT_LOOP_ITERATIONS = 20; // Maximum iterations to prevent infinite loops
 const MAX_FILES_READ_PER_QUERY = 10; // Maximum files to read in a single query to prevent excessive reads
 
-
-const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
-	if (!currentSelections) { return null; }
+const findStagingSelectionIndex = (
+	currentSelections: StagingSelectionItem[] | undefined,
+	newSelection: StagingSelectionItem,
+): number | null => {
+	if (!currentSelections) {
+		return null;
+	}
 
 	for (let i = 0; i < currentSelections.length; i += 1) {
 		const s = currentSelections[i];
 
-		if (s.uri.fsPath !== newSelection.uri.fsPath) { continue; }
+		if (s.uri.fsPath !== newSelection.uri.fsPath) {
+			continue;
+		}
 
-		if (s.type === 'File' && newSelection.type === 'File') {
+		if (s.type === "File" && newSelection.type === "File") {
 			return i;
 		}
-		if (s.type === 'CodeSelection' && newSelection.type === 'CodeSelection') {
+		if (s.type === "CodeSelection" && newSelection.type === "CodeSelection") {
 			// URI already checked above, no need to check again
 			// if there's any collision return true
 			const [oldStart, oldEnd] = s.range;
 			const [newStart, newEnd] = newSelection.range;
-			if (oldStart !== newStart || oldEnd !== newEnd) { continue; }
+			if (oldStart !== newStart || oldEnd !== newEnd) {
+				continue;
+			}
 			return i;
 		}
-		if (s.type === 'Folder' && newSelection.type === 'Folder') {
+		if (s.type === "Folder" && newSelection.type === "Folder") {
 			return i;
 		}
 	}
 	return null;
 };
-
 
 /*
 
@@ -107,9 +164,8 @@ INVARIANT:
 A checkpoint appears before every LLM message, and before every user message (before user really means directly after LLM is done).
 */
 
-
-type UserMessageType = ChatMessage & { role: 'user' };
-type UserMessageState = UserMessageType['state'];
+type UserMessageType = ChatMessage & { role: "user" };
+type UserMessageState = UserMessageType["state"];
 const defaultMessageState: UserMessageState = {
 	stagingSelections: [],
 	isBeingEdited: false,
@@ -121,8 +177,6 @@ type WhenMounted = {
 	textAreaRef: { current: HTMLTextAreaElement | null }; // the textarea that this thread has, gets set in SidebarChat
 	scrollToBottom: () => void;
 };
-
-
 
 export type ThreadType = {
 	id: string; // store the id here too
@@ -139,27 +193,24 @@ export type ThreadType = {
 		stagingSelections: StagingSelectionItem[];
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
 
-		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
+		linksOfMessageIdx: {
+			// eg. link = linksOfMessageIdx[4]['RangeFunction']
 			[messageIdx: number]: {
 				[codespanName: string]: CodespanLocationLink;
 			};
 		};
-
 
 		mountedInfo?: {
 			whenMounted: Promise<WhenMounted>;
 			_whenMountedResolver: (res: WhenMounted) => void;
 			mountedIsResolvedRef: { current: boolean };
 		};
-
-
 	};
 };
 
 type ChatThreads = {
 	[id: string]: undefined | ThreadType;
 };
-
 
 export type ThreadsState = {
 	allThreads: ChatThreads;
@@ -168,66 +219,75 @@ export type ThreadsState = {
 };
 
 export type IsRunningType =
-	| 'LLM' // the LLM is currently streaming
-	| 'tool' // whether a tool is currently running
-	| 'awaiting_user' // awaiting user call
-	| 'preparing' // preparing request (model selection, validation, etc.)
-	| 'idle' // nothing is running now, but the chat should still appear like it's going (used in-between calls)
+	| "LLM" // the LLM is currently streaming
+	| "tool" // whether a tool is currently running
+	| "awaiting_user" // awaiting user call
+	| "preparing" // preparing request (model selection, validation, etc.)
+	| "idle" // nothing is running now, but the chat should still appear like it's going (used in-between calls)
 	| undefined;
 
 export type ThreadStreamState = {
-	[threadId: string]: undefined | {
-		isRunning: undefined;
-		error?: { message: string; fullError: Error | null };
-		llmInfo?: undefined;
-		toolInfo?: undefined;
-		interrupt?: undefined;
-	} | { // an assistant message is being written
-		isRunning: 'LLM';
-		error?: undefined;
-		llmInfo: {
-			displayContentSoFar: string;
-			reasoningSoFar: string;
-			toolCallSoFar: RawToolCallObj | null;
-		};
-		toolInfo?: undefined;
-		interrupt: Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
-	} | { // a tool is being run
-		isRunning: 'tool';
-		error?: undefined;
-		llmInfo?: undefined;
-		toolInfo: {
-			toolName: ToolName;
-			toolParams: ToolCallParams<ToolName>;
-			id: string;
-			content: string;
-			rawParams: RawToolParamsObj;
-			mcpServerName: string | undefined;
-		};
-		interrupt: Promise<() => void>;
-	} | {
-		isRunning: 'awaiting_user';
-		error?: undefined;
-		llmInfo?: undefined;
-		toolInfo?: undefined;
-		interrupt?: undefined;
-	} | {
-		isRunning: 'preparing';
-		error?: undefined;
-		llmInfo: {
-			displayContentSoFar: string; // status message like "Selecting best model..." or "Preparing request..."
-			reasoningSoFar: string;
-			toolCallSoFar: RawToolCallObj | null;
-		};
-		toolInfo?: undefined;
-		interrupt: Promise<() => void>; // allow cancellation during preparation
-	} | {
-		isRunning: 'idle';
-		error?: undefined;
-		llmInfo?: undefined;
-		toolInfo?: undefined;
-		interrupt: 'not_needed' | Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
-	};
+	[threadId: string]:
+		| undefined
+		| {
+				isRunning: undefined;
+				error?: { message: string; fullError: Error | null };
+				llmInfo?: undefined;
+				toolInfo?: undefined;
+				interrupt?: undefined;
+		  }
+		| {
+				// an assistant message is being written
+				isRunning: "LLM";
+				error?: undefined;
+				llmInfo: {
+					displayContentSoFar: string;
+					reasoningSoFar: string;
+					toolCallSoFar: RawToolCallObj | null;
+				};
+				toolInfo?: undefined;
+				interrupt: Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
+		  }
+		| {
+				// a tool is being run
+				isRunning: "tool";
+				error?: undefined;
+				llmInfo?: undefined;
+				toolInfo: {
+					toolName: ToolName;
+					toolParams: ToolCallParams<ToolName>;
+					id: string;
+					content: string;
+					rawParams: RawToolParamsObj;
+					mcpServerName: string | undefined;
+				};
+				interrupt: Promise<() => void>;
+		  }
+		| {
+				isRunning: "awaiting_user";
+				error?: undefined;
+				llmInfo?: undefined;
+				toolInfo?: undefined;
+				interrupt?: undefined;
+		  }
+		| {
+				isRunning: "preparing";
+				error?: undefined;
+				llmInfo: {
+					displayContentSoFar: string; // status message like "Selecting best model..." or "Preparing request..."
+					reasoningSoFar: string;
+					toolCallSoFar: RawToolCallObj | null;
+				};
+				toolInfo?: undefined;
+				interrupt: Promise<() => void>; // allow cancellation during preparation
+		  }
+		| {
+				isRunning: "idle";
+				error?: undefined;
+				llmInfo?: undefined;
+				toolInfo?: undefined;
+				interrupt: "not_needed" | Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
+		  };
 };
 
 const newThreadObject = () => {
@@ -243,14 +303,9 @@ const newThreadObject = () => {
 			focusedMessageIdx: undefined,
 			linksOfMessageIdx: {},
 		},
-		filesWithUserChanges: new Set()
+		filesWithUserChanges: new Set(),
 	} satisfies ThreadType;
 };
-
-
-
-
-
 
 export interface IChatThreadService {
 	readonly _serviceBrand: undefined;
@@ -278,9 +333,12 @@ export interface IChatThreadService {
 	// exposed getters/setters
 	// these all apply to current thread
 	getCurrentMessageState: (messageIdx: number) => UserMessageState;
-	setCurrentMessageState: (messageIdx: number, newState: Partial<UserMessageState>) => void;
-	getCurrentThreadState: () => ThreadType['state'];
-	setCurrentThreadState: (newState: Partial<ThreadType['state']>) => void;
+	setCurrentMessageState: (
+		messageIdx: number,
+		newState: Partial<UserMessageState>,
+	) => void;
+	getCurrentThreadState: () => ThreadType["state"];
+	setCurrentThreadState: (newState: Partial<ThreadType["state"]>) => void;
 
 	// you can edit multiple messages - the one you're currently editing is "focused", and we add items to that one when you press cmd+L.
 	getCurrentFocusedMessageIdx(): number | undefined;
@@ -298,9 +356,21 @@ export interface IChatThreadService {
 	// closeCurrentStagingSelectionsInThread(): void;
 
 	// codespan links (link to symbols in the markdown)
-	getCodespanLink(opts: { codespanStr: string; messageIdx: number; threadId: string }): CodespanLocationLink | undefined;
-	addCodespanLink(opts: { newLinkText: string; newLinkLocation: CodespanLocationLink; messageIdx: number; threadId: string }): void;
-	generateCodespanLink(opts: { codespanStr: string; threadId: string }): Promise<CodespanLocationLink>;
+	getCodespanLink(opts: {
+		codespanStr: string;
+		messageIdx: number;
+		threadId: string;
+	}): CodespanLocationLink | undefined;
+	addCodespanLink(opts: {
+		newLinkText: string;
+		newLinkLocation: CodespanLocationLink;
+		messageIdx: number;
+		threadId: string;
+	}): void;
+	generateCodespanLink(opts: {
+		codespanStr: string;
+		threadId: string;
+	}): Promise<CodespanLocationLink>;
 	getRelativeStr(uri: URI): string | undefined;
 
 	// entry pts
@@ -308,46 +378,100 @@ export interface IChatThreadService {
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
-	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string; messageIdx: number; threadId: string }): Promise<void>;
+	editUserMessageAndStreamResponse({
+		userMessage,
+		messageIdx,
+		threadId,
+	}: {
+		userMessage: string;
+		messageIdx: number;
+		threadId: string;
+	}): Promise<void>;
 
 	// call to add a message
-	addUserMessageAndStreamResponse({ userMessage, threadId, images, noPlan, displayContent }: { userMessage: string; threadId: string; images?: ChatImageAttachment[]; noPlan?: boolean; displayContent?: string }): Promise<void>;
+	addUserMessageAndStreamResponse({
+		userMessage,
+		threadId,
+		images,
+		noPlan,
+		displayContent,
+	}: {
+		userMessage: string;
+		threadId: string;
+		images?: ChatImageAttachment[];
+		noPlan?: boolean;
+		displayContent?: string;
+	}): Promise<void>;
 
 	// approve/reject
 	approveLatestToolRequest(threadId: string): void;
 	rejectLatestToolRequest(threadId: string): void;
 
 	// jump to history
-	jumpToCheckpointBeforeMessageIdx(opts: { threadId: string; messageIdx: number; jumpToUserModified: boolean }): void;
+	jumpToCheckpointBeforeMessageIdx(opts: {
+		threadId: string;
+		messageIdx: number;
+		jumpToUserModified: boolean;
+	}): void;
 
 	// Plan management methods
 	approvePlan(opts: { threadId: string; messageIdx: number }): void;
 	rejectPlan(opts: { threadId: string; messageIdx: number }): void;
-	editPlan(opts: { threadId: string; messageIdx: number; updatedPlan: PlanMessage }): void;
-	toggleStepDisabled(opts: { threadId: string; messageIdx: number; stepNumber: number }): void;
-	reorderPlanSteps(opts: { threadId: string; messageIdx: number; newStepOrder: number[] }): void;
+	editPlan(opts: {
+		threadId: string;
+		messageIdx: number;
+		updatedPlan: PlanMessage;
+	}): void;
+	toggleStepDisabled(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): void;
+	reorderPlanSteps(opts: {
+		threadId: string;
+		messageIdx: number;
+		newStepOrder: number[];
+	}): void;
 
 	// Step execution control
 	pauseAgentExecution(opts: { threadId: string }): Promise<void>;
 	resumeAgentExecution(opts: { threadId: string }): Promise<void>;
-	retryStep(opts: { threadId: string; messageIdx: number; stepNumber: number }): Promise<void>;
-	skipStep(opts: { threadId: string; messageIdx: number; stepNumber: number }): void;
-	rollbackToStep(opts: { threadId: string; messageIdx: number; stepNumber: number }): Promise<void>;
+	retryStep(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): Promise<void>;
+	skipStep(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): void;
+	rollbackToStep(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): Promise<void>;
 
 	focusCurrentChat: () => Promise<void>;
 	blurCurrentChat: () => Promise<void>;
 }
 
-export const IChatThreadService = createDecorator<IChatThreadService>('voidChatThreadService');
+export const IChatThreadService = createDecorator<IChatThreadService>(
+	"voidChatThreadService",
+);
 class ChatThreadService extends Disposable implements IChatThreadService {
 	_serviceBrand: undefined;
 
 	// this fires when the current thread changes at all (a switch of currentThread, or a message added to it, etc)
 	private readonly _onDidChangeCurrentThread = new Emitter<void>();
-	readonly onDidChangeCurrentThread: Event<void> = this._onDidChangeCurrentThread.event;
+	readonly onDidChangeCurrentThread: Event<void> =
+		this._onDidChangeCurrentThread.event;
 
-	private readonly _onDidChangeStreamState = new Emitter<{ threadId: string }>();
-	readonly onDidChangeStreamState: Event<{ threadId: string }> = this._onDidChangeStreamState.event;
+	private readonly _onDidChangeStreamState = new Emitter<{
+		threadId: string;
+	}>();
+	readonly onDidChangeStreamState: Event<{ threadId: string }> =
+		this._onDidChangeStreamState.event;
 
 	readonly streamState: ThreadStreamState = {};
 	state: ThreadsState; // allThreads is persisted, currentThread is not
@@ -358,7 +482,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// Cache for file read results to prevent duplicate reads
 	// Key: threadId -> cacheKey (uri.fsPath + startLine + endLine + pageNumber) -> cached result
 	// Uses LRU eviction to prevent unbounded memory growth
-	private readonly _fileReadCache: Map<string, Map<string, BuiltinToolResultType['read_file']>> = new Map();
+	private readonly _fileReadCache: Map<
+		string,
+		Map<string, BuiltinToolResultType["read_file"]>
+	> = new Map();
 
 	// LRU tracking for file read cache (threadId -> ordered list of cache keys)
 	private readonly _fileReadCacheLRU: Map<string, string[]> = new Map();
@@ -366,34 +493,47 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	// Throttle stream state updates during streaming to reduce React re-renders
 	// Use requestAnimationFrame to batch updates for better performance
-	private readonly _pendingStreamStateUpdates = new Map<string, ThreadStreamState[string]>();
+	private readonly _pendingStreamStateUpdates = new Map<
+		string,
+		ThreadStreamState[string]
+	>();
 	private _streamStateRafId: number | undefined;
-
-
 
 	constructor(
 		@IStorageService private readonly _storageService: IStorageService,
-		@ICortexideModelService private readonly _cortexideModelService: ICortexideModelService,
+		@ICortexideModelService
+		private readonly _cortexideModelService: ICortexideModelService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IToolsService private readonly _toolsService: IToolsService,
-		@ICortexideSettingsService private readonly _settingsService: ICortexideSettingsService,
-		@ILanguageFeaturesService private readonly _languageFeaturesService: ILanguageFeaturesService,
+		@ICortexideSettingsService
+		private readonly _settingsService: ICortexideSettingsService,
+		@ILanguageFeaturesService
+		private readonly _languageFeaturesService: ILanguageFeaturesService,
 		@IMetricsService private readonly _metricsService: IMetricsService,
 		@IEditCodeService private readonly _editCodeService: IEditCodeService,
-		@INotificationService private readonly _notificationService: INotificationService,
-		@IConvertToLLMMessageService private readonly _convertToLLMMessagesService: IConvertToLLMMessageService,
-		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
+		@INotificationService
+		private readonly _notificationService: INotificationService,
+		@IConvertToLLMMessageService
+		private readonly _convertToLLMMessagesService: IConvertToLLMMessageService,
+		@IWorkspaceContextService
+		private readonly _workspaceContextService: IWorkspaceContextService,
+		@IDirectoryStrService
+		private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
 		@IMCPService private readonly _mcpService: IMCPService,
 		@ITaskAwareModelRouter private readonly _modelRouter: ITaskAwareModelRouter,
-		@IEditRiskScoringService private readonly _editRiskScoringService: IEditRiskScoringService,
+		@IEditRiskScoringService
+		private readonly _editRiskScoringService: IEditRiskScoringService,
 		@IModelService private readonly _modelService: IModelService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] }; // default state
+		this.state = {
+			allThreads: {},
+			currentThreadId: null as unknown as string,
+			openTabs: [],
+		}; // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {};
 
@@ -409,9 +549,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// always be in a thread
 		this.openNewThread();
 
-
 		// keep track of user-modified files
-
 	}
 
 	// If true for a thread, suppress plan generation once for the next user message
@@ -420,7 +558,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	async focusCurrentChat() {
 		const threadId = this.state.currentThreadId;
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const s = await thread.state.mountedInfo?.whenMounted;
 		if (!this.isCurrentlyFocusingMessage()) {
 			s?.textAreaRef.current?.focus();
@@ -429,21 +569,25 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	async blurCurrentChat() {
 		const threadId = this.state.currentThreadId;
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const s = await thread.state.mountedInfo?.whenMounted;
 		if (!this.isCurrentlyFocusingMessage()) {
 			s?.textAreaRef.current?.blur();
 		}
 	}
 
-
-
 	dangerousSetState = (newState: ThreadsState) => {
 		this.state = newState;
 		this._onDidChangeCurrentThread.fire();
 	};
 	resetState = () => {
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] }; // see constructor
+		this.state = {
+			allThreads: {},
+			currentThreadId: null as unknown as string,
+			openTabs: [],
+		}; // see constructor
 		this.openNewThread();
 		this._onDidChangeCurrentThread.fire();
 	};
@@ -452,14 +596,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
 	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
 		return JSON.parse(threadsStr, (key, value) => {
-			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
+			if (value && typeof value === "object" && value.$mid === 1) {
+				// $mid is the MarshalledId. $mid === 1 means it is a URI
 				return URI.from(value); // TODO URI.revive instead of this?
 			}
 			// Restore Uint8Array from base64 string for image data
 			// Only process 'data' keys that are directly under image attachment objects
 			// Check key === 'data' to match image attachment structure
-			if (key === 'data') {
-				if (typeof value === 'string' && value.startsWith('__base64__:')) {
+			if (key === "data") {
+				if (typeof value === "string" && value.startsWith("__base64__:")) {
 					// Handle base64 string format (the normal case)
 					try {
 						const base64 = value.substring(11); // Remove '__base64__:' prefix
@@ -470,13 +615,21 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 						}
 						return bytes;
 					} catch (e) {
-						console.error('Failed to decode base64 image data in storage reviver', e);
+						console.error(
+							"Failed to decode base64 image data in storage reviver",
+							e,
+						);
 						return value; // Return original value on error
 					}
 				} else if (Array.isArray(value)) {
 					// Handle case where it's already an array but not Uint8Array
 					// Only convert if it looks like byte data (all numbers 0-255)
-					if (value.length > 0 && value.every((v: unknown) => typeof v === 'number' && v >= 0 && v <= 255)) {
+					if (
+						value.length > 0 &&
+						value.every(
+							(v: unknown) => typeof v === "number" && v >= 0 && v <= 255,
+						)
+					) {
 						return new Uint8Array(value as number[]);
 					}
 				}
@@ -488,7 +641,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	private _readAllThreads(): ChatThreads | null {
-		const threadsStr = this._storageService.get(THREAD_STORAGE_KEY, StorageScope.APPLICATION);
+		const threadsStr = this._storageService.get(
+			THREAD_STORAGE_KEY,
+			StorageScope.APPLICATION,
+		);
 		if (!threadsStr) {
 			return null;
 		}
@@ -501,10 +657,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// Convert Uint8Array image data to base64 before serializing
 		const serializedThreads = JSON.stringify(threads, (key, value) => {
 			// Convert Uint8Array to base64 string for storage
-			if (key === 'data' && value instanceof Uint8Array) {
+			if (key === "data" && value instanceof Uint8Array) {
 				// Convert Uint8Array to base64
 				const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
-				let binaryString = '';
+				let binaryString = "";
 				for (let i = 0; i < value.length; i += chunkSize) {
 					const chunk = value.slice(i, i + chunkSize);
 					binaryString += String.fromCharCode(...chunk);
@@ -518,72 +674,96 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			THREAD_STORAGE_KEY,
 			serializedThreads,
 			StorageScope.APPLICATION,
-			StorageTarget.USER
+			StorageTarget.USER,
 		);
 	}
 
-
 	// this should be the only place this.state = ... appears besides constructor
-	private _setState(state: Partial<ThreadsState>, doNotRefreshMountInfo?: boolean) {
+	private _setState(
+		state: Partial<ThreadsState>,
+		doNotRefreshMountInfo?: boolean,
+	) {
 		const newState = {
 			...this.state,
-			...state
+			...state,
 		};
 
 		this.state = newState;
 
 		this._onDidChangeCurrentThread.fire();
 
-
 		// if we just switched to a thread, update its current stream state if it's not streaming to possibly streaming
 		const threadId = newState.currentThreadId;
 		const streamState = this.streamState[threadId];
 		if (streamState?.isRunning === undefined && !streamState?.error) {
-
 			// set streamState
 			const messages = newState.allThreads[threadId]?.messages;
 			const lastMessage = messages && messages[messages.length - 1];
 			// if awaiting user but stream state doesn't indicate it (happens if restart Void)
-			if (lastMessage && lastMessage.role === 'tool' && lastMessage.type === 'tool_request') { this._setStreamState(threadId, { isRunning: 'awaiting_user', }); }
+			if (
+				lastMessage &&
+				lastMessage.role === "tool" &&
+				lastMessage.type === "tool_request"
+			) {
+				this._setStreamState(threadId, { isRunning: "awaiting_user" });
+			}
 
 			// if running now but stream state doesn't indicate it (happens if restart Void), cancel that last tool
-			if (lastMessage && lastMessage.role === 'tool' && lastMessage.type === 'running_now') {
-
-				this._updateLatestTool(threadId, { role: 'tool', type: 'rejected', content: lastMessage.content, id: lastMessage.id, rawParams: lastMessage.rawParams, result: null, name: lastMessage.name, params: lastMessage.params, mcpServerName: lastMessage.mcpServerName });
+			if (
+				lastMessage &&
+				lastMessage.role === "tool" &&
+				lastMessage.type === "running_now"
+			) {
+				this._updateLatestTool(threadId, {
+					role: "tool",
+					type: "rejected",
+					content: lastMessage.content,
+					id: lastMessage.id,
+					rawParams: lastMessage.rawParams,
+					result: null,
+					name: lastMessage.name,
+					params: lastMessage.params,
+					mcpServerName: lastMessage.mcpServerName,
+				});
 			}
-
 		}
 
-
 		// if we did not just set the state to true, set mount info
-		if (doNotRefreshMountInfo) { return; }
+		if (doNotRefreshMountInfo) {
+			return;
+		}
 
 		let whenMountedResolver: (w: WhenMounted) => void;
-		const whenMountedPromise = new Promise<WhenMounted>((res) => whenMountedResolver = res);
+		const whenMountedPromise = new Promise<WhenMounted>(
+			(res) => (whenMountedResolver = res),
+		);
 
-		this._setThreadState(threadId, {
-			mountedInfo: {
-				whenMounted: whenMountedPromise,
-				mountedIsResolvedRef: { current: false },
-				_whenMountedResolver: (w: WhenMounted) => {
-					whenMountedResolver(w);
-					const mountInfo = this.state.allThreads[threadId]?.state.mountedInfo;
-					if (mountInfo) { mountInfo.mountedIsResolvedRef.current = true; }
+		this._setThreadState(
+			threadId,
+			{
+				mountedInfo: {
+					whenMounted: whenMountedPromise,
+					mountedIsResolvedRef: { current: false },
+					_whenMountedResolver: (w: WhenMounted) => {
+						whenMountedResolver(w);
+						const mountInfo =
+							this.state.allThreads[threadId]?.state.mountedInfo;
+						if (mountInfo) {
+							mountInfo.mountedIsResolvedRef.current = true;
+						}
+					},
 				},
-			}
-		}, true); // do not trigger an update
-
-
-
+			},
+			true,
+		); // do not trigger an update
 	}
-
 
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
 		this.streamState[threadId] = state;
 
 		// Throttle updates during streaming to reduce React re-render frequency
 		// Batch updates using requestAnimationFrame for smoother performance
-		const isStreaming = state?.isRunning === 'LLM';
+		const isStreaming = state?.isRunning === "LLM";
 
 		if (isStreaming) {
 			// During streaming, batch updates using requestAnimationFrame
@@ -607,19 +787,24 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 	}
 
-
 	// ---------- streaming ----------
-
-
 
 	private _currentModelSelectionProps = () => {
 		// these settings should not change throughout the loop (eg anthropic breaks if you change its thinking mode and it's using tools)
-		const featureName: FeatureName = 'Chat';
-		const modelSelection = this._settingsService.state.modelSelectionOfFeature[featureName];
+		const featureName: FeatureName = "Chat";
+		const modelSelection =
+			this._settingsService.state.modelSelectionOfFeature[featureName];
 		// Skip "auto" - it's not a real provider
-		const modelSelectionOptions = modelSelection && !(modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')
-			? this._settingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
-			: undefined;
+		const modelSelectionOptions =
+			modelSelection &&
+			!(
+				modelSelection.providerName === "auto" &&
+				modelSelection.modelName === "auto"
+			)
+				? this._settingsService.state.optionsOfModelSelection[featureName][
+						modelSelection.providerName
+					]?.[modelSelection.modelName]
+				: undefined;
 		return { modelSelection, modelSelectionOptions };
 	};
 
@@ -630,13 +815,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private async _autoSelectModel(
 		userMessage: string,
 		images?: ChatImageAttachment[],
-		pdfs?: ChatPDFAttachment[]
+		pdfs?: ChatPDFAttachment[],
 	): Promise<ModelSelection | null> {
-		const featureName: FeatureName = 'Chat';
-		const userManualSelection = this._settingsService.state.modelSelectionOfFeature[featureName];
+		const featureName: FeatureName = "Chat";
+		const userManualSelection =
+			this._settingsService.state.modelSelectionOfFeature[featureName];
 
 		// If user has a specific model selected (not "Auto"), respect it
-		if (userManualSelection && !(userManualSelection.providerName === 'auto' && userManualSelection.modelName === 'auto')) {
+		if (
+			userManualSelection &&
+			!(
+				userManualSelection.providerName === "auto" &&
+				userManualSelection.modelName === "auto"
+			)
+		) {
 			return userManualSelection;
 		}
 
@@ -648,8 +840,32 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// Detect complexity indicators
 		const lowerMessage = userMessage.toLowerCase().trim();
-		const reasoningKeywords = ['explain why', 'analyze', 'compare and contrast', 'evaluate', 'critique', 'reasoning', 'logical', 'deduce', 'infer', 'conclusion', 'argument', 'thesis', 'hypothesis', 'theoretical', 'conceptual'];
-		const complexAnalysisKeywords = ['complex', 'sophisticated', 'nuanced', 'detailed analysis', 'deep understanding', 'comprehensive', 'thorough'];
+		const reasoningKeywords = [
+			"explain why",
+			"analyze",
+			"compare and contrast",
+			"evaluate",
+			"critique",
+			"reasoning",
+			"logical",
+			"deduce",
+			"infer",
+			"conclusion",
+			"argument",
+			"thesis",
+			"hypothesis",
+			"theoretical",
+			"conceptual",
+		];
+		const complexAnalysisKeywords = [
+			"complex",
+			"sophisticated",
+			"nuanced",
+			"detailed analysis",
+			"deep understanding",
+			"comprehensive",
+			"thorough",
+		];
 
 		// Codebase questions require complex reasoning (understanding structure, relationships, etc.)
 		// Use the same detection logic as _detectTaskType for consistency
@@ -660,16 +876,42 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/\bhow\s+many\s+(endpoint|endpoints|api|apis|route|routes|file|files|function|functions|class|classes|component|components|module|modules|service|services|controller|controllers)\b/i,
 			/^(summarize|explain|describe|overview|analyze)\s+(my|this|the)\s+(codebase|repo|project|code)/,
 		];
-		const codebaseIndicators = ['codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture', 'endpoint', 'api', 'route'];
-		const questionStarters = ['what is', 'what does', 'how many', 'summarize', 'explain', 'describe', 'overview'];
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator));
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter));
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
+		const codebaseIndicators = [
+			"codebase",
+			"code base",
+			"repository",
+			"repo",
+			"project structure",
+			"architecture",
+			"endpoint",
+			"api",
+			"route",
+		];
+		const questionStarters = [
+			"what is",
+			"what does",
+			"how many",
+			"summarize",
+			"explain",
+			"describe",
+			"overview",
+		];
+		const matchesPattern = codebaseQuestionPatterns.some((pattern) =>
+			pattern.test(lowerMessage),
+		);
+		const hasCodebaseIndicator = codebaseIndicators.some((indicator) =>
+			lowerMessage.includes(indicator),
+		);
+		const startsWithQuestion = questionStarters.some((starter) =>
+			lowerMessage.startsWith(starter),
+		);
+		const isCodebaseQuestion =
+			matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
 
-		const requiresComplexReasoning = isCodebaseQuestion || // Codebase questions need reasoning
-		                                 reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			complexAnalysisKeywords.some(keyword => lowerMessage.includes(keyword));
+		const requiresComplexReasoning =
+			isCodebaseQuestion || // Codebase questions need reasoning
+			reasoningKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			complexAnalysisKeywords.some((keyword) => lowerMessage.includes(keyword));
 		const isLongMessage = userMessage.length > 500;
 
 		// Privacy/offline mode: removed restriction for images/PDFs
@@ -700,7 +942,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const isDocumentationTask = this._detectDocumentationTask(lowerMessage);
 		const isPerformanceTask = this._detectPerformanceTask(lowerMessage);
 		const isSecurityTask = this._detectSecurityTask(lowerMessage);
-		const isSimpleQuestion = this._detectSimpleQuestion(userMessage, lowerMessage);
+		const isSimpleQuestion = this._detectSimpleQuestion(
+			userMessage,
+			lowerMessage,
+		);
 		const isMathTask = this._detectMathTask(lowerMessage);
 		const isMultiLanguageTask = this._detectMultiLanguageTask(lowerMessage);
 		const isMultiStepTask = this._detectMultiStepTask(lowerMessage);
@@ -708,14 +953,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// Build task context
 		// Enable low-latency preference for simple questions to improve TTFS
 		// More aggressive: enable for simple questions OR when task doesn't require complex reasoning
-		const preferLowLatency = (isSimpleQuestion ||
-		                         (!requiresComplexReasoning &&
-		                          !hasImages &&
-		                          !hasPDFs &&
-		                          !isLongMessage &&
-		                          !isMultiStepTask &&
-		                          !isCodebaseQuestion &&
-				taskType === 'chat')); // Only for general chat, not code/vision tasks
+		const preferLowLatency =
+			isSimpleQuestion ||
+			(!requiresComplexReasoning &&
+				!hasImages &&
+				!hasPDFs &&
+				!isLongMessage &&
+				!isMultiStepTask &&
+				!isCodebaseQuestion &&
+				taskType === "chat"); // Only for general chat, not code/vision tasks
 
 		const context: TaskContext = {
 			taskType,
@@ -759,18 +1005,24 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					reasoning: routingDecision.reasoning,
 					qualityTier: routingDecision.qualityTier,
 					timeoutMs: routingDecision.timeoutMs,
-					userOverride: userManualSelection ? 'yes' : 'no',
+					userOverride: userManualSelection ? "yes" : "no",
 					isCodebaseQuestion,
 					contextSize: estimatedContextSize,
 					taskType,
 					requiresComplexReasoning,
 					hasCode,
 				};
-				console.log('[Auto Model Select]', JSON.stringify(logData, null, 2));
+				console.log("[Auto Model Select]", JSON.stringify(logData, null, 2));
 
 				// Warn if local model selected for codebase question
-				if (isCodebaseQuestion && routingDecision.modelSelection.providerName === 'ollama') {
-					console.warn('[Auto Model Select] WARNING: Local model selected for codebase question!', logData);
+				if (
+					isCodebaseQuestion &&
+					routingDecision.modelSelection.providerName === "ollama"
+				) {
+					console.warn(
+						"[Auto Model Select] WARNING: Local model selected for codebase question!",
+						logData,
+					);
 				}
 			}
 
@@ -778,7 +1030,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// We'll track the outcome when the message is actually sent
 			return routingDecision.modelSelection;
 		} catch (error) {
-			console.error('[Auto Model Select] Error:', error);
+			console.error("[Auto Model Select] Error:", error);
 			// If error occurred, return null to trigger fallback logic
 			// Don't return userManualSelection (which would be 'auto') as that would bypass fallback
 			return null;
@@ -793,13 +1045,27 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const settingsState = this._settingsService.state;
 
 		// Try to find any configured model (prefer online models first, then local)
-		const providerNames: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM'];
+		const providerNames: ProviderName[] = [
+			"anthropic",
+			"openAI",
+			"gemini",
+			"xAI",
+			"mistral",
+			"deepseek",
+			"groq",
+			"ollama",
+			"vLLM",
+			"lmStudio",
+			"openAICompatible",
+			"openRouter",
+			"liteLLM",
+		];
 
 		for (const providerName of providerNames) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
 				// Find first non-hidden model
-				const firstModel = providerSettings.models.find(m => !m.isHidden);
+				const firstModel = providerSettings.models.find((m) => !m.isHidden);
 				if (firstModel) {
 					return {
 						providerName,
@@ -816,20 +1082,37 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * Check if a model supports vision/image inputs
 	 * Uses the same logic as modelRouter
 	 */
-	private _isModelVisionCapable(modelSelection: ModelSelection, capabilities: unknown): boolean {
+	private _isModelVisionCapable(
+		modelSelection: ModelSelection,
+		capabilities: unknown,
+	): boolean {
 		const name = modelSelection.modelName.toLowerCase();
 		const provider = modelSelection.providerName.toLowerCase();
 
 		// Known vision-capable models
-		if (provider === 'gemini') { return true; } // all Gemini models support vision
-		if (provider === 'anthropic') {
-			return name.includes('3.5') || name.includes('3.7') || name.includes('4') || name.includes('opus') || name.includes('sonnet');
+		if (provider === "gemini") {
+			return true;
+		} // all Gemini models support vision
+		if (provider === "anthropic") {
+			return (
+				name.includes("3.5") ||
+				name.includes("3.7") ||
+				name.includes("4") ||
+				name.includes("opus") ||
+				name.includes("sonnet")
+			);
 		}
-		if (provider === 'openai') {
-			return name.includes('4o') || name.includes('4.1') || name.includes('gpt-4');
+		if (provider === "openai") {
+			return (
+				name.includes("4o") || name.includes("4.1") || name.includes("gpt-4")
+			);
 		}
-		if (provider === 'ollama' || provider === 'vllm') {
-			return name.includes('llava') || name.includes('bakllava') || name.includes('vision');
+		if (provider === "ollama" || provider === "vllm") {
+			return (
+				name.includes("llava") ||
+				name.includes("bakllava") ||
+				name.includes("vision")
+			);
 		}
 
 		return false;
@@ -842,18 +1125,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _detectTaskType(
 		userMessage: string,
 		images?: ChatImageAttachment[],
-		pdfs?: ChatPDFAttachment[]
+		pdfs?: ChatPDFAttachment[],
 	): TaskType {
 		const lowerMessage = userMessage.toLowerCase().trim();
 
 		// PDF-specific tasks (always detect if PDFs present)
 		if (pdfs && pdfs.length > 0) {
-			return 'pdf';
+			return "pdf";
 		}
 
 		// Vision tasks (always detect if images present)
 		if (images && images.length > 0) {
-			return 'vision';
+			return "vision";
 		}
 
 		// Codebase/repository questions - comprehensive detection
@@ -878,30 +1161,59 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		];
 
 		const codebaseIndicators = [
-			'codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture',
-			'endpoint', 'endpoints', 'api', 'apis', 'route', 'routes',
-			'file structure', 'code organization', 'project layout',
+			"codebase",
+			"code base",
+			"repository",
+			"repo",
+			"project structure",
+			"architecture",
+			"endpoint",
+			"endpoints",
+			"api",
+			"apis",
+			"route",
+			"routes",
+			"file structure",
+			"code organization",
+			"project layout",
 		];
 
 		const questionStarters = [
-			'what is', 'what does', 'what are', 'what do',
-			'how many', 'how does', 'how do',
-			'summarize', 'explain', 'describe', 'overview', 'analyze',
-			'which', 'where',
+			"what is",
+			"what does",
+			"what are",
+			"what do",
+			"how many",
+			"how does",
+			"how do",
+			"summarize",
+			"explain",
+			"describe",
+			"overview",
+			"analyze",
+			"which",
+			"where",
 		];
 
 		// Check if it matches codebase question patterns
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator));
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter));
+		const matchesPattern = codebaseQuestionPatterns.some((pattern) =>
+			pattern.test(lowerMessage),
+		);
+		const hasCodebaseIndicator = codebaseIndicators.some((indicator) =>
+			lowerMessage.includes(indicator),
+		);
+		const startsWithQuestion = questionStarters.some((starter) =>
+			lowerMessage.startsWith(starter),
+		);
 
 		// Codebase question if:
 		// 1. Matches a pattern, OR
 		// 2. Has codebase indicator AND starts with a question word
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
+		const isCodebaseQuestion =
+			matchesPattern || (hasCodebaseIndicator && startsWithQuestion);
 
 		if (isCodebaseQuestion) {
-			return 'code'; // Use 'code' task type but we'll enhance scoring for codebase questions
+			return "code"; // Use 'code' task type but we'll enhance scoring for codebase questions
 		}
 
 		// Implementation/action tasks - tasks that require creating or modifying code
@@ -917,37 +1229,76 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		const implementationKeywords = [
 			// Action verbs
-			'write code', 'generate code', 'create function', 'implement class', 'fix bug',
-			'refactor code', 'optimize code', 'debug', 'syntax error', 'compile error',
-			'add function', 'create method', 'implement function',
+			"write code",
+			"generate code",
+			"create function",
+			"implement class",
+			"fix bug",
+			"refactor code",
+			"optimize code",
+			"debug",
+			"syntax error",
+			"compile error",
+			"add function",
+			"create method",
+			"implement function",
 			// Implementation-specific
-			'create a', 'implement a', 'add a', 'build a', 'make a',
-			'create new', 'implement new', 'add new', 'build new',
-			'set up', 'set up a', 'configure', 'configure a',
-			'develop', 'develop a', 'build out',
+			"create a",
+			"implement a",
+			"add a",
+			"build a",
+			"make a",
+			"create new",
+			"implement new",
+			"add new",
+			"build new",
+			"set up",
+			"set up a",
+			"configure",
+			"configure a",
+			"develop",
+			"develop a",
+			"build out",
 		];
 
-		const hasImplementationPattern = implementationPatterns.some(pattern => pattern.test(lowerMessage));
-		const hasImplementationKeyword = implementationKeywords.some(keyword => lowerMessage.includes(keyword));
+		const hasImplementationPattern = implementationPatterns.some((pattern) =>
+			pattern.test(lowerMessage),
+		);
+		const hasImplementationKeyword = implementationKeywords.some((keyword) =>
+			lowerMessage.includes(keyword),
+		);
 
 		// Code tasks - check for actual code patterns or explicit code requests
-		const hasCodeBlock = /```[\s\S]+?```/.test(userMessage) || /`[^`\n]{10,}`/.test(userMessage);
+		const hasCodeBlock =
+			/```[\s\S]+?```/.test(userMessage) || /`[^`\n]{10,}`/.test(userMessage);
 
 		// Implementation task if it matches patterns/keywords OR has code blocks
 		if (hasCodeBlock || hasImplementationPattern || hasImplementationKeyword) {
-			return 'code';
+			return "code";
 		}
 
 		// Web search tasks - only if very explicit
-		const explicitWebSearchKeywords = ['search the web', 'search online', 'look up online', 'google', 'duckduckgo', 'web search', 'search internet'];
-		if (explicitWebSearchKeywords.some(keyword => lowerMessage.includes(keyword))) {
-			return 'web_search';
+		const explicitWebSearchKeywords = [
+			"search the web",
+			"search online",
+			"look up online",
+			"google",
+			"duckduckgo",
+			"web search",
+			"search internet",
+		];
+		if (
+			explicitWebSearchKeywords.some((keyword) =>
+				lowerMessage.includes(keyword),
+			)
+		) {
+			return "web_search";
 		}
 
 		// Default to general chat (prefers quality models)
 		// Complexity detection (reasoning, long messages) is handled in _autoSelectModel
 		// and passed to the router via TaskContext
-		return 'chat';
+		return "chat";
 	}
 
 	/**
@@ -965,17 +1316,36 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/let\s+\w+\s*=/, // Let declarations
 		];
 
-		return codePatterns.some(pattern => pattern.test(message));
+		return codePatterns.some((pattern) => pattern.test(message));
 	}
 
 	/**
 	 * Detect debugging/error fixing tasks
 	 */
-	private _detectDebuggingTask(lowerMessage: string, hasCode: boolean): boolean {
+	private _detectDebuggingTask(
+		lowerMessage: string,
+		hasCode: boolean,
+	): boolean {
 		const debuggingKeywords = [
-			'fix error', 'debug', 'why is this failing', 'error message', 'exception', 'stack trace',
-			'why doesn\'t this work', 'not working', 'broken', 'crash', 'bug', 'fix bug',
-			'troubleshoot', 'issue', 'problem', 'failing', 'failed', 'error', 'errors'
+			"fix error",
+			"debug",
+			"why is this failing",
+			"error message",
+			"exception",
+			"stack trace",
+			"why doesn't this work",
+			"not working",
+			"broken",
+			"crash",
+			"bug",
+			"fix bug",
+			"troubleshoot",
+			"issue",
+			"problem",
+			"failing",
+			"failed",
+			"error",
+			"errors",
 		];
 		const errorPatterns = [
 			/error\s+(message|occurred|happened|in|at)/i,
@@ -985,9 +1355,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/why\s+(is|does).*fail/i,
 		];
 
-		return debuggingKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-		       errorPatterns.some(pattern => pattern.test(lowerMessage)) ||
-			(hasCode && (lowerMessage.includes('error') || lowerMessage.includes('exception')));
+		return (
+			debuggingKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			errorPatterns.some((pattern) => pattern.test(lowerMessage)) ||
+			(hasCode &&
+				(lowerMessage.includes("error") || lowerMessage.includes("exception")))
+		);
 	}
 
 	/**
@@ -995,9 +1368,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectCodeReviewTask(lowerMessage: string): boolean {
 		const reviewKeywords = [
-			'review', 'refactor', 'improve code', 'code quality', 'best practices', 'clean up',
-			'is this good code', 'how can i improve', 'refactor this', 'code review',
-			'optimize', 'make it better', 'improve this', 'suggest improvements'
+			"review",
+			"refactor",
+			"improve code",
+			"code quality",
+			"best practices",
+			"clean up",
+			"is this good code",
+			"how can i improve",
+			"refactor this",
+			"code review",
+			"optimize",
+			"make it better",
+			"improve this",
+			"suggest improvements",
 		];
 		const reviewPatterns = [
 			/review\s+(this|my|the)\s+(code|function|class|method)/i,
@@ -1006,8 +1390,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/is\s+(this|my|the)\s+(code|implementation)\s+(good|correct|proper)/i,
 		];
 
-		return reviewKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			reviewPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			reviewKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			reviewPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1015,9 +1401,21 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectTestingTask(lowerMessage: string): boolean {
 		const testingKeywords = [
-			'write test', 'add test', 'test coverage', 'unit test', 'integration test',
-			'test for', 'how to test', 'create test', 'testing', 'test case', 'test suite',
-			'write tests', 'add tests', 'test this', 'test the'
+			"write test",
+			"add test",
+			"test coverage",
+			"unit test",
+			"integration test",
+			"test for",
+			"how to test",
+			"create test",
+			"testing",
+			"test case",
+			"test suite",
+			"write tests",
+			"add tests",
+			"test this",
+			"test the",
 		];
 		const testingPatterns = [
 			/write\s+(a|an|the|unit|integration)\s+test/i,
@@ -1026,8 +1424,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/test\s+(for|this|the|coverage)/i,
 		];
 
-		return testingKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			testingPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			testingKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			testingPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1035,9 +1435,22 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectDocumentationTask(lowerMessage: string): boolean {
 		const docKeywords = [
-			'write doc', 'documentation', 'comment', 'explain code', 'readme', 'api doc',
-			'document this', 'add comments', 'write readme', 'document', 'docs',
-			'comment', 'comments', 'javadoc', 'jsdoc', 'docstring'
+			"write doc",
+			"documentation",
+			"comment",
+			"explain code",
+			"readme",
+			"api doc",
+			"document this",
+			"add comments",
+			"write readme",
+			"document",
+			"docs",
+			"comment",
+			"comments",
+			"javadoc",
+			"jsdoc",
+			"docstring",
 		];
 		const docPatterns = [
 			/write\s+(documentation|doc|readme|comments)/i,
@@ -1046,8 +1459,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/explain\s+(this|my|the)\s+(code|function|class)/i,
 		];
 
-		return docKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			docPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			docKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			docPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1055,9 +1470,21 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectPerformanceTask(lowerMessage: string): boolean {
 		const perfKeywords = [
-			'optimize', 'performance', 'speed up', 'make faster', 'bottleneck', 'profiling',
-			'how to optimize', 'performance issue', 'slow', 'faster', 'speed', 'efficiency',
-			'optimization', 'improve performance', 'performance problem'
+			"optimize",
+			"performance",
+			"speed up",
+			"make faster",
+			"bottleneck",
+			"profiling",
+			"how to optimize",
+			"performance issue",
+			"slow",
+			"faster",
+			"speed",
+			"efficiency",
+			"optimization",
+			"improve performance",
+			"performance problem",
 		];
 		const perfPatterns = [
 			/optimize\s+(this|my|the|for)/i,
@@ -1066,8 +1493,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/make\s+(this|it|the)\s+faster/i,
 		];
 
-		return perfKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			perfPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			perfKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			perfPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1075,9 +1504,23 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectSecurityTask(lowerMessage: string): boolean {
 		const securityKeywords = [
-			'security', 'vulnerability', 'secure', 'authentication', 'authorization', 'encryption',
-			'is this secure', 'security issue', 'vulnerable', 'vulnerabilities', 'secure this',
-			'security best practices', 'security review', 'security audit', 'xss', 'csrf', 'sql injection'
+			"security",
+			"vulnerability",
+			"secure",
+			"authentication",
+			"authorization",
+			"encryption",
+			"is this secure",
+			"security issue",
+			"vulnerable",
+			"vulnerabilities",
+			"secure this",
+			"security best practices",
+			"security review",
+			"security audit",
+			"xss",
+			"csrf",
+			"sql injection",
 		];
 		const securityPatterns = [
 			/security\s+(issue|problem|vulnerability|review|audit)/i,
@@ -1086,26 +1529,33 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/make\s+(this|it|the)\s+secure/i,
 		];
 
-		return securityKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			securityPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			securityKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			securityPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
 	 * Detect simple/quick questions
 	 * More aggressive detection to enable low-latency routing for better UX
 	 */
-	private _detectSimpleQuestion(message: string, lowerMessage: string): boolean {
+	private _detectSimpleQuestion(
+		message: string,
+		lowerMessage: string,
+	): boolean {
 		// Exclude complex tasks first
-		if (lowerMessage.includes('codebase') ||
-		    lowerMessage.includes('repository') ||
-		    lowerMessage.includes('architecture') ||
-		    lowerMessage.includes('analyze') ||
-		    lowerMessage.includes('refactor') ||
-		    lowerMessage.includes('implement') ||
-		    lowerMessage.includes('debug') ||
-		    lowerMessage.includes('error') ||
-		    lowerMessage.includes('fix') ||
-		    lowerMessage.includes('review')) {
+		if (
+			lowerMessage.includes("codebase") ||
+			lowerMessage.includes("repository") ||
+			lowerMessage.includes("architecture") ||
+			lowerMessage.includes("analyze") ||
+			lowerMessage.includes("refactor") ||
+			lowerMessage.includes("implement") ||
+			lowerMessage.includes("debug") ||
+			lowerMessage.includes("error") ||
+			lowerMessage.includes("fix") ||
+			lowerMessage.includes("review")
+		) {
 			return false;
 		}
 
@@ -1115,13 +1565,28 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// 3. Don't require codebase analysis
 		if (message.length < 200) {
 			const simpleQuestionStarters = [
-				'what is', 'what does', 'what are', 'what do',
-				'how do i', 'how to', 'how does', 'how can',
-				'explain', 'tell me', 'describe',
-				'when', 'where', 'why', 'who',
-				'can you', 'could you', 'would you'
+				"what is",
+				"what does",
+				"what are",
+				"what do",
+				"how do i",
+				"how to",
+				"how does",
+				"how can",
+				"explain",
+				"tell me",
+				"describe",
+				"when",
+				"where",
+				"why",
+				"who",
+				"can you",
+				"could you",
+				"would you",
 			];
-			const isQuestion = simpleQuestionStarters.some(starter => lowerMessage.startsWith(starter));
+			const isQuestion = simpleQuestionStarters.some((starter) =>
+				lowerMessage.startsWith(starter),
+			);
 
 			// Also check for simple question patterns
 			const simplePatterns = [
@@ -1129,9 +1594,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				/^how\s+(do|does|can|to)\s+/,
 				/^explain\s+/,
 				/^tell\s+me\s+/,
-				/^describe\s+/
+				/^describe\s+/,
 			];
-			const matchesPattern = simplePatterns.some(pattern => pattern.test(lowerMessage));
+			const matchesPattern = simplePatterns.some((pattern) =>
+				pattern.test(lowerMessage),
+			);
 
 			return (isQuestion || matchesPattern) && message.length < 200;
 		}
@@ -1144,8 +1611,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectMathTask(lowerMessage: string): boolean {
 		const mathKeywords = [
-			'calculate', 'math', 'algorithm', 'formula', 'compute', 'statistics',
-			'calculation', 'mathematical', 'equation', 'solve', 'numerical', 'arithmetic'
+			"calculate",
+			"math",
+			"algorithm",
+			"formula",
+			"compute",
+			"statistics",
+			"calculation",
+			"mathematical",
+			"equation",
+			"solve",
+			"numerical",
+			"arithmetic",
 		];
 		const mathPatterns = [
 			/calculate\s+(this|the|a|an)/i,
@@ -1154,8 +1631,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/formula\s+(for|to|of)/i,
 		];
 
-		return mathKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			mathPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			mathKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			mathPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1163,8 +1642,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectMultiLanguageTask(lowerMessage: string): boolean {
 		const multiLangKeywords = [
-			'translate code', 'convert to', 'port to', 'rewrite in', 'convert from',
-			'multiple languages', 'different language', 'language conversion'
+			"translate code",
+			"convert to",
+			"port to",
+			"rewrite in",
+			"convert from",
+			"multiple languages",
+			"different language",
+			"language conversion",
 		];
 		const multiLangPatterns = [
 			/translate\s+(code|this|from|to)/i,
@@ -1173,8 +1658,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			/rewrite\s+in/i,
 		];
 
-		return multiLangKeywords.some(keyword => lowerMessage.includes(keyword)) ||
-			multiLangPatterns.some(pattern => pattern.test(lowerMessage));
+		return (
+			multiLangKeywords.some((keyword) => lowerMessage.includes(keyword)) ||
+			multiLangPatterns.some((pattern) => pattern.test(lowerMessage))
+		);
 	}
 
 	/**
@@ -1182,69 +1669,127 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 */
 	private _detectMultiStepTask(lowerMessage: string): boolean {
 		// Multiple action verbs or "and" in requests indicate multi-step tasks
-		const actionVerbs = ['implement', 'create', 'add', 'build', 'make', 'set up', 'configure', 'write', 'generate', 'develop', 'fix', 'update', 'modify'];
-		const verbCount = actionVerbs.filter(verb => lowerMessage.includes(verb)).length;
+		const actionVerbs = [
+			"implement",
+			"create",
+			"add",
+			"build",
+			"make",
+			"set up",
+			"configure",
+			"write",
+			"generate",
+			"develop",
+			"fix",
+			"update",
+			"modify",
+		];
+		const verbCount = actionVerbs.filter((verb) =>
+			lowerMessage.includes(verb),
+		).length;
 
 		// Multiple "and" conjunctions suggest multiple steps
 		const andCount = (lowerMessage.match(/\sand\s/g) || []).length;
 
 		// Multi-step indicators
-		const multiStepKeywords = ['then', 'after that', 'next', 'also', 'additionally', 'furthermore', 'step', 'steps'];
-		const hasMultiStepKeywords = multiStepKeywords.some(keyword => lowerMessage.includes(keyword));
+		const multiStepKeywords = [
+			"then",
+			"after that",
+			"next",
+			"also",
+			"additionally",
+			"furthermore",
+			"step",
+			"steps",
+		];
+		const hasMultiStepKeywords = multiStepKeywords.some((keyword) =>
+			lowerMessage.includes(keyword),
+		);
 
 		return verbCount >= 2 || andCount >= 2 || hasMultiStepKeywords;
 	}
 
-
-
-	private _swapOutLatestStreamingToolWithResult = (threadId: string, tool: ChatMessage & { role: 'tool' }) => {
+	private _swapOutLatestStreamingToolWithResult = (
+		threadId: string,
+		tool: ChatMessage & { role: "tool" },
+	) => {
 		const messages = this.state.allThreads[threadId]?.messages;
-		if (!messages) { return false; }
+		if (!messages) {
+			return false;
+		}
 		const lastMsg = messages[messages.length - 1];
-		if (!lastMsg) { return false; }
+		if (!lastMsg) {
+			return false;
+		}
 
-		if (lastMsg.role === 'tool' && lastMsg.type !== 'invalid_params') {
+		if (lastMsg.role === "tool" && lastMsg.type !== "invalid_params") {
 			this._editMessageInThread(threadId, messages.length - 1, tool);
 			return true;
 		}
 		return false;
 	};
-	private _updateLatestTool = (threadId: string, tool: ChatMessage & { role: 'tool' }) => {
+	private _updateLatestTool = (
+		threadId: string,
+		tool: ChatMessage & { role: "tool" },
+	) => {
 		const swapped = this._swapOutLatestStreamingToolWithResult(threadId, tool);
-		if (swapped) { return; }
+		if (swapped) {
+			return;
+		}
 		this._addMessageToThread(threadId, tool);
 	};
 
 	approveLatestToolRequest(threadId: string) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; } // should never happen
+		if (!thread) {
+			return;
+		} // should never happen
 
 		const lastMsg = thread.messages[thread.messages.length - 1];
-		if (!(lastMsg.role === 'tool' && lastMsg.type === 'tool_request')) { return; } // should never happen
+		if (!(lastMsg.role === "tool" && lastMsg.type === "tool_request")) {
+			return;
+		} // should never happen
 
 		const callThisToolFirst: ToolMessage<ToolName> = lastMsg;
 
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ callThisToolFirst, threadId, ...this._currentModelSelectionProps() })
-			, threadId
+			this._runChatAgent({
+				callThisToolFirst,
+				threadId,
+				...this._currentModelSelectionProps(),
+			}),
+			threadId,
 		);
 	}
 	rejectLatestToolRequest(threadId: string) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; } // should never happen
+		if (!thread) {
+			return;
+		} // should never happen
 
 		const lastMsg = thread.messages[thread.messages.length - 1];
 
 		let params: ToolCallParams<ToolName>;
-		if (lastMsg.role === 'tool' && lastMsg.type !== 'invalid_params') {
+		if (lastMsg.role === "tool" && lastMsg.type !== "invalid_params") {
 			params = lastMsg.params;
+		} else {
+			return;
 		}
-		else { return; }
 
 		const { name, id, rawParams, mcpServerName } = lastMsg;
 
 		const errorMessage = this.toolErrMsgs.rejected;
-		this._updateLatestTool(threadId, { role: 'tool', type: 'rejected', params: params, name: name, content: errorMessage, result: null, id, rawParams, mcpServerName });
+		this._updateLatestTool(threadId, {
+			role: "tool",
+			type: "rejected",
+			params: params,
+			name: name,
+			content: errorMessage,
+			result: null,
+			id,
+			rawParams,
+			mcpServerName,
+		});
 		this._setStreamState(threadId, undefined);
 	}
 
@@ -1255,88 +1800,125 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	approvePlan(opts: { threadId: string; messageIdx: number }) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
 		const updatedPlan: PlanMessage = {
 			...plan,
-			approvalState: 'approved',
+			approvalState: "approved",
 			approvedAt: Date.now(),
 			executionStartTime: Date.now(),
-			steps: plan.steps.map(step => ({
+			steps: plan.steps.map((step) => ({
 				...step,
-				status: step.disabled ? 'skipped' as StepStatus : (step.status || 'queued' as StepStatus)
-			}))
+				status: step.disabled
+					? ("skipped" as StepStatus)
+					: step.status || ("queued" as StepStatus),
+			})),
 		};
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 		// CRITICAL: Invalidate plan cache so checkPlanGenerated() sees the updated approvalState
 		this._planCache.delete(opts.threadId);
 		// Trigger plan execution
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId: opts.threadId, ...this._currentModelSelectionProps() }),
+			this._runChatAgent({
+				threadId: opts.threadId,
+				...this._currentModelSelectionProps(),
+			}),
 			opts.threadId,
 		);
 	}
 
 	rejectPlan(opts: { threadId: string; messageIdx: number }) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
 		const updatedPlan: PlanMessage = {
 			...plan,
-			approvalState: 'aborted'
+			approvalState: "aborted",
 		};
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 	}
 
-	editPlan(opts: { threadId: string; messageIdx: number; updatedPlan: PlanMessage }) {
+	editPlan(opts: {
+		threadId: string;
+		messageIdx: number;
+		updatedPlan: PlanMessage;
+	}) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		this._editMessageInThread(opts.threadId, opts.messageIdx, opts.updatedPlan);
 	}
 
-	toggleStepDisabled(opts: { threadId: string; messageIdx: number; stepNumber: number }) {
+	toggleStepDisabled(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
 		const updatedPlan: PlanMessage = {
 			...plan,
-			steps: plan.steps.map(step =>
+			steps: plan.steps.map((step) =>
 				step.stepNumber === opts.stepNumber
 					? { ...step, disabled: !step.disabled }
-					: step
-			)
+					: step,
+			),
 		};
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 	}
 
-	reorderPlanSteps(opts: { threadId: string; messageIdx: number; newStepOrder: number[] }) {
+	reorderPlanSteps(opts: {
+		threadId: string;
+		messageIdx: number;
+		newStepOrder: number[];
+	}) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
-		const stepMap = new Map(plan.steps.map(s => [s.stepNumber, s]));
+		const stepMap = new Map(plan.steps.map((s) => [s.stepNumber, s]));
 		const reorderedSteps = opts.newStepOrder
-			.map(stepNum => stepMap.get(stepNum))
+			.map((stepNum) => stepMap.get(stepNum))
 			.filter((s): s is PlanStep => s !== undefined)
 			.map((step, idx) => ({ ...step, stepNumber: idx + 1 }));
 
 		const updatedPlan: PlanMessage = {
 			...plan,
-			steps: reorderedSteps
+			steps: reorderedSteps,
 		};
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 	}
@@ -1345,16 +1927,24 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// TODO: Implement pause logic - freeze current step, save state
 		await this.abortRunning(opts.threadId);
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		// Find current plan and update current step to paused
-		const planIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'plan') ?? -1;
+		const planIdx =
+			findLastIdx(thread.messages, (m: ChatMessage) => m.role === "plan") ?? -1;
 		if (planIdx >= 0) {
 			const plan = thread.messages[planIdx] as PlanMessage;
-			const runningStepIdx = plan.steps.findIndex(s => s.status === 'running');
+			const runningStepIdx = plan.steps.findIndex(
+				(s) => s.status === "running",
+			);
 			if (runningStepIdx >= 0) {
 				const updatedSteps = [...plan.steps];
-				updatedSteps[runningStepIdx] = { ...updatedSteps[runningStepIdx], status: 'paused' };
+				updatedSteps[runningStepIdx] = {
+					...updatedSteps[runningStepIdx],
+					status: "paused",
+				};
 				const updatedPlan: PlanMessage = { ...plan, steps: updatedSteps };
 				this._editMessageInThread(opts.threadId, planIdx, updatedPlan);
 			}
@@ -1363,110 +1953,170 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	async resumeAgentExecution(opts: { threadId: string }): Promise<void> {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
-		const planIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'plan') ?? -1;
+		const planIdx =
+			findLastIdx(thread.messages, (m: ChatMessage) => m.role === "plan") ?? -1;
 		if (planIdx >= 0) {
 			const plan = thread.messages[planIdx] as PlanMessage;
-			const pausedStepIdx = plan.steps.findIndex(s => s.status === 'paused');
+			const pausedStepIdx = plan.steps.findIndex((s) => s.status === "paused");
 			if (pausedStepIdx >= 0) {
 				const updatedSteps = [...plan.steps];
-				updatedSteps[pausedStepIdx] = { ...updatedSteps[pausedStepIdx], status: 'queued' };
+				updatedSteps[pausedStepIdx] = {
+					...updatedSteps[pausedStepIdx],
+					status: "queued",
+				};
 				const updatedPlan: PlanMessage = {
 					...plan,
 					steps: updatedSteps,
-					approvalState: 'executing'
+					approvalState: "executing",
 				};
 				this._editMessageInThread(opts.threadId, planIdx, updatedPlan);
 				// Resume execution from this step
 				this._wrapRunAgentToNotify(
-					this._runChatAgent({ threadId: opts.threadId, ...this._currentModelSelectionProps() }),
+					this._runChatAgent({
+						threadId: opts.threadId,
+						...this._currentModelSelectionProps(),
+					}),
 					opts.threadId,
 				);
 			}
 		}
 	}
 
-	async retryStep(opts: { threadId: string; messageIdx: number; stepNumber: number }): Promise<void> {
+	async retryStep(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): Promise<void> {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
-		const updatedSteps = plan.steps.map(step =>
+		const updatedSteps = plan.steps.map((step) =>
 			step.stepNumber === opts.stepNumber
-				? { ...step, status: 'queued' as StepStatus, error: undefined, startTime: undefined, endTime: undefined }
-				: step
+				? {
+						...step,
+						status: "queued" as StepStatus,
+						error: undefined,
+						startTime: undefined,
+						endTime: undefined,
+					}
+				: step,
 		);
 		const updatedPlan: PlanMessage = {
 			...plan,
 			steps: updatedSteps,
-			approvalState: plan.approvalState === 'completed' ? 'executing' : plan.approvalState
+			approvalState:
+				plan.approvalState === "completed" ? "executing" : plan.approvalState,
 		};
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 		// Trigger step execution
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId: opts.threadId, ...this._currentModelSelectionProps() }),
+			this._runChatAgent({
+				threadId: opts.threadId,
+				...this._currentModelSelectionProps(),
+			}),
 			opts.threadId,
 		);
 	}
 
 	skipStep(opts: { threadId: string; messageIdx: number; stepNumber: number }) {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
-		const updatedSteps = plan.steps.map(step =>
+		const updatedSteps = plan.steps.map((step) =>
 			step.stepNumber === opts.stepNumber
-				? { ...step, status: 'skipped' as StepStatus }
-				: step
+				? { ...step, status: "skipped" as StepStatus }
+				: step,
 		);
 		const updatedPlan: PlanMessage = { ...plan, steps: updatedSteps };
 		this._editMessageInThread(opts.threadId, opts.messageIdx, updatedPlan);
 
 		// After skipping, resume execution to continue with the next queued step
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId: opts.threadId, ...this._currentModelSelectionProps() }),
+			this._runChatAgent({
+				threadId: opts.threadId,
+				...this._currentModelSelectionProps(),
+			}),
 			opts.threadId,
 		);
 	}
 
-	async rollbackToStep(opts: { threadId: string; messageIdx: number; stepNumber: number }): Promise<void> {
+	async rollbackToStep(opts: {
+		threadId: string;
+		messageIdx: number;
+		stepNumber: number;
+	}): Promise<void> {
 		const thread = this.state.allThreads[opts.threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[opts.messageIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
-		const step = plan.steps.find(s => s.stepNumber === opts.stepNumber);
-		if (!step || step.checkpointIdx === undefined || step.checkpointIdx === null) { return; }
+		const step = plan.steps.find((s) => s.stepNumber === opts.stepNumber);
+		if (
+			!step ||
+			step.checkpointIdx === undefined ||
+			step.checkpointIdx === null
+		) {
+			return;
+		}
 
 		// Rollback to checkpoint before this step
 		this.jumpToCheckpointBeforeMessageIdx({
 			threadId: opts.threadId,
 			messageIdx: step.checkpointIdx,
-			jumpToUserModified: false
+			jumpToUserModified: false,
 		});
 	}
 
 	// Plan execution tracking helpers - cached for performance
-	private _planCache: Map<string, { plan: PlanMessage; planIdx: number; lastChecked: number } | null> = new Map();
+	private _planCache: Map<
+		string,
+		{ plan: PlanMessage; planIdx: number; lastChecked: number } | null
+	> = new Map();
 	private readonly PLAN_CACHE_TTL = 100; // ms - invalidate cache after message changes
 
-	private _getCurrentPlan(threadId: string, forceRefresh = false): { plan: PlanMessage; planIdx: number } | undefined {
+	private _getCurrentPlan(
+		threadId: string,
+		forceRefresh = false,
+	): { plan: PlanMessage; planIdx: number } | undefined {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return undefined; }
+		if (!thread) {
+			return undefined;
+		}
 
 		// Fast path: check cache first (only if messages haven't changed significantly)
 		if (!forceRefresh) {
 			const cached = this._planCache.get(threadId);
-			if (cached && cached.lastChecked > Date.now() - this.PLAN_CACHE_TTL && cached.planIdx < thread.messages.length) {
+			if (
+				cached &&
+				cached.lastChecked > Date.now() - this.PLAN_CACHE_TTL &&
+				cached.planIdx < thread.messages.length
+			) {
 				// Verify cached plan is still valid
 				const cachedPlan = thread.messages[cached.planIdx];
-				if (cachedPlan && cachedPlan.role === 'plan') {
+				if (cachedPlan && cachedPlan.role === "plan") {
 					const plan = cachedPlan as PlanMessage;
 					// Return plan regardless of approvalState (pending, approved, executing all need to be seen)
 					return { plan, planIdx: cached.planIdx };
@@ -1475,7 +2125,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 
 		// Slow path: find plan (only when cache misses or forced)
-		const planIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'plan') ?? -1;
+		const planIdx =
+			findLastIdx(thread.messages, (m: ChatMessage) => m.role === "plan") ?? -1;
 		if (planIdx < 0) {
 			this._planCache.set(threadId, null);
 			return undefined;
@@ -1488,25 +2139,47 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		return { plan, planIdx };
 	}
 
-	private _getCurrentStep(threadId: string, forceRefresh = false): { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number } | undefined {
+	private _getCurrentStep(
+		threadId: string,
+		forceRefresh = false,
+	):
+		| { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number }
+		| undefined {
 		const planInfo = this._getCurrentPlan(threadId, forceRefresh);
-		if (!planInfo) { return undefined; }
+		if (!planInfo) {
+			return undefined;
+		}
 		const { plan, planIdx } = planInfo;
 
 		// Find first step that's queued or running
-		const stepIdx = plan.steps.findIndex(s =>
-			!s.disabled && (s.status === 'queued' || s.status === 'running' || s.status === 'paused')
+		const stepIdx = plan.steps.findIndex(
+			(s) =>
+				!s.disabled &&
+				(s.status === "queued" ||
+					s.status === "running" ||
+					s.status === "paused"),
 		);
-		if (stepIdx < 0) { return undefined; }
+		if (stepIdx < 0) {
+			return undefined;
+		}
 
 		return { plan, planIdx, step: plan.steps[stepIdx], stepIdx };
 	}
 
-	private _updatePlanStep(threadId: string, planIdx: number, stepIdx: number, updates: Partial<PlanStep>) {
+	private _updatePlanStep(
+		threadId: string,
+		planIdx: number,
+		stepIdx: number,
+		updates: Partial<PlanStep>,
+	) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const message = thread.messages[planIdx];
-		if (!message || message.role !== 'plan') { return; }
+		if (!message || message.role !== "plan") {
+			return;
+		}
 
 		const plan = message as PlanMessage;
 		const updatedSteps = [...plan.steps];
@@ -1518,62 +2191,93 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	// Fast internal versions that take step directly (avoid lookup)
-	private _linkToolCallToStepInternal(threadId: string, toolId: string, currentStep: { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number }, stepNumber?: number) {
+	private _linkToolCallToStepInternal(
+		threadId: string,
+		toolId: string,
+		currentStep: {
+			plan: PlanMessage;
+			planIdx: number;
+			step: PlanStep;
+			stepIdx: number;
+		},
+		stepNumber?: number,
+	) {
 		const { planIdx, step, stepIdx } = currentStep;
 		// If stepNumber provided, verify it matches
-		if (stepNumber !== undefined && step.stepNumber !== stepNumber) { return; }
+		if (stepNumber !== undefined && step.stepNumber !== stepNumber) {
+			return;
+		}
 
 		const toolCalls = step.toolCalls || [];
 		if (!toolCalls.includes(toolId)) {
 			this._updatePlanStep(threadId, planIdx, stepIdx, {
-				toolCalls: [...toolCalls, toolId]
+				toolCalls: [...toolCalls, toolId],
 			});
 		}
 	}
 
-	private _markStepCompletedInternal(threadId: string, currentStep: { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number }, succeeded: boolean, error?: string) {
+	private _markStepCompletedInternal(
+		threadId: string,
+		currentStep: {
+			plan: PlanMessage;
+			planIdx: number;
+			step: PlanStep;
+			stepIdx: number;
+		},
+		succeeded: boolean,
+		error?: string,
+	) {
 		const { planIdx, stepIdx } = currentStep;
 
 		const updates: Partial<PlanStep> = {
-			status: succeeded ? 'succeeded' : 'failed',
+			status: succeeded ? "succeeded" : "failed",
 			endTime: Date.now(),
-			error: error
+			error: error,
 		};
 		this._updatePlanStep(threadId, planIdx, stepIdx, updates);
 	}
 
-	private _startNextStep(threadId: string): { step: PlanStep; checkpointIdx: number } | undefined {
+	private _startNextStep(
+		threadId: string,
+	): { step: PlanStep; checkpointIdx: number } | undefined {
 		// Force refresh to get latest plan state (may have been updated)
 		const planInfo = this._getCurrentPlan(threadId, true);
-		if (!planInfo) { return undefined; }
+		if (!planInfo) {
+			return undefined;
+		}
 		const { plan, planIdx } = planInfo;
 
 		// Find next queued step (not disabled, queued status)
-		const stepIdx = plan.steps.findIndex(s =>
-			!s.disabled && s.status === 'queued'
+		const stepIdx = plan.steps.findIndex(
+			(s) => !s.disabled && s.status === "queued",
 		);
-		if (stepIdx < 0) { return undefined; }
+		if (stepIdx < 0) {
+			return undefined;
+		}
 
 		const step = plan.steps[stepIdx];
 
 		// Create checkpoint before starting step
 		this._addUserCheckpoint({ threadId });
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return undefined; }
+		if (!thread) {
+			return undefined;
+		}
 		const checkpointIdx = thread.messages.length - 1;
 
 		// Update step to running and link checkpoint
 		this._updatePlanStep(threadId, planIdx, stepIdx, {
-			status: 'running',
+			status: "running",
 			startTime: Date.now(),
-			checkpointIdx: checkpointIdx
+			checkpointIdx: checkpointIdx,
 		});
 
 		return { step, checkpointIdx };
 	}
 
 	private _computeMCPServerOfToolName = (toolName: string) => {
-		return this._mcpService.getMCPTools()?.find(t => t.name === toolName)?.mcpServerName;
+		return this._mcpService.getMCPTools()?.find((t) => t.name === toolName)
+			?.mcpServerName;
 	};
 
 	// Check if user request warrants plan generation
@@ -1584,36 +2288,70 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return false;
 		}
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return false; }
+		if (!thread) {
+			return false;
+		}
 
-		const lastUserMessage = thread.messages.filter(m => m.role === 'user').pop();
-		if (!lastUserMessage || lastUserMessage.role !== 'user') { return false; }
+		const lastUserMessage = thread.messages
+			.filter((m) => m.role === "user")
+			.pop();
+		if (!lastUserMessage || lastUserMessage.role !== "user") {
+			return false;
+		}
 
-		const userRequest = (lastUserMessage.displayContent || '').toLowerCase();
+		const userRequest = (lastUserMessage.displayContent || "").toLowerCase();
 
 		// Detect complex multi-step tasks that should have plans
 		const complexTaskIndicators = [
 			// Multi-step operations
-			'create.*system', 'build.*system', 'implement.*system', 'set up.*system',
-			'refactor', 'refactoring',
-			'migrate', 'migration',
-			'add.*and.*test', 'create.*and.*add', 'implement.*and.*test',
-			'setup', 'set up', 'configure',
+			"create.*system",
+			"build.*system",
+			"implement.*system",
+			"set up.*system",
+			"refactor",
+			"refactoring",
+			"migrate",
+			"migration",
+			"add.*and.*test",
+			"create.*and.*add",
+			"implement.*and.*test",
+			"setup",
+			"set up",
+			"configure",
 			// Multi-file operations
-			'multiple.*file', 'several.*file', 'all.*file',
-			'create.*with', 'add.*with.*and',
+			"multiple.*file",
+			"several.*file",
+			"all.*file",
+			"create.*with",
+			"add.*with.*and",
 			// Structured requests
-			'authentication.*system', 'api.*with.*tests', 'full.*stack'
+			"authentication.*system",
+			"api.*with.*tests",
+			"full.*stack",
 		];
 
-		const hasComplexIndicator = complexTaskIndicators.some(pattern => {
-			const regex = new RegExp(pattern, 'i');
+		const hasComplexIndicator = complexTaskIndicators.some((pattern) => {
+			const regex = new RegExp(pattern, "i");
 			return regex.test(userRequest);
 		});
 
 		// Also check for multiple action verbs (suggests multiple steps)
-		const actionVerbs = ['create', 'add', 'edit', 'delete', 'update', 'refactor', 'implement', 'build', 'set up', 'configure', 'test'];
-		const actionCount = actionVerbs.filter(verb => userRequest.includes(verb)).length;
+		const actionVerbs = [
+			"create",
+			"add",
+			"edit",
+			"delete",
+			"update",
+			"refactor",
+			"implement",
+			"build",
+			"set up",
+			"configure",
+			"test",
+		];
+		const actionCount = actionVerbs.filter((verb) =>
+			userRequest.includes(verb),
+		).length;
 
 		return hasComplexIndicator || actionCount >= 3;
 	}
@@ -1622,15 +2360,21 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private async _generatePlanFromUserRequest(
 		threadId: string,
 		modelSelection: ModelSelection | null,
-		modelSelectionOptions: ModelSelectionOptions | undefined
+		modelSelectionOptions: ModelSelectionOptions | undefined,
 	): Promise<void> {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
-		const lastUserMessage = thread.messages.filter(m => m.role === 'user').pop();
-		if (!lastUserMessage || lastUserMessage.role !== 'user') { return; }
+		const lastUserMessage = thread.messages
+			.filter((m) => m.role === "user")
+			.pop();
+		if (!lastUserMessage || lastUserMessage.role !== "user") {
+			return;
+		}
 
-		const userRequest = lastUserMessage.displayContent || '';
+		const userRequest = lastUserMessage.displayContent || "";
 
 		// Prepare messages for plan generation
 		const planPrompt = `The user has requested: "${userRequest}"
@@ -1665,36 +2409,60 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Send plan generation request
 		const chatMessages = thread.messages.slice(0, -1); // All messages except last user message
 		const planRequest: ChatMessage = {
-			role: 'user',
+			role: "user",
 			content: planPrompt,
 			displayContent: planPrompt,
 			selections: null,
-			state: { stagingSelections: [], isBeingEdited: false }
+			state: { stagingSelections: [], isBeingEdited: false },
 		};
 
-		const { messages } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
-			chatMessages: [...chatMessages, planRequest],
-			modelSelection,
-			chatMode: 'normal' // Use 'normal' mode to prevent tool execution during plan generation
-		});
+		const { messages } =
+			await this._convertToLLMMessagesService.prepareLLMChatMessages({
+				chatMessages: [...chatMessages, planRequest],
+				modelSelection,
+				chatMode: "normal", // Use 'normal' mode to prevent tool execution during plan generation
+			});
 
-		this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) });
+		this._setStreamState(threadId, {
+			isRunning: "LLM",
+			llmInfo: {
+				displayContentSoFar: "Generating execution plan...",
+				reasoningSoFar: "",
+				toolCallSoFar: null,
+			},
+			interrupt: Promise.resolve(() => {}),
+		});
 
 		// Create a promise that resolves when the plan is generated
 		return new Promise<void>((resolve, reject) => {
 			try {
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
-					messagesType: 'chatMessages',
-					chatMode: 'normal', // Normal mode - no tool execution
+					messagesType: "chatMessages",
+					chatMode: "normal", // Normal mode - no tool execution
 					messages: messages,
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel: this._settingsService.state.overridesOfModel,
-					logging: { loggingName: 'Plan Generation', loggingExtras: { threadId } },
+					logging: {
+						loggingName: "Plan Generation",
+						loggingExtras: { threadId },
+					},
 					separateSystemMessage: undefined,
 					onText: ({ fullText }) => {
 						// Don't show raw JSON to user - just show "Generating plan..."
-						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating execution plan...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
+						this._setStreamState(threadId, {
+							isRunning: "LLM",
+							llmInfo: {
+								displayContentSoFar: "Generating execution plan...",
+								reasoningSoFar: "",
+								toolCallSoFar: null,
+							},
+							interrupt: Promise.resolve(() => {
+								if (llmCancelToken) {
+									this._llmMessageService.abort(llmCancelToken);
+								}
+							}),
+						});
 					},
 					onFinalMessage: async ({ fullText }) => {
 						// Parse plan from LLM response
@@ -1704,17 +2472,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (jsonMatch) {
 								const planData = JSON.parse(jsonMatch[0]);
 								const planMessage: PlanMessage = {
-									role: 'plan',
-									type: 'agent_plan',
-									summary: planData.summary || 'Execution plan',
-									steps: (planData.steps || []).map((step: { stepNumber?: number; description?: string; tools?: unknown[]; files?: unknown[] }, idx: number) => ({
-										stepNumber: step.stepNumber || idx + 1,
-										description: step.description || `Step ${idx + 1}`,
-										tools: step.tools || [],
-										files: step.files || [],
-										status: 'queued' as StepStatus
-									})),
-									approvalState: 'pending'
+									role: "plan",
+									type: "agent_plan",
+									summary: planData.summary || "Execution plan",
+									steps: (planData.steps || []).map(
+										(
+											step: {
+												stepNumber?: number;
+												description?: string;
+												tools?: unknown[];
+												files?: unknown[];
+											},
+											idx: number,
+										) => ({
+											stepNumber: step.stepNumber || idx + 1,
+											description: step.description || `Step ${idx + 1}`,
+											tools: step.tools || [],
+											files: step.files || [],
+											status: "queued" as StepStatus,
+										}),
+									),
+									approvalState: "pending",
 								};
 
 								// Add plan to thread (DO NOT add assistant message - hide the raw JSON)
@@ -1723,29 +2501,42 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								this._planCache.delete(threadId);
 								// CRITICAL: Stop execution immediately - set state to idle (don't abort which adds messages)
 								// NOTE: The flag will be checked in the main execution loop
-								this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+								this._setStreamState(threadId, {
+									isRunning: "idle",
+									interrupt: "not_needed",
+								});
 								resolve(); // Resolve when plan is successfully added
 							} else {
 								// Failed to parse - add as assistant message explaining we couldn't parse
 								this._addMessageToThread(threadId, {
-									role: 'assistant',
-									displayContent: 'I attempted to create a plan but had difficulty parsing it. Proceeding with direct execution...\n\n' + fullText,
-									reasoning: '',
-									anthropicReasoning: null
+									role: "assistant",
+									displayContent:
+										"I attempted to create a plan but had difficulty parsing it. Proceeding with direct execution...\n\n" +
+										fullText,
+									reasoning: "",
+									anthropicReasoning: null,
 								});
-								this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+								this._setStreamState(threadId, {
+									isRunning: "idle",
+									interrupt: "not_needed",
+								});
 								resolve(); // Still resolve - let normal execution continue
 							}
 						} catch (parseError) {
-							console.error('Failed to parse plan from LLM:', parseError);
+							console.error("Failed to parse plan from LLM:", parseError);
 							// Add as assistant message
 							this._addMessageToThread(threadId, {
-								role: 'assistant',
-								displayContent: 'I attempted to create a plan but encountered an error. Proceeding with direct execution...\n\n' + fullText,
-								reasoning: '',
-								anthropicReasoning: null
+								role: "assistant",
+								displayContent:
+									"I attempted to create a plan but encountered an error. Proceeding with direct execution...\n\n" +
+									fullText,
+								reasoning: "",
+								anthropicReasoning: null,
 							});
-							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							this._setStreamState(threadId, {
+								isRunning: "idle",
+								interrupt: "not_needed",
+							});
 							resolve(); // Still resolve - let normal execution continue
 						}
 					},
@@ -1755,16 +2546,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					},
 					onAbort: () => {
 						this._setStreamState(threadId, undefined);
-						reject(new Error('Plan generation aborted'));
+						reject(new Error("Plan generation aborted"));
 					},
 				});
 
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: 'Failed to generate plan', fullError: null } });
-					reject(new Error('Failed to start plan generation'));
+					this._setStreamState(threadId, {
+						isRunning: undefined,
+						error: { message: "Failed to generate plan", fullError: null },
+					});
+					reject(new Error("Failed to start plan generation"));
 				}
 			} catch (error) {
-				this._setStreamState(threadId, { isRunning: undefined, error: { message: 'Error generating plan', fullError: error instanceof Error ? error : null } });
+				this._setStreamState(threadId, {
+					isRunning: undefined,
+					error: {
+						message: "Error generating plan",
+						fullError: error instanceof Error ? error : null,
+					},
+				});
 				reject(error);
 			}
 		});
@@ -1772,25 +2572,55 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; } // should never happen
+		if (!thread) {
+			return;
+		} // should never happen
 
 		// add assistant message
-		if (this.streamState[threadId]?.isRunning === 'LLM') {
-			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-			this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
-			if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
+		if (this.streamState[threadId]?.isRunning === "LLM") {
+			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } =
+				this.streamState[threadId].llmInfo;
+			this._addMessageToThread(threadId, {
+				role: "assistant",
+				displayContent: displayContentSoFar,
+				reasoning: reasoningSoFar,
+				anthropicReasoning: null,
+			});
+			if (toolCallSoFar) {
+				this._addMessageToThread(threadId, {
+					role: "interrupted_streaming_tool",
+					name: toolCallSoFar.name,
+					mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name),
+				});
+			}
 		}
 		// add tool that's running
-		else if (this.streamState[threadId]?.isRunning === 'tool') {
-			const { toolName, toolParams, id, content: content_, rawParams, mcpServerName } = this.streamState[threadId].toolInfo;
+		else if (this.streamState[threadId]?.isRunning === "tool") {
+			const {
+				toolName,
+				toolParams,
+				id,
+				content: content_,
+				rawParams,
+				mcpServerName,
+			} = this.streamState[threadId].toolInfo;
 			const content = content_ || this.toolErrMsgs.interrupted;
-			this._updateLatestTool(threadId, { role: 'tool', name: toolName, params: toolParams, id, content, rawParams, type: 'rejected', result: null, mcpServerName });
+			this._updateLatestTool(threadId, {
+				role: "tool",
+				name: toolName,
+				params: toolParams,
+				id,
+				content,
+				rawParams,
+				type: "rejected",
+				result: null,
+				mcpServerName,
+			});
 		}
 		// reject the tool for the user if relevant
-		else if (this.streamState[threadId]?.isRunning === 'awaiting_user') {
+		else if (this.streamState[threadId]?.isRunning === "awaiting_user") {
 			this.rejectLatestToolRequest(threadId);
-		}
-		else if (this.streamState[threadId]?.isRunning === 'idle') {
+		} else if (this.streamState[threadId]?.isRunning === "idle") {
 			// do nothing
 		}
 
@@ -1798,177 +2628,261 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// interrupt any effects
 		const interrupt = await this.streamState[threadId]?.interrupt;
-		if (typeof interrupt === 'function') { interrupt(); }
-
+		if (typeof interrupt === "function") {
+			interrupt();
+		}
 
 		this._setStreamState(threadId, undefined);
 	}
 
-
-
 	private readonly toolErrMsgs = {
-		rejected: 'Tool call was rejected by the user.',
-		interrupted: 'Tool call was interrupted by the user.',
-		errWhenStringifying: (error: unknown) => `Tool call succeeded, but there was an error stringifying the output.\n${getErrorMessage(error)}`
+		rejected: "Tool call was rejected by the user.",
+		interrupted: "Tool call was interrupted by the user.",
+		errWhenStringifying: (error: unknown) =>
+			`Tool call succeeded, but there was an error stringifying the output.\n${getErrorMessage(error)}`,
 	};
 
-
 	// private readonly _currentlyRunningToolInterruptor: { [threadId: string]: (() => void) | undefined } = {}
-
 
 	// returns true when the tool call is waiting for user approval
 	/**
 	 * Synthesizes a tool call from user intent when the model refuses to use tools.
 	 * This ensures Agent Mode works even with models that don't follow tool calling instructions.
 	 */
-	private _synthesizeToolCallFromIntent(userRequest: string, originalRequest: string): { toolName: string; toolParams: RawToolParamsObj } | null {
+	private _synthesizeToolCallFromIntent(
+		userRequest: string,
+		originalRequest: string,
+	): { toolName: string; toolParams: RawToolParamsObj } | null {
 		const lowerRequest = userRequest.toLowerCase();
 
 		// Extract key terms from the request
 		const extractKeywords = (text: string): string[] => {
-			const words = text.split(/\s+/).filter(w => w.length > 2);
-			const stopWords = ['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'can', 'you', 'add', 'create', 'make', 'do'];
-			return words.filter(w => !stopWords.includes(w.toLowerCase())).slice(0, 5);
+			const words = text.split(/\s+/).filter((w) => w.length > 2);
+			const stopWords = [
+				"the",
+				"a",
+				"an",
+				"to",
+				"for",
+				"of",
+				"in",
+				"on",
+				"at",
+				"by",
+				"with",
+				"can",
+				"you",
+				"add",
+				"create",
+				"make",
+				"do",
+			];
+			return words
+				.filter((w) => !stopWords.includes(w.toLowerCase()))
+				.slice(0, 5);
 		};
 
 		// Handle web search queries - expanded patterns
-		if (lowerRequest.includes('search the web') || lowerRequest.includes('search online') || lowerRequest.includes('look up') ||
-			lowerRequest.includes('check the web') || lowerRequest.includes('check the internet') || lowerRequest.includes('check internet') ||
-			lowerRequest.includes('look it up') || lowerRequest.includes('find information') ||
-			lowerRequest.includes('tell me what you know about') || lowerRequest.includes('what do you know about') ||
-			lowerRequest.includes('google') || lowerRequest.includes('duckduckgo') ||
-			(lowerRequest.includes('search for') && lowerRequest.includes('on the web')) ||
-			(lowerRequest.includes('search for') && lowerRequest.includes('on the internet')) ||
-			(lowerRequest.includes('what is') || lowerRequest.includes('what are') || lowerRequest.includes('who is') || lowerRequest.includes('when did')) &&
-			(lowerRequest.includes('latest') || lowerRequest.includes('current') || lowerRequest.includes('recent') || lowerRequest.includes('2024') || lowerRequest.includes('2025'))) {
+		if (
+			lowerRequest.includes("search the web") ||
+			lowerRequest.includes("search online") ||
+			lowerRequest.includes("look up") ||
+			lowerRequest.includes("check the web") ||
+			lowerRequest.includes("check the internet") ||
+			lowerRequest.includes("check internet") ||
+			lowerRequest.includes("look it up") ||
+			lowerRequest.includes("find information") ||
+			lowerRequest.includes("tell me what you know about") ||
+			lowerRequest.includes("what do you know about") ||
+			lowerRequest.includes("google") ||
+			lowerRequest.includes("duckduckgo") ||
+			(lowerRequest.includes("search for") &&
+				lowerRequest.includes("on the web")) ||
+			(lowerRequest.includes("search for") &&
+				lowerRequest.includes("on the internet")) ||
+			((lowerRequest.includes("what is") ||
+				lowerRequest.includes("what are") ||
+				lowerRequest.includes("who is") ||
+				lowerRequest.includes("when did")) &&
+				(lowerRequest.includes("latest") ||
+					lowerRequest.includes("current") ||
+					lowerRequest.includes("recent") ||
+					lowerRequest.includes("2024") ||
+					lowerRequest.includes("2025")))
+		) {
 			const keywords = extractKeywords(originalRequest);
 			// For "tell me what you know about X", extract X
 			let query = originalRequest;
-			if (lowerRequest.includes('tell me what you know about') || lowerRequest.includes('what do you know about')) {
-				const aboutMatch = originalRequest.match(/about\s+(.+)/i) || originalRequest.match(/know about\s+(.+)/i);
+			if (
+				lowerRequest.includes("tell me what you know about") ||
+				lowerRequest.includes("what do you know about")
+			) {
+				const aboutMatch =
+					originalRequest.match(/about\s+(.+)/i) ||
+					originalRequest.match(/know about\s+(.+)/i);
 				if (aboutMatch) {
 					query = aboutMatch[1].trim();
 				} else {
-					query = keywords.length > 0 ? keywords.join(' ') : originalRequest;
+					query = keywords.length > 0 ? keywords.join(" ") : originalRequest;
 				}
 			} else {
-				query = keywords.length > 0 ? keywords.join(' ') : originalRequest;
+				query = keywords.length > 0 ? keywords.join(" ") : originalRequest;
 			}
 			return {
-				toolName: 'web_search',
+				toolName: "web_search",
 				toolParams: {
 					query: query,
-					k: '5'
-				}
+					k: "5",
+				},
 			};
 		}
 
 		// Handle URL browsing requests
-		if (lowerRequest.includes('open url') || lowerRequest.includes('fetch url') || lowerRequest.includes('browse url') ||
-			lowerRequest.includes('read url') || lowerRequest.includes('get content from') ||
-			(lowerRequest.match(/https?:\/\//) && (lowerRequest.includes('read') || lowerRequest.includes('open') || lowerRequest.includes('fetch')))) {
+		if (
+			lowerRequest.includes("open url") ||
+			lowerRequest.includes("fetch url") ||
+			lowerRequest.includes("browse url") ||
+			lowerRequest.includes("read url") ||
+			lowerRequest.includes("get content from") ||
+			(lowerRequest.match(/https?:\/\//) &&
+				(lowerRequest.includes("read") ||
+					lowerRequest.includes("open") ||
+					lowerRequest.includes("fetch")))
+		) {
 			const urlMatch = originalRequest.match(/(https?:\/\/[^\s]+)/i);
 			if (urlMatch) {
 				return {
-					toolName: 'browse_url',
+					toolName: "browse_url",
 					toolParams: {
-						url: urlMatch[1]
-					}
+						url: urlMatch[1],
+					},
 				};
 			}
 		}
 
 		// Handle codebase queries - need to search for relevant files to answer
-		if (lowerRequest.includes('codebase') || lowerRequest.includes('code base') || lowerRequest.includes('repository') || lowerRequest.includes('repo') ||
-			(lowerRequest.includes('what') && (lowerRequest.includes('project') || lowerRequest.includes('about'))) ||
-			(lowerRequest.includes('how many') && (lowerRequest.includes('endpoint') || lowerRequest.includes('api')))) {
+		if (
+			lowerRequest.includes("codebase") ||
+			lowerRequest.includes("code base") ||
+			lowerRequest.includes("repository") ||
+			lowerRequest.includes("repo") ||
+			(lowerRequest.includes("what") &&
+				(lowerRequest.includes("project") || lowerRequest.includes("about"))) ||
+			(lowerRequest.includes("how many") &&
+				(lowerRequest.includes("endpoint") || lowerRequest.includes("api")))
+		) {
 			// User is asking about the codebase - search for overview files first
 			const keywords = extractKeywords(originalRequest);
-			const query = keywords.length > 0 ? keywords.join(' ') : 'readme package.json server api route endpoint';
+			const query =
+				keywords.length > 0
+					? keywords.join(" ")
+					: "readme package.json server api route endpoint";
 
 			return {
-				toolName: 'search_for_files',
+				toolName: "search_for_files",
 				toolParams: {
-					query: query
-				}
+					query: query,
+				},
 			};
 		}
 
 		// Determine intent and synthesize appropriate tool call
-		if (lowerRequest.includes('endpoint') || lowerRequest.includes('route') || lowerRequest.includes('api')) {
+		if (
+			lowerRequest.includes("endpoint") ||
+			lowerRequest.includes("route") ||
+			lowerRequest.includes("api")
+		) {
 			// User wants to add an endpoint - start by searching for server/route files
-			const keywords = extractKeywords(originalRequest).filter(k => !['dummy', 'endpoint', 'backend'].includes(k.toLowerCase()));
-			const query = keywords.length > 0 ? keywords.join(' ') : 'server route api endpoint';
+			const keywords = extractKeywords(originalRequest).filter(
+				(k) => !["dummy", "endpoint", "backend"].includes(k.toLowerCase()),
+			);
+			const query =
+				keywords.length > 0 ? keywords.join(" ") : "server route api endpoint";
 
 			return {
-				toolName: 'search_for_files',
+				toolName: "search_for_files",
 				toolParams: {
-					query: query
-				}
+					query: query,
+				},
 			};
-		} else if (lowerRequest.includes('file') && (lowerRequest.includes('create') || lowerRequest.includes('add') || lowerRequest.includes('make'))) {
+		} else if (
+			lowerRequest.includes("file") &&
+			(lowerRequest.includes("create") ||
+				lowerRequest.includes("add") ||
+				lowerRequest.includes("make"))
+		) {
 			// User wants to create a file
 			const keywords = extractKeywords(originalRequest);
-			const fileName = keywords.find(k => k.includes('.') || k.length > 3) || 'newfile';
+			const fileName =
+				keywords.find((k) => k.includes(".") || k.length > 3) || "newfile";
 
 			return {
-				toolName: 'create_file_or_folder',
+				toolName: "create_file_or_folder",
 				toolParams: {
-					uri: fileName.startsWith('/') ? fileName : `/${fileName}`,
-					type: 'file'
-				}
+					uri: fileName.startsWith("/") ? fileName : `/${fileName}`,
+					type: "file",
+				},
 			};
-		} else if (lowerRequest.includes('read') || lowerRequest.includes('show') || lowerRequest.includes('view')) {
+		} else if (
+			lowerRequest.includes("read") ||
+			lowerRequest.includes("show") ||
+			lowerRequest.includes("view")
+		) {
 			// User wants to read a file
 			const fileMatch = originalRequest.match(/([\w\/\.\-]+\.\w+)/i);
 			if (fileMatch) {
 				return {
-					toolName: 'read_file',
+					toolName: "read_file",
 					toolParams: {
 						uri: fileMatch[1],
-						start_line: '1',
-						end_line: '100'
-					}
+						start_line: "1",
+						end_line: "100",
+					},
 				};
 			}
-		} else if (lowerRequest.includes('edit') || lowerRequest.includes('modify') || lowerRequest.includes('change') || lowerRequest.includes('update')) {
+		} else if (
+			lowerRequest.includes("edit") ||
+			lowerRequest.includes("modify") ||
+			lowerRequest.includes("change") ||
+			lowerRequest.includes("update")
+		) {
 			// User wants to edit a file - first need to find/read it
 			const keywords = extractKeywords(originalRequest);
 			return {
-				toolName: 'search_for_files',
+				toolName: "search_for_files",
 				toolParams: {
-					query: keywords.join(' ') || 'file'
-				}
+					query: keywords.join(" ") || "file",
+				},
 			};
 		}
 
 		// Default: search for relevant files based on request
 		const keywords = extractKeywords(originalRequest);
 		return {
-			toolName: 'search_for_files',
+			toolName: "search_for_files",
 			toolParams: {
-				query: keywords.join(' ') || originalRequest.slice(0, 50)
-			}
+				query: keywords.join(" ") || originalRequest.slice(0, 50),
+			},
 		};
 	}
 
 	private async _buildEditContext(
 		toolName: ToolName,
 		toolParams: ToolCallParams<ToolName>,
-		threadId: string
+		threadId: string,
 	): Promise<EditContext> {
 		let uri: URI;
 		let originalContent: string | undefined;
 		let newContent: string | undefined;
 		let textEdits: TextEdit[] | undefined;
-		let operation: EditContext['operation'];
+		let operation: EditContext["operation"];
 
 		// Get URI and operation type
-		if (toolName === 'rewrite_file') {
-			const params = toolParams as BuiltinToolCallParams['rewrite_file'];
+		if (toolName === "rewrite_file") {
+			const params = toolParams as BuiltinToolCallParams["rewrite_file"];
 			uri = params.uri;
 			newContent = params.newContent;
-			operation = 'rewrite_file';
+			operation = "rewrite_file";
 
 			// Try to get original content
 			try {
@@ -1979,10 +2893,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			} catch {
 				// Model not available
 			}
-		} else if (toolName === 'edit_file') {
-			const params = toolParams as BuiltinToolCallParams['edit_file'];
+		} else if (toolName === "edit_file") {
+			const params = toolParams as BuiltinToolCallParams["edit_file"];
 			uri = params.uri;
-			operation = 'edit_file';
+			operation = "edit_file";
 
 			// Parse searchReplaceBlocks to extract text edits
 			// This is a simplified version - actual parsing would need to handle the searchReplaceBlocks format
@@ -1995,14 +2909,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			} catch {
 				// Model not available
 			}
-		} else if (toolName === 'create_file_or_folder') {
-			const params = toolParams as BuiltinToolCallParams['create_file_or_folder'];
+		} else if (toolName === "create_file_or_folder") {
+			const params =
+				toolParams as BuiltinToolCallParams["create_file_or_folder"];
 			uri = params.uri;
-			operation = 'create_file_or_folder';
-		} else if (toolName === 'delete_file_or_folder') {
-			const params = toolParams as BuiltinToolCallParams['delete_file_or_folder'];
+			operation = "create_file_or_folder";
+		} else if (toolName === "delete_file_or_folder") {
+			const params =
+				toolParams as BuiltinToolCallParams["delete_file_or_folder"];
 			uri = params.uri;
-			operation = 'delete_file_or_folder';
+			operation = "delete_file_or_folder";
 
 			// Try to get original content before deletion
 			try {
@@ -2024,10 +2940,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (thread) {
 				// Check if read_file was called for this URI in recent messages
 				for (const message of thread.messages) {
-					if (message.role === 'tool' && message.name === 'read_file') {
+					if (message.role === "tool" && message.name === "read_file") {
 						// Check if message has params (not invalid_params type)
-						if (message.type !== 'invalid_params' && 'params' in message) {
-							const readParams = message.params as BuiltinToolCallParams['read_file'];
+						if (message.type !== "invalid_params" && "params" in message) {
+							const readParams =
+								message.params as BuiltinToolCallParams["read_file"];
 							if (readParams && readParams.uri.fsPath === uri.fsPath) {
 								fileWasRead = true;
 								break;
@@ -2049,8 +2966,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Try to get from the most recent assistant message that has model selection
 				for (let i = thread.messages.length - 1; i >= 0; i--) {
 					const msg = thread.messages[i];
-					if (msg.role === 'assistant' && 'modelSelection' in msg) {
-						modelSelection = (msg as { modelSelection?: ModelSelection }).modelSelection;
+					if (msg.role === "assistant" && "modelSelection" in msg) {
+						modelSelection = (msg as { modelSelection?: ModelSelection })
+							.modelSelection;
 						break;
 					}
 				}
@@ -2070,10 +2988,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			textEdits,
 			operation,
 			fileWasRead,
-			modelSelection: modelSelection ? {
-				providerName: modelSelection.providerName,
-				modelName: modelSelection.modelName,
-			} : undefined,
+			modelSelection: modelSelection
+				? {
+						providerName: modelSelection.providerName,
+						modelName: modelSelection.modelName,
+					}
+				: undefined,
 			totalFilesInOperation,
 		};
 	}
@@ -2081,43 +3001,63 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	private _showAutoApplyNotification(
 		editContext: EditContext,
 		riskScore: EditRiskScore,
-		toolName: ToolName
+		toolName: ToolName,
 	): void {
-		const fileName = editContext.uri.path.split('/').pop() || editContext.uri.path;
-		const operationLabel = toolName === 'rewrite_file' ? 'rewritten' :
-		                      toolName === 'edit_file' ? 'edited' :
-		                      toolName === 'create_file_or_folder' ? 'created' :
-		                      'modified';
+		const fileName =
+			editContext.uri.path.split("/").pop() || editContext.uri.path;
+		const operationLabel =
+			toolName === "rewrite_file"
+				? "rewritten"
+				: toolName === "edit_file"
+					? "edited"
+					: toolName === "create_file_or_folder"
+						? "created"
+						: "modified";
 
 		// Show brief, non-intrusive notification
 		// Not sticky, auto-dismisses after a few seconds
 		// Info severity (not warning) to be less intrusive
 		this._notificationService.notify({
 			severity: Severity.Info,
-			message: localize('yolo.autoApplied', 'Auto-applied {0} to {1}', operationLabel, fileName),
-			source: 'YOLO Mode',
+			message: localize(
+				"yolo.autoApplied",
+				"Auto-applied {0} to {1}",
+				operationLabel,
+				fileName,
+			),
+			source: "YOLO Mode",
 			sticky: false, // Auto-dismiss
 			actions: {
-				primary: [{
-					id: 'yolo.undo',
-					label: localize('yolo.undo', 'Undo'),
-					tooltip: localize('yolo.undoTooltip', 'Undo this edit'),
-					class: undefined,
-					enabled: true,
-					run: async () => {
-						// Trigger undo for the file
-						try {
-							await this._commandService.executeCommand('undo', editContext.uri);
-							this._metricsService.capture('yolo_undo_clicked', {
-								operation: toolName,
-								riskScore: riskScore.riskScore,
-							});
-						} catch (error) {
-							// Undo failed, show error
-							this._notificationService.warn(localize('yolo.undoFailed', 'Could not undo edit. Use Ctrl+Z manually.'));
-						}
+				primary: [
+					{
+						id: "yolo.undo",
+						label: localize("yolo.undo", "Undo"),
+						tooltip: localize("yolo.undoTooltip", "Undo this edit"),
+						class: undefined,
+						enabled: true,
+						run: async () => {
+							// Trigger undo for the file
+							try {
+								await this._commandService.executeCommand(
+									"undo",
+									editContext.uri,
+								);
+								this._metricsService.capture("yolo_undo_clicked", {
+									operation: toolName,
+									riskScore: riskScore.riskScore,
+								});
+							} catch (error) {
+								// Undo failed, show error
+								this._notificationService.warn(
+									localize(
+										"yolo.undoFailed",
+										"Could not undo edit. Use Ctrl+Z manually.",
+									),
+								);
+							}
+						},
 					},
-				}],
+				],
 			},
 		});
 	}
@@ -2127,9 +3067,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		toolName: ToolName,
 		toolId: string,
 		mcpServerName: string | undefined,
-		opts: { preapproved: true; unvalidatedToolParams: RawToolParamsObj; validatedParams: ToolCallParams<ToolName> } | { preapproved: false; unvalidatedToolParams: RawToolParamsObj },
+		opts:
+			| {
+					preapproved: true;
+					unvalidatedToolParams: RawToolParamsObj;
+					validatedParams: ToolCallParams<ToolName>;
+			  }
+			| { preapproved: false; unvalidatedToolParams: RawToolParamsObj },
 	): Promise<{ awaitingUserApproval?: boolean; interrupted?: boolean }> => {
-
 		// compute these below
 		let toolParams: ToolCallParams<ToolName>;
 		let toolResult: ToolResult<ToolName>;
@@ -2138,85 +3083,169 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Check if it's a built-in tool
 		const isBuiltInTool = isABuiltinToolName(toolName);
 
-		if (!opts.preapproved) { // skip this if pre-approved
+		if (!opts.preapproved) {
+			// skip this if pre-approved
 			// 1. validate tool params
 			try {
 				if (isBuiltInTool) {
-					const params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams);
+					const params = this._toolsService.validateParams[toolName](
+						opts.unvalidatedToolParams,
+					);
 					toolParams = params;
-				}
-				else {
+				} else {
 					toolParams = opts.unvalidatedToolParams;
 				}
-			}
-			catch (error) {
+			} catch (error) {
 				const errorMessage = getErrorMessage(error);
-				this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: errorMessage, id: toolId, mcpServerName });
+				this._addMessageToThread(threadId, {
+					role: "tool",
+					type: "invalid_params",
+					rawParams: opts.unvalidatedToolParams,
+					result: null,
+					name: toolName,
+					content: errorMessage,
+					id: toolId,
+					mcpServerName,
+				});
 				return {};
 			}
 			// once validated, add checkpoint for edit
-			if (toolName === 'edit_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['edit_file']).uri }); }
-			if (toolName === 'rewrite_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['rewrite_file']).uri }); }
+			if (toolName === "edit_file") {
+				this._addToolEditCheckpoint({
+					threadId,
+					uri: (toolParams as BuiltinToolCallParams["edit_file"]).uri,
+				});
+			}
+			if (toolName === "rewrite_file") {
+				this._addToolEditCheckpoint({
+					threadId,
+					uri: (toolParams as BuiltinToolCallParams["rewrite_file"]).uri,
+				});
+			}
 
 			// 2. if tool requires approval, break from the loop, awaiting approval
 
-			const approvalType = isBuiltInTool ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
+			const approvalType = isBuiltInTool
+				? approvalTypeOfBuiltinToolName[toolName]
+				: "MCP tools";
 			if (approvalType) {
 				// Check YOLO mode for edit operations
-				const isEditOperation = isBuiltInTool && (
-					toolName === 'edit_file' ||
-					toolName === 'rewrite_file' ||
-					toolName === 'create_file_or_folder' ||
-					toolName === 'delete_file_or_folder'
-				);
+				const isEditOperation =
+					isBuiltInTool &&
+					(toolName === "edit_file" ||
+						toolName === "rewrite_file" ||
+						toolName === "create_file_or_folder" ||
+						toolName === "delete_file_or_folder");
 
 				// Check YOLO mode for NL shell commands
-				const isNLCommand = isBuiltInTool && toolName === 'run_nl_command';
+				const isNLCommand = isBuiltInTool && toolName === "run_nl_command";
 
-				let shouldAutoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType];
-				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
+				let shouldAutoApprove =
+					this._settingsService.state.globalSettings.autoApprove[approvalType];
+				let riskScore:
+					| {
+							riskScore: number;
+							confidenceScore: number;
+							riskLevel: "LOW" | "MEDIUM" | "HIGH";
+							riskFactors: string[];
+							confidenceFactors: string[];
+					  }
+					| undefined;
 
 				// If YOLO mode is enabled and this is an NL command, check if it's safe
-				if (isNLCommand && this._settingsService.state.globalSettings.enableYOLOMode) {
+				if (
+					isNLCommand &&
+					this._settingsService.state.globalSettings.enableYOLOMode
+				) {
 					try {
-						const nlParams = toolParams as BuiltinToolCallParams['run_nl_command'];
+						const nlParams =
+							toolParams as BuiltinToolCallParams["run_nl_command"];
 						const nlInput = nlParams.nlInput.toLowerCase();
 
 						// Simple heuristics for safe commands (read-only, informational)
-						const safePatterns = ['list', 'show', 'check', 'status', 'get', 'display', 'print', 'view', 'read', 'cat', 'ls', 'pwd', 'whoami', 'date', 'time'];
-						const dangerousPatterns = ['delete', 'remove', 'rm', 'kill', 'destroy', 'format', 'reset', 'clear', 'drop', 'truncate', 'sudo', 'chmod', 'chown'];
+						const safePatterns = [
+							"list",
+							"show",
+							"check",
+							"status",
+							"get",
+							"display",
+							"print",
+							"view",
+							"read",
+							"cat",
+							"ls",
+							"pwd",
+							"whoami",
+							"date",
+							"time",
+						];
+						const dangerousPatterns = [
+							"delete",
+							"remove",
+							"rm",
+							"kill",
+							"destroy",
+							"format",
+							"reset",
+							"clear",
+							"drop",
+							"truncate",
+							"sudo",
+							"chmod",
+							"chown",
+						];
 
-						const isSafe = safePatterns.some(pattern => nlInput.includes(pattern)) &&
-							!dangerousPatterns.some(pattern => nlInput.includes(pattern));
+						const isSafe =
+							safePatterns.some((pattern) => nlInput.includes(pattern)) &&
+							!dangerousPatterns.some((pattern) => nlInput.includes(pattern));
 
 						if (isSafe) {
 							shouldAutoApprove = true;
 							// Track YOLO auto-approval metric
-							this._metricsService.capture('yolo_auto_approved', {
+							this._metricsService.capture("yolo_auto_approved", {
 								operation: toolName,
 								nlInput: nlInput.substring(0, 50), // Truncate for privacy
 							});
 						}
 					} catch (error) {
 						// If check fails, fall back to normal approval flow
-						console.debug('[ChatThreadService] NL command safety check failed, using normal approval:', error);
+						console.debug(
+							"[ChatThreadService] NL command safety check failed, using normal approval:",
+							error,
+						);
 					}
 				}
 
 				// If YOLO mode is enabled and this is an edit operation, score the risk
-				if (isEditOperation && this._settingsService.state.globalSettings.enableYOLOMode) {
+				if (
+					isEditOperation &&
+					this._settingsService.state.globalSettings.enableYOLOMode
+				) {
 					try {
-						const editContext = await this._buildEditContext(toolName, toolParams, threadId);
-						riskScore = await this._editRiskScoringService.scoreEdit(editContext);
+						const editContext = await this._buildEditContext(
+							toolName,
+							toolParams,
+							threadId,
+						);
+						riskScore =
+							await this._editRiskScoringService.scoreEdit(editContext);
 
-						const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
-						const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
+						const yoloRiskThreshold =
+							this._settingsService.state.globalSettings.yoloRiskThreshold ??
+							0.2;
+						const yoloConfidenceThreshold =
+							this._settingsService.state.globalSettings
+								.yoloConfidenceThreshold ?? 0.7;
 
 						// Auto-approve if risk is low and confidence is high
-						if (riskScore.riskScore < yoloRiskThreshold && riskScore.confidenceScore > yoloConfidenceThreshold) {
+						if (
+							riskScore.riskScore < yoloRiskThreshold &&
+							riskScore.confidenceScore > yoloConfidenceThreshold
+						) {
 							shouldAutoApprove = true;
 							// Track YOLO auto-approval metric
-							this._metricsService.capture('yolo_auto_approved', {
+							this._metricsService.capture("yolo_auto_approved", {
 								riskScore: riskScore.riskScore,
 								confidenceScore: riskScore.confidenceScore,
 								riskLevel: riskScore.riskLevel,
@@ -2226,13 +3255,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// Show non-intrusive notification for medium-risk auto-applies (not very low risk)
 							// Very low risk (< 0.1) edits are silent to avoid notification fatigue
 							if (riskScore.riskScore >= 0.1) {
-								this._showAutoApplyNotification(editContext, riskScore, toolName);
+								this._showAutoApplyNotification(
+									editContext,
+									riskScore,
+									toolName,
+								);
 							}
-						} else if (riskScore.riskLevel === 'HIGH') {
+						} else if (riskScore.riskLevel === "HIGH") {
 							// High-risk edits always require approval, even if autoApprove is true
 							shouldAutoApprove = false;
 							// Track high-risk blocked metric
-							this._metricsService.capture('yolo_high_risk_blocked', {
+							this._metricsService.capture("yolo_high_risk_blocked", {
 								riskScore: riskScore.riskScore,
 								confidenceScore: riskScore.confidenceScore,
 								operation: toolName,
@@ -2240,39 +3273,42 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 					} catch (error) {
 						// If risk scoring fails, fall back to normal approval flow
-						console.debug('[ChatThreadService] Risk scoring failed, using normal approval:', error);
+						console.debug(
+							"[ChatThreadService] Risk scoring failed, using normal approval:",
+							error,
+						);
 					}
 				}
 
 				// add a tool_request because we use it for UI if a tool is loading (this should be improved in the future)
-				const requestContent = riskScore && riskScore.riskLevel !== 'LOW'
-					? `(Risk: ${riskScore.riskLevel}, Score: ${riskScore.riskScore.toFixed(2)}, Confidence: ${riskScore.confidenceScore.toFixed(2)})`
-					: '(Awaiting user permission...)';
+				const requestContent =
+					riskScore && riskScore.riskLevel !== "LOW"
+						? `(Risk: ${riskScore.riskLevel}, Score: ${riskScore.riskScore.toFixed(2)}, Confidence: ${riskScore.confidenceScore.toFixed(2)})`
+						: "(Awaiting user permission...)";
 				this._addMessageToThread(threadId, {
-					role: 'tool',
-					type: 'tool_request',
+					role: "tool",
+					type: "tool_request",
 					content: requestContent,
 					result: null,
 					name: toolName,
 					params: toolParams,
 					id: toolId,
 					rawParams: opts.unvalidatedToolParams,
-					mcpServerName
+					mcpServerName,
 				});
 
 				if (!shouldAutoApprove) {
 					return { awaitingUserApproval: true };
 				}
 			}
-		}
-		else {
+		} else {
 			toolParams = opts.validatedParams;
 		}
 
 		// Check for duplicate read_file calls after validation but before execution
-		if (toolName === 'read_file' && isBuiltInTool) {
-			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+		if (toolName === "read_file" && isBuiltInTool) {
+			const readFileParams = toolParams as BuiltinToolCallParams["read_file"];
+			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? "null"}|${readFileParams.endLine ?? "null"}|${readFileParams.pageNumber ?? 1}`;
 
 			// Check cache
 			let threadCache = this._fileReadCache.get(threadId);
@@ -2294,98 +3330,163 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				this._fileReadCacheLRU.set(threadId, lruList);
 
 				toolResult = cachedResult as ToolResult<ToolName>;
-				toolResultStr = this._toolsService.stringOfResult['read_file'](readFileParams, cachedResult);
+				toolResultStr = this._toolsService.stringOfResult["read_file"](
+					readFileParams,
+					cachedResult,
+				);
 
 				// Add cached result to thread (mark as cached for transparency)
 				this._updateLatestTool(threadId, {
-					role: 'tool',
-					type: 'success',
+					role: "tool",
+					type: "success",
 					params: readFileParams,
 					result: toolResult,
-					name: 'read_file',
-					content: toolResultStr + '\n\n(Result reused from cache)',
+					name: "read_file",
+					content: toolResultStr + "\n\n(Result reused from cache)",
 					id: toolId,
 					rawParams: opts.unvalidatedToolParams,
-					mcpServerName
+					mcpServerName,
 				});
 				return {};
 			}
 		}
 
-
-
-
-
-
 		// 3. call the tool
 		// this._setStreamState(threadId, { isRunning: 'tool' }, 'merge')
-		const runningTool = { role: 'tool', type: 'running_now', name: toolName, params: toolParams, content: '(value not received yet...)', result: null, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName } as const;
+		const runningTool = {
+			role: "tool",
+			type: "running_now",
+			name: toolName,
+			params: toolParams,
+			content: "(value not received yet...)",
+			result: null,
+			id: toolId,
+			rawParams: opts.unvalidatedToolParams,
+			mcpServerName,
+		} as const;
 		this._updateLatestTool(threadId, runningTool);
 
-
 		let interrupted = false;
-		let resolveInterruptor: (r: () => void) => void = () => { };
-		const interruptorPromise = new Promise<() => void>(res => { resolveInterruptor = res; });
+		let resolveInterruptor: (r: () => void) => void = () => {};
+		const interruptorPromise = new Promise<() => void>((res) => {
+			resolveInterruptor = res;
+		});
 		try {
-
 			// set stream state
-			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } });
+			this._setStreamState(threadId, {
+				isRunning: "tool",
+				interrupt: interruptorPromise,
+				toolInfo: {
+					toolName,
+					toolParams,
+					id: toolId,
+					content: "interrupted...",
+					rawParams: opts.unvalidatedToolParams,
+					mcpServerName,
+				},
+			});
 
 			if (isBuiltInTool) {
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any);
-				const interruptor = () => { interrupted = true; interruptTool?.(); };
+				const { result, interruptTool } = await this._toolsService.callTool[
+					toolName
+				](toolParams as any);
+				const interruptor = () => {
+					interrupted = true;
+					interruptTool?.();
+				};
 				resolveInterruptor(interruptor);
 
 				toolResult = await result;
-			}
-			else {
+			} else {
 				const mcpTools = this._mcpService.getMCPTools();
-				const mcpTool = mcpTools?.find(t => t.name === toolName);
-				if (!mcpTool) { throw new Error(`MCP tool ${toolName} not found`); }
+				const mcpTool = mcpTools?.find((t) => t.name === toolName);
+				if (!mcpTool) {
+					throw new Error(`MCP tool ${toolName} not found`);
+				}
 
-				resolveInterruptor(() => { });
+				resolveInterruptor(() => {});
 
-				toolResult = (await this._mcpService.callMCPTool({
-					serverName: mcpTool.mcpServerName ?? 'unknown_mcp_server',
-					toolName: toolName,
-					params: toolParams
-				})).result;
+				toolResult = (
+					await this._mcpService.callMCPTool({
+						serverName: mcpTool.mcpServerName ?? "unknown_mcp_server",
+						toolName: toolName,
+						params: toolParams,
+					})
+				).result;
 			}
 
-			if (interrupted) { return { interrupted: true }; } // the tool result is added where we interrupt, not here
-		}
-		catch (error) {
-			resolveInterruptor(() => { }); // resolve for the sake of it
-			if (interrupted) { return { interrupted: true }; } // the tool result is added where we interrupt, not here
+			if (interrupted) {
+				return { interrupted: true };
+			} // the tool result is added where we interrupt, not here
+		} catch (error) {
+			resolveInterruptor(() => {}); // resolve for the sake of it
+			if (interrupted) {
+				return { interrupted: true };
+			} // the tool result is added where we interrupt, not here
 
 			const errorMessage = getErrorMessage(error);
-			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+			this._updateLatestTool(threadId, {
+				role: "tool",
+				type: "tool_error",
+				params: toolParams,
+				result: errorMessage,
+				name: toolName,
+				content: errorMessage,
+				id: toolId,
+				rawParams: opts.unvalidatedToolParams,
+				mcpServerName,
+			});
 			return {};
 		}
 
 		// 4. stringify the result to give to the LLM
 		try {
 			if (isBuiltInTool) {
-				toolResultStr = this._toolsService.stringOfResult[toolName](toolParams as any, toolResult as any);
+				toolResultStr = this._toolsService.stringOfResult[toolName](
+					toolParams as any,
+					toolResult as any,
+				);
 			}
 			// For MCP tools, handle the result based on its type
 			else {
-				toolResultStr = this._mcpService.stringifyResult(toolResult as RawMCPToolCall);
+				toolResultStr = this._mcpService.stringifyResult(
+					toolResult as RawMCPToolCall,
+				);
 			}
 		} catch (error) {
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);
-			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+			this._updateLatestTool(threadId, {
+				role: "tool",
+				type: "tool_error",
+				params: toolParams,
+				result: errorMessage,
+				name: toolName,
+				content: errorMessage,
+				id: toolId,
+				rawParams: opts.unvalidatedToolParams,
+				mcpServerName,
+			});
 			return {};
 		}
 
 		// 5. add to history and keep going
-		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+		this._updateLatestTool(threadId, {
+			role: "tool",
+			type: "success",
+			params: toolParams,
+			result: toolResult,
+			name: toolName,
+			content: toolResultStr,
+			id: toolId,
+			rawParams: opts.unvalidatedToolParams,
+			mcpServerName,
+		});
 
 		// Cache read_file results to prevent duplicate reads
-		if (toolName === 'read_file' && isBuiltInTool) {
-			const readFileParams = toolParams as BuiltinToolCallParams['read_file'];
-			const readFileResult = toolResult as BuiltinToolResultType['read_file'];
-			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? 'null'}|${readFileParams.endLine ?? 'null'}|${readFileParams.pageNumber ?? 1}`;
+		if (toolName === "read_file" && isBuiltInTool) {
+			const readFileParams = toolParams as BuiltinToolCallParams["read_file"];
+			const readFileResult = toolResult as BuiltinToolResultType["read_file"];
+			const cacheKey = `${readFileParams.uri.fsPath}|${readFileParams.startLine ?? "null"}|${readFileParams.endLine ?? "null"}|${readFileParams.pageNumber ?? 1}`;
 
 			let threadCache = this._fileReadCache.get(threadId);
 			if (!threadCache) {
@@ -2410,7 +3511,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			lruList.push(cacheKey);
 
 			// Enforce cache size limit with LRU eviction
-			if (lruList.length > ChatThreadService.MAX_FILE_READ_CACHE_ENTRIES_PER_THREAD) {
+			if (
+				lruList.length >
+				ChatThreadService.MAX_FILE_READ_CACHE_ENTRIES_PER_THREAD
+			) {
 				// Remove oldest entry (first in list)
 				const oldestKey = lruList.shift()!;
 				threadCache.delete(oldestKey);
@@ -2420,8 +3524,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 
 		// Invalidate cache when files are modified or deleted
-		if ((toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder') && isBuiltInTool) {
-			const fileParams = toolParams as BuiltinToolCallParams['edit_file'] | BuiltinToolCallParams['rewrite_file'] | BuiltinToolCallParams['delete_file_or_folder'];
+		if (
+			(toolName === "edit_file" ||
+				toolName === "rewrite_file" ||
+				toolName === "delete_file_or_folder") &&
+			isBuiltInTool
+		) {
+			const fileParams = toolParams as
+				| BuiltinToolCallParams["edit_file"]
+				| BuiltinToolCallParams["rewrite_file"]
+				| BuiltinToolCallParams["delete_file_or_folder"];
 			const fileUri = fileParams.uri;
 			const threadCache = this._fileReadCache.get(threadId);
 			const lruList = this._fileReadCacheLRU.get(threadId);
@@ -2429,7 +3541,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Remove all cache entries for this file (any line range/page)
 				const keysToDelete: string[] = [];
 				for (const [cacheKey] of threadCache.entries()) {
-					if (cacheKey.startsWith(fileUri.fsPath + '|')) {
+					if (cacheKey.startsWith(fileUri.fsPath + "|")) {
 						keysToDelete.push(cacheKey);
 						threadCache.delete(cacheKey);
 					}
@@ -2449,9 +3561,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		return {};
 	};
 
-
-
-
 	private async _runChatAgent({
 		threadId,
 		modelSelection,
@@ -2464,12 +3573,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		threadId: string;
 		modelSelection: ModelSelection | null;
 		modelSelectionOptions: ModelSelectionOptions | undefined;
-		callThisToolFirst?: ToolMessage<ToolName> & { type: 'tool_request' };
+		callThisToolFirst?: ToolMessage<ToolName> & { type: "tool_request" };
 		earlyRequestId?: string;
 		isAutoMode?: boolean;
-		repoIndexerPromise?: Promise<{ results: string[]; metrics: unknown } | null>;
+		repoIndexerPromise?: Promise<{
+			results: string[];
+			metrics: unknown;
+		} | null>;
 	}) {
-
 		// CRITICAL: Create a flag to stop execution immediately when plan is generated
 		// NOTE: This flag is reset when plan is approved/executing to allow execution to proceed
 		let planWasGenerated = false;
@@ -2479,7 +3590,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (planWasGenerated) {
 				// Force refresh to check if plan was approved since flag was set
 				const plan = this._getCurrentPlan(threadId, true);
-				if (plan && plan.plan.approvalState === 'pending') {
+				if (plan && plan.plan.approvalState === "pending") {
 					return true; // Still pending
 				}
 				// Plan was approved - reset flag to allow execution
@@ -2489,7 +3600,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 			// Use cached check first for performance - only force refresh if we suspect state changed
 			const plan = this._getCurrentPlan(threadId, false); // Use cache for performance
-			if (plan && plan.plan.approvalState === 'pending') {
+			if (plan && plan.plan.approvalState === "pending") {
 				// Check if this plan was created during this execution session
 				// We check the plan's message index - if it's near the end of messages, it's recent
 				const thread = this.state.allThreads[threadId];
@@ -2498,7 +3609,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					const planIdx = plan.planIdx;
 					// If plan is in the last 10 messages, consider it recent (likely from this session)
 					// This is safer than using timestamps which might not exist
-					const isRecentPlan = (totalMessages - planIdx) <= 10;
+					const isRecentPlan = totalMessages - planIdx <= 10;
 					if (isRecentPlan) {
 						planWasGenerated = true;
 						return true;
@@ -2509,7 +3620,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		};
 
 		let interruptedWhenIdle = false;
-		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; });
+		const idleInterruptor = Promise.resolve(() => {
+			interruptedWhenIdle = true;
+		});
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
@@ -2523,7 +3636,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// PERFORMANCE: Check for plan ONCE at start, not on every tool call
 		// Only do plan tracking if an active plan exists
-		let activePlanTracking: { planInfo: { plan: PlanMessage; planIdx: number }; currentStep: { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number } | undefined } | undefined;
+		let activePlanTracking:
+			| {
+					planInfo: { plan: PlanMessage; planIdx: number };
+					currentStep:
+						| {
+								plan: PlanMessage;
+								planIdx: number;
+								step: PlanStep;
+								stepIdx: number;
+						  }
+						| undefined;
+			  }
+			| undefined;
 
 		// Check if we should generate a plan for complex tasks
 		const existingPlanInfo = this._getCurrentPlan(threadId, false); // Use cache
@@ -2531,36 +3656,50 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// No existing plan - check if we should generate one
 			const shouldGeneratePlan = this._shouldGeneratePlan(threadId);
 			if (shouldGeneratePlan) {
-				await this._generatePlanFromUserRequest(threadId, modelSelection, modelSelectionOptions);
+				await this._generatePlanFromUserRequest(
+					threadId,
+					modelSelection,
+					modelSelectionOptions,
+				);
 				// CRITICAL: Force cache refresh ONLY here after plan generation
 				this._planCache.delete(threadId);
 				const planAfterGen = this._getCurrentPlan(threadId, true); // Force refresh
-				if (planAfterGen && planAfterGen.plan.approvalState === 'pending') {
+				if (planAfterGen && planAfterGen.plan.approvalState === "pending") {
 					planWasGenerated = true;
 					// Plan generated, wait for user approval - don't execute yet
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					});
 					return;
 				}
 			}
 		} else {
 			// Existing plan found - check if it's pending (old plans might be completed/aborted)
-			if (existingPlanInfo.plan.approvalState === 'pending') {
+			if (existingPlanInfo.plan.approvalState === "pending") {
 				planWasGenerated = true;
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 		}
 
 		// CRITICAL: Force refresh after approval to get latest plan state (cache was invalidated)
 		let planInfo = this._getCurrentPlan(threadId, true);
-		if (planInfo && (planInfo.plan.approvalState === 'approved' || planInfo.plan.approvalState === 'executing')) {
+		if (
+			planInfo &&
+			(planInfo.plan.approvalState === "approved" ||
+				planInfo.plan.approvalState === "executing")
+		) {
 			// Only initialize tracking if plan is approved/executing
-			if (planInfo.plan.approvalState === 'approved') {
+			if (planInfo.plan.approvalState === "approved") {
 				// Mark plan as executing
 				const updatedPlan: PlanMessage = {
 					...planInfo.plan,
-					approvalState: 'executing',
-					executionStartTime: Date.now()
+					approvalState: "executing",
+					executionStartTime: Date.now(),
 				};
 				this._editMessageInThread(threadId, planInfo.planIdx, updatedPlan);
 				// Invalidate cache after update and refresh planInfo to get updated plan
@@ -2573,7 +3712,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 			// Get current step once
 			const currentStep = this._getCurrentStep(threadId, true); // Force refresh to get latest step state
-			if (currentStep && currentStep.step.status === 'queued') {
+			if (currentStep && currentStep.step.status === "queued") {
 				// Start next step - this updates the step status to 'running' and invalidates cache
 				this._startNextStep(threadId);
 				// Refresh both plan and step after starting to get updated state
@@ -2583,20 +3722,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				if (refreshedPlanInfo) {
 					activePlanTracking = {
 						planInfo: refreshedPlanInfo,
-						currentStep: this._getCurrentStep(threadId, true) // Force refresh to see 'running' status
+						currentStep: this._getCurrentStep(threadId, true), // Force refresh to see 'running' status
 					};
 				} else if (planInfo) {
 					// Fallback to original planInfo if refresh failed (shouldn't happen, but type-safe)
 					activePlanTracking = {
 						planInfo,
-						currentStep: this._getCurrentStep(threadId, true)
+						currentStep: this._getCurrentStep(threadId, true),
 					};
 				}
 			} else {
 				// planInfo is guaranteed to be defined here due to the outer if check
 				activePlanTracking = {
 					planInfo,
-					currentStep
+					currentStep,
 				};
 			}
 		}
@@ -2612,7 +3751,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Use fast check (relies on flag and cached plan check)
 		if (checkPlanGenerated()) {
 			// Plan is pending approval - stop execution
-			this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+			this._setStreamState(threadId, {
+				isRunning: "idle",
+				interrupt: "not_needed",
+			});
 			return;
 		}
 
@@ -2620,41 +3762,74 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		if (callThisToolFirst) {
 			// Double-check plan status before executing (fast check)
 			if (checkPlanGenerated()) {
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
 			if (activePlanTracking?.currentStep) {
-				this._linkToolCallToStepInternal(threadId, callThisToolFirst.id, activePlanTracking.currentStep);
+				this._linkToolCallToStepInternal(
+					threadId,
+					callThisToolFirst.id,
+					activePlanTracking.currentStep,
+				);
 			}
 
-			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params });
+			const { interrupted } = await this._runToolCall(
+				threadId,
+				callThisToolFirst.name,
+				callThisToolFirst.id,
+				callThisToolFirst.mcpServerName,
+				{
+					preapproved: true,
+					unvalidatedToolParams: callThisToolFirst.rawParams,
+					validatedParams: callThisToolFirst.params,
+				},
+			);
 			if (interrupted) {
 				this._setStreamState(threadId, undefined);
 				this._addUserCheckpoint({ threadId });
 				if (activePlanTracking?.currentStep) {
-					this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, 'Interrupted by user');
+					this._markStepCompletedInternal(
+						threadId,
+						activePlanTracking.currentStep,
+						false,
+						"Interrupted by user",
+					);
 					refreshPlanStep();
 				}
 			} else {
 				// Mark step as completed on success
 				if (activePlanTracking?.currentStep) {
-					this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, true);
+					this._markStepCompletedInternal(
+						threadId,
+						activePlanTracking.currentStep,
+						true,
+					);
 					// Start next step
 					this._startNextStep(threadId);
 					refreshPlanStep();
 				}
 			}
 		}
-		this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });  // just decorative, for clarity
-
+		this._setStreamState(threadId, {
+			isRunning: "idle",
+			interrupt: "not_needed",
+		}); // just decorative, for clarity
 
 		// tool use loop
 		while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops
 			if (nMessagesSent >= MAX_AGENT_LOOP_ITERATIONS) {
-				this._notificationService.warn(`Agent loop reached maximum iterations (${MAX_AGENT_LOOP_ITERATIONS}). Stopping to prevent infinite loop.`);
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._notificationService.warn(
+					`Agent loop reached maximum iterations (${MAX_AGENT_LOOP_ITERATIONS}). Stopping to prevent infinite loop.`,
+				);
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
@@ -2669,7 +3844,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Use fast check (flag + cached check) - only force refresh every few iterations to save performance
 			if (checkPlanGenerated()) {
 				// Plan is pending approval - stop execution and wait
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
@@ -2678,51 +3856,68 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			isRunningWhenEnd = undefined;
 			nMessagesSent += 1;
 
-			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
+			this._setStreamState(threadId, {
+				isRunning: "idle",
+				interrupt: idleInterruptor,
+			});
 
 			const chatMessages = this.state.allThreads[threadId]?.messages ?? [];
 
 			// Check if we've already synthesized a tool for this original request (prevent infinite loops)
-			const allUserMessages = chatMessages.filter(m => m.role === 'user');
-			const originalUserMessage = allUserMessages.find(m =>
-				!m.displayContent?.includes('⚠️ CRITICAL') &&
-				!m.displayContent?.includes('You did not use tools')
+			const allUserMessages = chatMessages.filter((m) => m.role === "user");
+			const originalUserMessage = allUserMessages.find(
+				(m) =>
+					!m.displayContent?.includes("⚠️ CRITICAL") &&
+					!m.displayContent?.includes("You did not use tools"),
 			);
-			const originalRequestId = originalUserMessage ? `${originalUserMessage.displayContent}` : null;
+			const originalRequestId = originalUserMessage
+				? `${originalUserMessage.displayContent}`
+				: null;
 
 			// Track if we've already synthesized a tool for this request
-			const hasSynthesizedForRequest = originalRequestId && chatMessages.some((msg, idx) => {
-				if (msg.role === 'assistant' && msg.displayContent?.includes('Let me start by')) {
-					// Check if there's a tool message right after this assistant message
-					const nextMsg = chatMessages[idx + 1];
-					return nextMsg?.role === 'tool';
-				}
-				return false;
-			});
+			const hasSynthesizedForRequest =
+				originalRequestId &&
+				chatMessages.some((msg, idx) => {
+					if (
+						msg.role === "assistant" &&
+						msg.displayContent?.includes("Let me start by")
+					) {
+						// Check if there's a tool message right after this assistant message
+						const nextMsg = chatMessages[idx + 1];
+						return nextMsg?.role === "tool";
+					}
+					return false;
+				});
 
 			// Preprocess images through QA pipeline if present
 			let preprocessedMessages = chatMessages;
-			if (originalUserMessage && originalUserMessage.images && originalUserMessage.images.length > 0) {
+			if (
+				originalUserMessage &&
+				originalUserMessage.images &&
+				originalUserMessage.images.length > 0
+			) {
 				try {
 					const settings = this._settingsService.state.globalSettings;
 					const preprocessed = await preprocessImagesForQA(
 						originalUserMessage.images,
-						originalUserMessage.displayContent || '',
+						originalUserMessage.displayContent || "",
 						modelSelection,
 						settings.imageQADevMode,
 						{
 							allowRemoteModels: settings.imageQAAllowRemoteModels,
 							enableHybridMode: settings.imageQAEnableHybridMode,
-						}
+						},
 					);
 
 					if (preprocessed.shouldUsePipeline) {
 						// Log QA response in dev mode for debugging
 						if (settings.imageQADevMode && preprocessed.qaResponse) {
-							console.log('[ImageQA] Pipeline response:', {
+							console.log("[ImageQA] Pipeline response:", {
 								confidence: preprocessed.qaResponse.confidence,
-								needsLLM: !!(preprocessed.qaResponse as { _needsLLM?: boolean })._needsLLM,
-								needsVLM: !!(preprocessed.qaResponse as { _needsVLM?: boolean })._needsVLM,
+								needsLLM: !!(preprocessed.qaResponse as { _needsLLM?: boolean })
+									._needsLLM,
+								needsVLM: !!(preprocessed.qaResponse as { _needsVLM?: boolean })
+									._needsVLM,
 								answer: preprocessed.qaResponse.answer?.substring(0, 100),
 							});
 						}
@@ -2730,13 +3925,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// Update the user message content with processed text if available
 						// Use images from preprocessing (will be undefined if not needed)
 						if (preprocessed.processedText !== undefined) {
-							preprocessedMessages = chatMessages.map(msg => {
+							preprocessedMessages = chatMessages.map((msg) => {
 								if (msg === originalUserMessage) {
 									return {
 										...msg,
 										content: preprocessed.processedText!,
 										images: preprocessed.images, // Preprocessing decides if images are needed
-										displayContent: originalUserMessage.displayContent || '',
+										displayContent: originalUserMessage.displayContent || "",
 									};
 								}
 								return msg;
@@ -2744,7 +3939,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 					}
 				} catch (error) {
-					console.error('[ImageQA] Error preprocessing images:', error);
+					console.error("[ImageQA] Error preprocessing images:", error);
 					// Continue with original messages on error
 				}
 			}
@@ -2752,24 +3947,39 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// CRITICAL: Check for pending plan BEFORE preparing LLM messages (saves API calls)
 			// checkPlanGenerated() already checks planWasGenerated internally, no need to check twice
 			if (checkPlanGenerated()) {
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
 			// CRITICAL: Validate modelSelection before preparing messages
 			// This prevents "invalid message format" errors from empty messages
 			// If auto selection failed and returned unresolved 'auto', try fallback
-			if (!modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')) {
+			if (
+				!modelSelection ||
+				(modelSelection.providerName === "auto" &&
+					modelSelection.modelName === "auto")
+			) {
 				// Try to get fallback model instead of erroring
 				const fallbackModel = this._getFallbackModel();
 				if (fallbackModel) {
 					modelSelection = fallbackModel;
 					// Only log to console to avoid notification spam - fallback should work transparently
-					console.debug('[ChatThreadService] Auto model selection failed, using fallback model:', fallbackModel);
+					console.debug(
+						"[ChatThreadService] Auto model selection failed, using fallback model:",
+						fallbackModel,
+					);
 				} else {
 					// Last resort: no models available
-					this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._notificationService.error(
+						"No models available. Please configure at least one model provider in settings.",
+					);
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					});
 					return;
 				}
 			}
@@ -2780,14 +3990,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// CRITICAL: Final validation right before use - defensive programming
 			// This ensures we never pass invalid modelSelection to the LLM service
 			if (!modelSelection || isAutoModelSelection(modelSelection)) {
-				console.error('[ChatThreadService] CRITICAL: Invalid modelSelection detected right before LLM call:', modelSelection);
+				console.error(
+					"[ChatThreadService] CRITICAL: Invalid modelSelection detected right before LLM call:",
+					modelSelection,
+				);
 				const fallbackModel = this._getFallbackModel();
 				if (fallbackModel) {
 					modelSelection = fallbackModel;
-					console.warn('[ChatThreadService] Using emergency fallback model:', fallbackModel);
+					console.warn(
+						"[ChatThreadService] Using emergency fallback model:",
+						fallbackModel,
+					);
 				} else {
-					this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._notificationService.error(
+						"No models available. Please configure at least one model provider in settings.",
+					);
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					});
 					return;
 				}
 			}
@@ -2810,18 +4031,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 			chatLatencyAudit.markPromptAssemblyStart(finalRequestId);
 
-			const { messages, separateSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
-				chatMessages: preprocessedMessages,
-				modelSelection,
-				chatMode,
-				repoIndexerPromise
-			});
+			const { messages, separateSystemMessage } =
+				await this._convertToLLMMessagesService.prepareLLMChatMessages({
+					chatMessages: preprocessedMessages,
+					modelSelection,
+					chatMode,
+					repoIndexerPromise,
+				});
 
 			// CRITICAL: Validate that messages are not empty before sending to API
 			// Empty messages cause "invalid message format" errors
 			if (!messages || messages.length === 0) {
-				this._notificationService.error('Failed to prepare messages. Please check your message content.');
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._notificationService.error(
+					"Failed to prepare messages. Please check your message content.",
+				);
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
@@ -2829,7 +4056,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Invalidate cache in case plan was added during message prep, then use fast check
 			this._planCache.delete(threadId);
 			if (checkPlanGenerated()) {
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 
@@ -2842,32 +4072,41 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 			const promptTokens = messages.reduce((acc, m) => {
 				// Handle Gemini messages (use 'parts' instead of 'content')
-				if ('parts' in m) {
-					return acc + m.parts.reduce((sum: number, part) => {
-						if ('text' in part && typeof part.text === 'string') {
-							return sum + estimateTokens(part.text);
-						} else if ('inlineData' in part) {
-							// Rough estimate: ~85 tokens per image + base64 overhead
-							return sum + 100;
-						}
-						return sum;
-					}, 0);
-				}
-				// Handle Anthropic/OpenAI messages (use 'content')
-				if ('content' in m) {
-					if (typeof m.content === 'string') {
-						return acc + estimateTokens(m.content);
-					} else if (Array.isArray(m.content)) {
-						// Handle OpenAI format with image_url parts
-						return acc + m.content.reduce((sum: number, part: { type?: string; text?: string }) => {
-							if (part.type === 'text' && part.text) {
+				if ("parts" in m) {
+					return (
+						acc +
+						m.parts.reduce((sum: number, part) => {
+							if ("text" in part && typeof part.text === "string") {
 								return sum + estimateTokens(part.text);
-							} else if (part.type === 'image_url') {
+							} else if ("inlineData" in part) {
 								// Rough estimate: ~85 tokens per image + base64 overhead
 								return sum + 100;
 							}
 							return sum;
-						}, 0);
+						}, 0)
+					);
+				}
+				// Handle Anthropic/OpenAI messages (use 'content')
+				if ("content" in m) {
+					if (typeof m.content === "string") {
+						return acc + estimateTokens(m.content);
+					} else if (Array.isArray(m.content)) {
+						// Handle OpenAI format with image_url parts
+						return (
+							acc +
+							m.content.reduce(
+								(sum: number, part: { type?: string; text?: string }) => {
+									if (part.type === "text" && part.text) {
+										return sum + estimateTokens(part.text);
+									} else if (part.type === "image_url") {
+										// Rough estimate: ~85 tokens per image + base64 overhead
+										return sum + 100;
+									}
+									return sum;
+								},
+								0,
+							)
+						);
 					}
 					return acc + estimateTokens(JSON.stringify(m.content));
 				}
@@ -2875,35 +4114,52 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}, 0);
 			const contextSize = messages.reduce((acc, m) => {
 				// Handle Gemini messages (use 'parts' instead of 'content')
-				if ('parts' in m) {
-					return acc + m.parts.reduce((sum: number, part) => {
-						if ('text' in part && typeof part.text === 'string') {
-							return sum + part.text.length;
-						}
-						return sum;
-					}, 0);
+				if ("parts" in m) {
+					return (
+						acc +
+						m.parts.reduce((sum: number, part) => {
+							if ("text" in part && typeof part.text === "string") {
+								return sum + part.text.length;
+							}
+							return sum;
+						}, 0)
+					);
 				}
 				// Handle Anthropic/OpenAI messages (use 'content')
-				if ('content' in m) {
-					if (typeof m.content === 'string') {
+				if ("content" in m) {
+					if (typeof m.content === "string") {
 						return acc + m.content.length;
 					} else if (Array.isArray(m.content)) {
-						return acc + m.content.reduce((sum: number, part: { type?: string; text?: string }) => {
-							if (part.type === 'text' && part.text) { return sum + part.text.length; }
-							return sum;
-						}, 0);
+						return (
+							acc +
+							m.content.reduce(
+								(sum: number, part: { type?: string; text?: string }) => {
+									if (part.type === "text" && part.text) {
+										return sum + part.text.length;
+									}
+									return sum;
+								},
+								0,
+							)
+						);
 					}
 					return acc + JSON.stringify(m.content).length;
 				}
 				return acc;
 			}, 0);
-			chatLatencyAudit.markPromptAssemblyEnd(finalRequestId, promptTokens, 0, contextSize, false);
+			chatLatencyAudit.markPromptAssemblyEnd(
+				finalRequestId,
+				promptTokens,
+				0,
+				contextSize,
+				false,
+			);
 
 			// Audit log: record prompt
 			if (this._auditLogService.isEnabled() && modelSelection) {
 				await this._auditLogService.append({
 					ts: Date.now(),
-					action: 'prompt',
+					action: "prompt",
 					model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 					ok: true,
 					meta: {
@@ -2923,12 +4179,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				nAttempts += 1;
 
 				type ResTypes =
-					| { type: 'llmDone'; toolCall?: RawToolCallObj; info: { fullText: string; fullReasoning: string; anthropicReasoning: AnthropicReasoning[] | null } }
-					| { type: 'llmError'; error?: { message: string; fullError: Error | null } }
-					| { type: 'llmAborted' };
+					| {
+							type: "llmDone";
+							toolCall?: RawToolCallObj;
+							info: {
+								fullText: string;
+								fullReasoning: string;
+								anthropicReasoning: AnthropicReasoning[] | null;
+							};
+					  }
+					| {
+							type: "llmError";
+							error?: { message: string; fullError: Error | null };
+					  }
+					| { type: "llmAborted" };
 
 				let resMessageIsDonePromise: (res: ResTypes) => void; // resolves when user approves this tool use (or if tool doesn't require approval)
-				const messageIsDonePromise = new Promise<ResTypes>((res, rej) => { resMessageIsDonePromise = res; });
+				const messageIsDonePromise = new Promise<ResTypes>((res, rej) => {
+					resMessageIsDonePromise = res;
+				});
 
 				// Track if message is done to prevent late onText updates
 				let messageIsDone = false;
@@ -2945,13 +4214,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				}, 30000);
 
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
-					messagesType: 'chatMessages',
+					messagesType: "chatMessages",
 					chatMode,
 					messages: messages,
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel,
-					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
+					logging: {
+						loggingName: `Chat - ${chatMode}`,
+						loggingExtras: {
+							threadId,
+							nMessagesSent,
+							chatMode,
+							requestId: finalRequestId,
+						},
+					},
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
 						// Guard: Don't update stream state if message is already done (prevents late onText calls from requestAnimationFrame)
@@ -2963,7 +4240,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						clearTimeout(networkTimeout);
 						// Track first token (TTFS) and network end (when we receive first chunk)
 						// Check both fullText and fullReasoning - first token might be in either
-						if (!firstTokenReceived && (fullText.length > 0 || fullReasoning.length > 0)) {
+						if (
+							!firstTokenReceived &&
+							(fullText.length > 0 || fullReasoning.length > 0)
+						) {
 							firstTokenReceived = true;
 							chatLatencyAudit.markNetworkEnd(finalRequestId); // Network complete when first token arrives
 							chatLatencyAudit.markFirstToken(finalRequestId);
@@ -2976,7 +4256,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const now = performance.now();
 							// Adaptive batching: use longer intervals for longer content to reduce parsing overhead
 							// For very long responses, batch less frequently to avoid blocking
-							const batchInterval = fullText.length > 10_000 ? 50 : (fullText.length > 5_000 ? 33 : 16.67);
+							const batchInterval =
+								fullText.length > 10_000
+									? 50
+									: fullText.length > 5_000
+										? 33
+										: 16.67;
 							// Flush batch if enough time has passed
 							if (now - context.lastBatchTime >= batchInterval) {
 								if (context.renderBatchSizes.length < 100) {
@@ -2989,9 +4274,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 						// Use requestAnimationFrame for smooth updates, but throttle more aggressively for long content
 						// This prevents excessive re-renders during high-frequency streaming
-						const shouldUpdate = fullText.length < 10_000 || 
-							(fullText.length - (this.streamState[threadId]?.llmInfo?.displayContentSoFar?.length ?? 0)) > 500;
-						
+						const shouldUpdate =
+							fullText.length < 10_000 ||
+							fullText.length -
+								(this.streamState[threadId]?.llmInfo?.displayContentSoFar
+									?.length ?? 0) >
+								500;
+
 						if (shouldUpdate) {
 							requestAnimationFrame(() => {
 								// Guard again: Check if message is done before updating state (prevents race conditions)
@@ -3000,17 +4289,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								}
 								// Also check if stream state is still 'LLM' (another guard against late updates)
 								const currentState = this.streamState[threadId];
-								if (currentState?.isRunning !== 'LLM') {
+								if (currentState?.isRunning !== "LLM") {
 									return;
 								}
 
 								// Record render frame for FPS tracking
 								chatLatencyAudit.recordRenderFrame(finalRequestId);
-								this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
+								this._setStreamState(threadId, {
+									isRunning: "LLM",
+									llmInfo: {
+										displayContentSoFar: fullText,
+										reasoningSoFar: fullReasoning,
+										toolCallSoFar: toolCall ?? null,
+									},
+									interrupt: Promise.resolve(() => {
+										if (llmCancelToken) {
+											this._llmMessageService.abort(llmCancelToken);
+										}
+									}),
+								});
 							});
 						}
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
+					onFinalMessage: async ({
+						fullText,
+						fullReasoning,
+						toolCall,
+						anthropicReasoning,
+					}) => {
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
 
@@ -3022,16 +4328,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							chatLatencyAudit.markNetworkEnd(finalRequestId);
 							// For non-streaming responses, the final message IS the first token
 							// Only mark if we actually have content (not an empty response)
-							const hasContent = (fullText && fullText.length > 0) || (fullReasoning && fullReasoning.length > 0);
+							const hasContent =
+								(fullText && fullText.length > 0) ||
+								(fullReasoning && fullReasoning.length > 0);
 							if (hasContent) {
 								chatLatencyAudit.markFirstToken(finalRequestId);
 							}
 						}
 						// Track completion (TTS) and output tokens
 						// Use fullText length, or fallback to reasoning if text is empty
-						const textToCount = fullText || fullReasoning || '';
+						const textToCount = fullText || fullReasoning || "";
 						// More accurate token estimation: account for markdown, code blocks, etc.
-						const outputTokens = textToCount.length > 0 ? Math.max(1, Math.ceil(textToCount.length / 3.5)) : 0;
+						const outputTokens =
+							textToCount.length > 0
+								? Math.max(1, Math.ceil(textToCount.length / 3.5))
+								: 0;
 						chatLatencyAudit.markStreamComplete(finalRequestId, outputTokens);
 						// Log metrics for debugging
 						const metrics = chatLatencyAudit.completeRequest(finalRequestId);
@@ -3043,7 +4354,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (this._auditLogService.isEnabled() && modelSelection) {
 							await this._auditLogService.append({
 								ts: Date.now(),
-								action: 'reply',
+								action: "reply",
 								model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 								latencyMs: metrics ? metrics.tts : undefined,
 								ok: true,
@@ -3056,7 +4367,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							});
 						}
 
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }); // resolve with tool calls
+						resMessageIsDonePromise({
+							type: "llmDone",
+							toolCall,
+							info: { fullText, fullReasoning, anthropicReasoning },
+						}); // resolve with tool calls
 					},
 					onError: async (error) => {
 						// Clear timeout
@@ -3070,7 +4385,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (this._auditLogService.isEnabled() && modelSelection) {
 							await this._auditLogService.append({
 								ts: Date.now(),
-								action: 'reply',
+								action: "reply",
 								model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 								ok: false,
 								meta: {
@@ -3081,50 +4396,120 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							});
 						}
 
-						resMessageIsDonePromise({ type: 'llmError', error: error });
+						resMessageIsDonePromise({ type: "llmError", error: error });
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
-						resMessageIsDonePromise({ type: 'llmAborted' });
-						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, chatMode });
+						resMessageIsDonePromise({ type: "llmAborted" });
+						this._metricsService.capture("Agent Loop Done (Aborted)", {
+							nMessagesSent,
+							chatMode,
+						});
 					},
 				});
 
 				// mark as streaming
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: 'There was an unexpected error when sending your chat message.', fullError: null } });
+					this._setStreamState(threadId, {
+						isRunning: undefined,
+						error: {
+							message:
+								"There was an unexpected error when sending your chat message.",
+							fullError: null,
+						},
+					});
 					break;
 				}
 
 				// Update status to show we're waiting for the model response
-				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Waiting for model response...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) });
+				this._setStreamState(threadId, {
+					isRunning: "LLM",
+					llmInfo: {
+						displayContentSoFar: "Waiting for model response...",
+						reasoningSoFar: "",
+						toolCallSoFar: null,
+					},
+					interrupt: Promise.resolve(() =>
+						this._llmMessageService.abort(llmCancelToken),
+					),
+				});
 				const llmRes = await messageIsDonePromise; // wait for message to complete
 
 				// if something else started running in the meantime
-				if (this.streamState[threadId]?.isRunning !== 'LLM') {
+				if (this.streamState[threadId]?.isRunning !== "LLM") {
 					// console.log('Chat thread interrupted by a newer chat thread', this.streamState[threadId]?.isRunning)
 					return;
 				}
 
 				// llm res aborted
-				if (llmRes.type === 'llmAborted') {
+				if (llmRes.type === "llmAborted") {
 					this._setStreamState(threadId, undefined);
 					return;
 				}
 				// llm res error
-				else if (llmRes.type === 'llmError') {
+				else if (llmRes.type === "llmError") {
 					const { error } = llmRes;
+
+					// Check if this is a 404 model not found error for Gemini 3.0 models - auto-fallback to 2.5
+					const isModelNotFound =
+						error?.message?.includes("404") ||
+						error?.message?.includes("NOT_FOUND") ||
+						error?.message?.includes("is not available") ||
+						error?.message?.includes("not found");
+
+					if (
+						isModelNotFound &&
+						modelSelection?.providerName === "gemini" &&
+						(modelSelection.modelName.includes("3.0") ||
+							modelSelection.modelName.includes("3-0"))
+					) {
+						// Auto-fallback to gemini-2.5-pro when 3.0 models are not available
+						console.log(
+							`[ChatThreadService] Gemini 3.0 model "${modelSelection.modelName}" not available, falling back to gemini-2.5-pro`,
+						);
+						modelSelection = {
+							providerName: "gemini",
+							modelName: "gemini-2.5-pro",
+						};
+						shouldRetryLLM = true;
+						this._setStreamState(threadId, {
+							isRunning: "idle",
+							interrupt: idleInterruptor,
+						});
+						await timeout(500); // Short delay before retry
+						if (interruptedWhenIdle) {
+							this._setStreamState(threadId, undefined);
+							return;
+						}
+						continue; // Retry with fallback model
+					}
+
 					// Check if this is a rate limit error (429) - don't retry these immediately
-					const isRateLimitError = error?.message?.includes('429') ||
-						error?.message?.toLowerCase().includes('rate limit') ||
-						error?.message?.toLowerCase().includes('tokens per min') ||
-						error?.message?.toLowerCase().includes('tpm');
+					const isRateLimitError =
+						error?.message?.includes("429") ||
+						error?.message?.toLowerCase().includes("rate limit") ||
+						error?.message?.toLowerCase().includes("tokens per min") ||
+						error?.message?.toLowerCase().includes("tpm");
 
 					// For rate limit errors, don't retry - show error immediately
 					if (isRateLimitError) {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
-						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
+						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } =
+							this.streamState[threadId].llmInfo;
+						this._addMessageToThread(threadId, {
+							role: "assistant",
+							displayContent: displayContentSoFar,
+							reasoning: reasoningSoFar,
+							anthropicReasoning: null,
+						});
+						if (toolCallSoFar) {
+							this._addMessageToThread(threadId, {
+								role: "interrupted_streaming_tool",
+								name: toolCallSoFar.name,
+								mcpServerName: this._computeMCPServerOfToolName(
+									toolCallSoFar.name,
+								),
+							});
+						}
 
 						this._setStreamState(threadId, { isRunning: undefined, error });
 						this._addUserCheckpoint({ threadId });
@@ -3134,21 +4519,42 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// For other errors, retry if we haven't exceeded retry limit
 					if (nAttempts < CHAT_RETRIES) {
 						shouldRetryLLM = true;
-						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
+						this._setStreamState(threadId, {
+							isRunning: "idle",
+							interrupt: idleInterruptor,
+						});
 						// Exponential backoff: 1s, 2s, 4s (capped at 5s)
-						const retryDelay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, nAttempts - 1), MAX_RETRY_DELAY);
+						const retryDelay = Math.min(
+							INITIAL_RETRY_DELAY * Math.pow(2, nAttempts - 1),
+							MAX_RETRY_DELAY,
+						);
 						await timeout(retryDelay);
 						if (interruptedWhenIdle) {
 							this._setStreamState(threadId, undefined);
 							return;
-						}
-						else { continue; } // retry
+						} else {
+							continue;
+						} // retry
 					}
 					// error, but too many attempts
 					else {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo;
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null });
-						if (toolCallSoFar) { this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) }); }
+						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } =
+							this.streamState[threadId].llmInfo;
+						this._addMessageToThread(threadId, {
+							role: "assistant",
+							displayContent: displayContentSoFar,
+							reasoning: reasoningSoFar,
+							anthropicReasoning: null,
+						});
+						if (toolCallSoFar) {
+							this._addMessageToThread(threadId, {
+								role: "interrupted_streaming_tool",
+								name: toolCallSoFar.name,
+								mcpServerName: this._computeMCPServerOfToolName(
+									toolCallSoFar.name,
+								),
+							});
+						}
 
 						this._setStreamState(threadId, { isRunning: undefined, error });
 						this._addUserCheckpoint({ threadId });
@@ -3160,7 +4566,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Use fast check - flag should catch most cases
 				if (checkPlanGenerated()) {
 					// Plan is pending approval - stop execution and wait
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					});
 					return;
 				}
 
@@ -3173,111 +4582,213 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Detect if Agent Mode should have used tools but didn't
 				// Only synthesize ONCE per original request to prevent infinite loops
 				// Also check if we've already read too many files (prevent infinite read loops)
-				if (chatMode === 'agent' && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
+				if (
+					chatMode === "agent" &&
+					!toolCall &&
+					info.fullText.trim() &&
+					!hasSynthesizedForRequest &&
+					filesReadInQuery < MAX_FILES_READ_PER_QUERY
+				) {
 					if (originalUserMessage) {
-						const userRequest = originalUserMessage.displayContent?.toLowerCase() || '';
-						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure'];
-						const codebaseQueryWords = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about'];
-						const webQueryWords = ['search the web', 'search online', 'check the web', 'check the internet', 'check internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url'];
+						const userRequest =
+							originalUserMessage.displayContent?.toLowerCase() || "";
+						const actionWords = [
+							"add",
+							"create",
+							"edit",
+							"delete",
+							"remove",
+							"update",
+							"modify",
+							"change",
+							"make",
+							"write",
+							"build",
+							"implement",
+							"fix",
+							"run",
+							"execute",
+							"install",
+							"setup",
+							"configure",
+						];
+						const codebaseQueryWords = [
+							"codebase",
+							"code base",
+							"repository",
+							"repo",
+							"project",
+							"endpoint",
+							"endpoints",
+							"api",
+							"route",
+							"routes",
+							"files",
+							"structure",
+							"architecture",
+							"what is",
+							"about",
+						];
+						const webQueryWords = [
+							"search the web",
+							"search online",
+							"check the web",
+							"check the internet",
+							"check internet",
+							"look up",
+							"google",
+							"duckduckgo",
+							"browse url",
+							"fetch url",
+							"open url",
+						];
 
-						const isActionRequest = actionWords.some(word => userRequest.includes(word)) &&
-							!userRequest.startsWith('explain') &&
-							!userRequest.startsWith('what') &&
-							!userRequest.startsWith('how') &&
-							!userRequest.startsWith('why');
+						const isActionRequest =
+							actionWords.some((word) => userRequest.includes(word)) &&
+							!userRequest.startsWith("explain") &&
+							!userRequest.startsWith("what") &&
+							!userRequest.startsWith("how") &&
+							!userRequest.startsWith("why");
 
 						// Also treat codebase queries as requiring tools (need to read files to answer accurately)
 						// BUT: If images are present, "what" questions are likely about the image, not the codebase
-						const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0;
-						const isCodebaseQuery = codebaseQueryWords.some(word => userRequest.includes(word)) &&
-							(userRequest.includes('what') || userRequest.includes('how many') || userRequest.includes('about')) &&
-							!(hasImages && (userRequest.includes('image') || userRequest.includes('this') || userRequest.includes('that')));
+						const hasImages =
+							originalUserMessage.images &&
+							originalUserMessage.images.length > 0;
+						const isCodebaseQuery =
+							codebaseQueryWords.some((word) => userRequest.includes(word)) &&
+							(userRequest.includes("what") ||
+								userRequest.includes("how many") ||
+								userRequest.includes("about")) &&
+							!(
+								hasImages &&
+								(userRequest.includes("image") ||
+									userRequest.includes("this") ||
+									userRequest.includes("that"))
+							);
 
 						// Treat web search queries as requiring tools (need to search the web to answer)
-						const isWebQuery = webQueryWords.some(word => userRequest.includes(word)) ||
-							(userRequest.includes('search for') && (userRequest.includes('on the web') || userRequest.includes('on the internet'))) ||
-							(userRequest.includes('tell me what you know about') || userRequest.includes('what do you know about')) ||
-							((userRequest.includes('what is') || userRequest.includes('who is') || userRequest.includes('when did')) &&
-								(userRequest.includes('latest') || userRequest.includes('current') || userRequest.includes('recent') || userRequest.includes('2024') || userRequest.includes('2025')));
+						const isWebQuery =
+							webQueryWords.some((word) => userRequest.includes(word)) ||
+							(userRequest.includes("search for") &&
+								(userRequest.includes("on the web") ||
+									userRequest.includes("on the internet"))) ||
+							userRequest.includes("tell me what you know about") ||
+							userRequest.includes("what do you know about") ||
+							((userRequest.includes("what is") ||
+								userRequest.includes("who is") ||
+								userRequest.includes("when did")) &&
+								(userRequest.includes("latest") ||
+									userRequest.includes("current") ||
+									userRequest.includes("recent") ||
+									userRequest.includes("2024") ||
+									userRequest.includes("2025")));
 
-						const shouldUseTools = (isActionRequest || isCodebaseQuery || isWebQuery) &&
-							!info.fullText.toLowerCase().includes('<read_file>') &&
-							!info.fullText.toLowerCase().includes('<edit_file>') &&
-							!info.fullText.toLowerCase().includes('<search_for_files>') &&
-							!info.fullText.toLowerCase().includes('<create_file') &&
-							!info.fullText.toLowerCase().includes('<run_command>') &&
-							!info.fullText.toLowerCase().includes('<web_search>') &&
-							!info.fullText.toLowerCase().includes('<browse_url>');
+						const shouldUseTools =
+							(isActionRequest || isCodebaseQuery || isWebQuery) &&
+							!info.fullText.toLowerCase().includes("<read_file>") &&
+							!info.fullText.toLowerCase().includes("<edit_file>") &&
+							!info.fullText.toLowerCase().includes("<search_for_files>") &&
+							!info.fullText.toLowerCase().includes("<create_file") &&
+							!info.fullText.toLowerCase().includes("<run_command>") &&
+							!info.fullText.toLowerCase().includes("<web_search>") &&
+							!info.fullText.toLowerCase().includes("<browse_url>");
 
 						// If model refused to use tools after first attempt, synthesize immediately
 						// Skip the retry loop entirely for stubborn models
 						// BUT: Don't synthesize file search tools if images are present (user likely wants image analysis, not file search)
-						const isEmptyOrShort = !userRequest || userRequest.trim().length < 20;
-						const isImageAnalysisQuery = hasImages && (
-							isEmptyOrShort ||
-							userRequest.toLowerCase().includes('image') ||
-							userRequest.toLowerCase().includes('what') && (userRequest.toLowerCase().includes('about') || userRequest.toLowerCase().includes('show')) ||
-							userRequest.toLowerCase().includes('describe') ||
-							userRequest.toLowerCase().includes('analyze')
-						);
+						const isEmptyOrShort =
+							!userRequest || userRequest.trim().length < 20;
+						const isImageAnalysisQuery =
+							hasImages &&
+							(isEmptyOrShort ||
+								userRequest.toLowerCase().includes("image") ||
+								(userRequest.toLowerCase().includes("what") &&
+									(userRequest.toLowerCase().includes("about") ||
+										userRequest.toLowerCase().includes("show"))) ||
+								userRequest.toLowerCase().includes("describe") ||
+								userRequest.toLowerCase().includes("analyze"));
 
 						// Skip synthesis if user has images and is asking about them
 						// Also skip if we've already read too many files (prevent infinite loops)
-						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
-							const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '');
+						if (
+							shouldUseTools &&
+							nAttempts >= 1 &&
+							!isImageAnalysisQuery &&
+							filesReadInQuery < MAX_FILES_READ_PER_QUERY
+						) {
+							const synthesizedToolCall = this._synthesizeToolCallFromIntent(
+								userRequest,
+								originalUserMessage.displayContent || "",
+							);
 							// Also skip if synthesized call is search_for_files and images are present
-							if (synthesizedToolCall && !(hasImages && synthesizedToolCall.toolName === 'search_for_files')) {
+							if (
+								synthesizedToolCall &&
+								!(
+									hasImages &&
+									synthesizedToolCall.toolName === "search_for_files"
+								)
+							) {
 								const { toolName, toolParams } = synthesizedToolCall;
 								const toolId = generateUuid();
 
 								// Add assistant message explaining we're auto-executing
-								let actionMessage = 'taking action';
-								if (toolName === 'search_for_files') {
-									actionMessage = 'finding relevant files';
-								} else if (toolName === 'read_file') {
-									actionMessage = 'reading the file';
-								} else if (toolName === 'web_search') {
-									actionMessage = 'searching the web';
-								} else if (toolName === 'browse_url') {
-									actionMessage = 'fetching the web page';
+								let actionMessage = "taking action";
+								if (toolName === "search_for_files") {
+									actionMessage = "finding relevant files";
+								} else if (toolName === "read_file") {
+									actionMessage = "reading the file";
+								} else if (toolName === "web_search") {
+									actionMessage = "searching the web";
+								} else if (toolName === "browse_url") {
+									actionMessage = "fetching the web page";
 								}
 								this._addMessageToThread(threadId, {
-									role: 'assistant',
+									role: "assistant",
 									displayContent: `I'll help you with that. Let me start by ${actionMessage}...`,
-									reasoning: '',
-									anthropicReasoning: null
+									reasoning: "",
+									anthropicReasoning: null,
 								});
 								toolSynthesizedAndMessageAdded = true;
 
 								// CRITICAL: Check for pending plan before executing synthesized tool
 								// Use fast check
 								if (checkPlanGenerated()) {
-									this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+									this._setStreamState(threadId, {
+										isRunning: "idle",
+										interrupt: "not_needed",
+									});
 									return;
 								}
 
 								// Execute the synthesized tool
 								const mcpTools = this._mcpService.getMCPTools();
-								const mcpTool = mcpTools?.find(t => t.name === toolName as ToolName);
-								const { awaitingUserApproval, interrupted } = await this._runToolCall(
-									threadId,
-									toolName as ToolName,
-									toolId,
-									mcpTool?.mcpServerName,
-									{ preapproved: false, unvalidatedToolParams: toolParams }
+								const mcpTool = mcpTools?.find(
+									(t) => t.name === (toolName as ToolName),
 								);
+								const { awaitingUserApproval, interrupted } =
+									await this._runToolCall(
+										threadId,
+										toolName as ToolName,
+										toolId,
+										mcpTool?.mcpServerName,
+										{ preapproved: false, unvalidatedToolParams: toolParams },
+									);
 
 								if (interrupted) {
 									this._setStreamState(threadId, undefined);
 									return;
 								}
 								if (awaitingUserApproval) {
-									isRunningWhenEnd = 'awaiting_user';
+									isRunningWhenEnd = "awaiting_user";
 								} else {
 									shouldSendAnotherMessage = true;
 								}
 
-								this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+								this._setStreamState(threadId, {
+									isRunning: "idle",
+									interrupt: "not_needed",
+								});
 								// Skip adding the failed assistant message and break out of retry loop
 								// Tool result is already in thread via _runToolCall, so we'll send another message
 								break; // Exit inner retry loop, continue outer loop with tool results
@@ -3292,56 +4803,86 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				if (!toolSynthesizedAndMessageAdded) {
 					const thread = this.state.allThreads[threadId];
 					const lastMessage = thread?.messages[thread.messages.length - 1];
-					const messageAlreadyAdded = lastMessage?.role === 'assistant' &&
+					const messageAlreadyAdded =
+						lastMessage?.role === "assistant" &&
 						lastMessage.displayContent === info.fullText;
 
 					if (!messageAlreadyAdded) {
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning });
+						this._addMessageToThread(threadId, {
+							role: "assistant",
+							displayContent: info.fullText,
+							reasoning: info.fullReasoning,
+							anthropicReasoning: info.anthropicReasoning,
+						});
 					}
 				}
 
 				// PERFORMANCE: Clear stream state immediately to stop showing "running" status
 				// This prevents the UI from continuing to show streaming state after completion
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 
 				// call tool if there is one
 				if (toolCall) {
 					// CRITICAL: Prevent excessive file reads that can cause infinite loops
 					// For codebase queries, limit the number of files read
-					if (toolCall.name === 'read_file') {
+					if (toolCall.name === "read_file") {
 						filesReadInQuery++;
 						if (filesReadInQuery > MAX_FILES_READ_PER_QUERY) {
 							// Too many files read - likely stuck in a loop
 							this._addMessageToThread(threadId, {
-								role: 'assistant',
+								role: "assistant",
 								displayContent: `I've read ${filesReadInQuery} files, which exceeds the limit. I'll provide an answer based on what I've gathered so far.`,
-								reasoning: '',
-								anthropicReasoning: null
+								reasoning: "",
+								anthropicReasoning: null,
 							});
-							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							this._setStreamState(threadId, {
+								isRunning: "idle",
+								interrupt: "not_needed",
+							});
 							return;
 						}
 					}
 
 					// CRITICAL: Check for pending plan before executing tool (fast check)
 					if (checkPlanGenerated()) {
-						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+						this._setStreamState(threadId, {
+							isRunning: "idle",
+							interrupt: "not_needed",
+						});
 						return;
 					}
 
 					// PERFORMANCE: Use cached step from activePlanTracking, don't lookup every time
 					if (activePlanTracking?.currentStep) {
-						this._linkToolCallToStepInternal(threadId, toolCall.id, activePlanTracking.currentStep);
+						this._linkToolCallToStepInternal(
+							threadId,
+							toolCall.id,
+							activePlanTracking.currentStep,
+						);
 					}
 
 					const mcpTools = this._mcpService.getMCPTools();
-					const mcpTool = mcpTools?.find(t => t.name === toolCall.name);
+					const mcpTool = mcpTools?.find((t) => t.name === toolCall.name);
 
-					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams });
+					const { awaitingUserApproval, interrupted } = await this._runToolCall(
+						threadId,
+						toolCall.name,
+						toolCall.id,
+						mcpTool?.mcpServerName,
+						{ preapproved: false, unvalidatedToolParams: toolCall.rawParams },
+					);
 					if (interrupted) {
 						this._setStreamState(threadId, undefined);
 						if (activePlanTracking?.currentStep) {
-							this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, 'Interrupted by user');
+							this._markStepCompletedInternal(
+								threadId,
+								activePlanTracking.currentStep,
+								false,
+								"Interrupted by user",
+							);
 							refreshPlanStep();
 						}
 						return;
@@ -3352,16 +4893,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						const thread = this.state.allThreads[threadId];
 						if (thread) {
 							const lastMsg = thread.messages[thread.messages.length - 1];
-							if (lastMsg && lastMsg.role === 'tool') {
+							if (lastMsg && lastMsg.role === "tool") {
 								const toolMsg = lastMsg as ToolMessage<ToolName>;
-								if (toolMsg.type === 'tool_error') {
-									this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, toolMsg.result || 'Tool execution failed');
+								if (toolMsg.type === "tool_error") {
+									this._markStepCompletedInternal(
+										threadId,
+										activePlanTracking.currentStep,
+										false,
+										toolMsg.result || "Tool execution failed",
+									);
 									refreshPlanStep();
-								} else if (toolMsg.type === 'success') {
-									this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, true);
+								} else if (toolMsg.type === "success") {
+									this._markStepCompletedInternal(
+										threadId,
+										activePlanTracking.currentStep,
+										true,
+									);
 									refreshPlanStep();
 									// Start next step if available (check after refresh)
-									if (activePlanTracking.currentStep && activePlanTracking.currentStep.step.status === 'queued') {
+									if (
+										activePlanTracking.currentStep &&
+										activePlanTracking.currentStep.step.status === "queued"
+									) {
 										this._startNextStep(threadId);
 										refreshPlanStep();
 									}
@@ -3370,12 +4923,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 					}
 
-					if (awaitingUserApproval) { isRunningWhenEnd = 'awaiting_user'; }
-					else { shouldSendAnotherMessage = true; }
+					if (awaitingUserApproval) {
+						isRunningWhenEnd = "awaiting_user";
+					} else {
+						shouldSendAnotherMessage = true;
+					}
 
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' }); // just decorative, for clarity
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					}); // just decorative, for clarity
 				}
-
 			} // end while (attempts)
 		} // end while (send message)
 
@@ -3390,16 +4948,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				this._planCache.delete(threadId);
 				const refreshedPlanInfo = this._getCurrentPlan(threadId, true);
 				if (refreshedPlanInfo) {
-					const allStepsComplete = refreshedPlanInfo.plan.steps.every(s =>
-						s.disabled || s.status === 'succeeded' || s.status === 'failed' || s.status === 'skipped'
+					const allStepsComplete = refreshedPlanInfo.plan.steps.every(
+						(s) =>
+							s.disabled ||
+							s.status === "succeeded" ||
+							s.status === "failed" ||
+							s.status === "skipped",
 					);
-					if (allStepsComplete && refreshedPlanInfo.plan.approvalState === 'executing') {
+					if (
+						allStepsComplete &&
+						refreshedPlanInfo.plan.approvalState === "executing"
+					) {
 						// Mark plan as completed
 						const updatedPlan: PlanMessage = {
 							...refreshedPlanInfo.plan,
-							approvalState: 'completed'
+							approvalState: "completed",
 						};
-						this._editMessageInThread(threadId, refreshedPlanInfo.planIdx, updatedPlan);
+						this._editMessageInThread(
+							threadId,
+							refreshedPlanInfo.planIdx,
+							updatedPlan,
+						);
 						// Invalidate cache after update
 						this._planCache.delete(threadId);
 						// Generate ReviewMessage with summary (use refreshed plan with latest data)
@@ -3411,9 +4980,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 
 		// capture number of messages sent
-		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode });
+		this._metricsService.capture("Agent Loop Done", {
+			nMessagesSent,
+			chatMode,
+		});
 	}
-
 
 	// Checkpoint storage limits
 	private static readonly MAX_CHECKPOINTS_PER_THREAD = 50;
@@ -3422,19 +4993,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	private _addCheckpoint(threadId: string, checkpoint: CheckpointEntry) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		// Count existing checkpoints in this thread
-		const existingCheckpoints = thread.messages.filter(m => m.role === 'checkpoint');
+		const existingCheckpoints = thread.messages.filter(
+			(m) => m.role === "checkpoint",
+		);
 
 		// Estimate checkpoint size (rough approximation)
 		const checkpointSize = this._estimateCheckpointSize(checkpoint);
 		const totalSizeMB = this._getTotalCheckpointSizeMB();
 
 		// Enforce per-thread limit
-		if (existingCheckpoints.length >= ChatThreadService.MAX_CHECKPOINTS_PER_THREAD) {
+		if (
+			existingCheckpoints.length >= ChatThreadService.MAX_CHECKPOINTS_PER_THREAD
+		) {
 			// Evict oldest checkpoint in this thread (LRU)
-			const oldestCheckpointIdx = thread.messages.findIndex(m => m.role === 'checkpoint');
+			const oldestCheckpointIdx = thread.messages.findIndex(
+				(m) => m.role === "checkpoint",
+			);
 			if (oldestCheckpointIdx >= 0) {
 				// Remove oldest checkpoint
 				const newMessages = [...thread.messages];
@@ -3453,9 +5032,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 
 		// Enforce global size limit
-		if (totalSizeMB + checkpointSize / ChatThreadService.BYTES_PER_MB > ChatThreadService.MAX_TOTAL_CHECKPOINT_SIZE_MB) {
+		if (
+			totalSizeMB + checkpointSize / ChatThreadService.BYTES_PER_MB >
+			ChatThreadService.MAX_TOTAL_CHECKPOINT_SIZE_MB
+		) {
 			// Evict oldest checkpoints across all threads (LRU)
-			this._evictOldestCheckpoints(checkpointSize / ChatThreadService.BYTES_PER_MB);
+			this._evictOldestCheckpoints(
+				checkpointSize / ChatThreadService.BYTES_PER_MB,
+			);
 		}
 
 		this._addMessageToThread(threadId, checkpoint);
@@ -3473,9 +5057,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	private _getTotalCheckpointSizeMB(): number {
 		let totalBytes = 0;
 		for (const thread of Object.values(this.state.allThreads)) {
-			if (!thread) { continue; }
+			if (!thread) {
+				continue;
+			}
 			for (const msg of thread.messages) {
-				if (msg.role === 'checkpoint') {
+				if (msg.role === "checkpoint") {
 					totalBytes += this._estimateCheckpointSize(msg as CheckpointEntry);
 				}
 			}
@@ -3485,13 +5071,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	private _evictOldestCheckpoints(neededMB: number): void {
 		// Collect all checkpoints with their thread and index
-		const checkpointList: Array<{ threadId: string; index: number; checkpoint: CheckpointEntry; size: number }> = [];
+		const checkpointList: Array<{
+			threadId: string;
+			index: number;
+			checkpoint: CheckpointEntry;
+			size: number;
+		}> = [];
 
 		for (const [threadId, thread] of Object.entries(this.state.allThreads)) {
-			if (!thread) { continue; }
+			if (!thread) {
+				continue;
+			}
 			for (let i = 0; i < thread.messages.length; i++) {
 				const msg = thread.messages[i];
-				if (msg.role === 'checkpoint') {
+				if (msg.role === "checkpoint") {
 					const checkpoint = msg as CheckpointEntry;
 					checkpointList.push({
 						threadId,
@@ -3511,7 +5104,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		const toEvict = new Map<string, Set<number>>(); // threadId -> Set<indices>
 
 		for (const item of checkpointList) {
-			if (freedMB >= neededMB) { break; }
+			if (freedMB >= neededMB) {
+				break;
+			}
 
 			if (!toEvict.has(item.threadId)) {
 				toEvict.set(item.threadId, new Set());
@@ -3524,7 +5119,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		const newThreads = { ...this.state.allThreads };
 		for (const [threadId, indices] of toEvict.entries()) {
 			const thread = newThreads[threadId];
-			if (!thread) { continue; }
+			if (!thread) {
+				continue;
+			}
 
 			// Remove in reverse order to preserve indices
 			const sortedIndices = Array.from(indices).sort((a, b) => b - a);
@@ -3545,28 +5142,41 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	private _generateReviewMessage(threadId: string, plan: PlanMessage): void {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
-		const succeededSteps = plan.steps.filter(s => s.status === 'succeeded');
-		const failedSteps = plan.steps.filter(s => s.status === 'failed');
-		const skippedSteps = plan.steps.filter(s => s.status === 'skipped' || s.disabled);
+		const succeededSteps = plan.steps.filter((s) => s.status === "succeeded");
+		const failedSteps = plan.steps.filter((s) => s.status === "failed");
+		const skippedSteps = plan.steps.filter(
+			(s) => s.status === "skipped" || s.disabled,
+		);
 		const completed = failedSteps.length === 0;
 
-		const executionTime = plan.executionStartTime ? Date.now() - plan.executionStartTime : undefined;
+		const executionTime = plan.executionStartTime
+			? Date.now() - plan.executionStartTime
+			: undefined;
 		const stepsCompleted = succeededSteps.length;
 		const stepsTotal = plan.steps.length;
 
 		// Collect files changed from checkpoints
-		const filesChanged: Array<{ path: string; changeType: 'created' | 'modified' | 'deleted' }> = [];
+		const filesChanged: Array<{
+			path: string;
+			changeType: "created" | "modified" | "deleted";
+		}> = [];
 		const fileSet = new Set<string>();
 
 		// Check all checkpoints created during plan execution
-		const planIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'plan' && (m as PlanMessage).summary === plan.summary);
+		const planIdx = findLastIdx(
+			thread.messages,
+			(m: ChatMessage) =>
+				m.role === "plan" && (m as PlanMessage).summary === plan.summary,
+		);
 		if (planIdx >= 0) {
 			// Find checkpoints after plan message
 			for (let i = planIdx + 1; i < thread.messages.length; i++) {
 				const msg = thread.messages[i];
-				if (msg.role === 'checkpoint') {
+				if (msg.role === "checkpoint") {
 					const checkpoint = msg as CheckpointEntry;
 					for (const fsPath in checkpoint.voidFileSnapshotOfURI) {
 						if (!fileSet.has(fsPath)) {
@@ -3574,7 +5184,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// For now, mark as modified (could enhance to detect created/deleted by comparing with initial state)
 							filesChanged.push({
 								path: fsPath,
-								changeType: 'modified'
+								changeType: "modified",
 							});
 						}
 					}
@@ -3583,30 +5193,38 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 
 		// Collect issues from failed steps
-		const issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; file?: string }> = [];
+		const issues: Array<{
+			severity: "error" | "warning" | "info";
+			message: string;
+			file?: string;
+		}> = [];
 		for (const step of failedSteps) {
 			issues.push({
-				severity: 'error',
-				message: step.error || `Step ${step.stepNumber} failed: ${step.description}`,
-				file: step.files?.[0]
+				severity: "error",
+				message:
+					step.error || `Step ${step.stepNumber} failed: ${step.description}`,
+				file: step.files?.[0],
 			});
 		}
 
 		// Generate summary
 		let summary = completed
-			? `Successfully completed all ${stepsCompleted} step${stepsCompleted !== 1 ? 's' : ''} of the plan: ${plan.summary}`
-			: `Completed ${stepsCompleted} of ${stepsTotal} steps. ${failedSteps.length} step${failedSteps.length !== 1 ? 's' : ''} failed.`;
+			? `Successfully completed all ${stepsCompleted} step${stepsCompleted !== 1 ? "s" : ""} of the plan: ${plan.summary}`
+			: `Completed ${stepsCompleted} of ${stepsTotal} steps. ${failedSteps.length} step${failedSteps.length !== 1 ? "s" : ""} failed.`;
 
 		if (skippedSteps.length > 0) {
-			summary += ` ${skippedSteps.length} step${skippedSteps.length !== 1 ? 's were' : ' was'} skipped.`;
+			summary += ` ${skippedSteps.length} step${skippedSteps.length !== 1 ? "s were" : " was"} skipped.`;
 		}
 
 		// Find last checkpoint index
-		const lastCheckpointIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'checkpoint');
+		const lastCheckpointIdx = findLastIdx(
+			thread.messages,
+			(m: ChatMessage) => m.role === "checkpoint",
+		);
 
 		const reviewMessage: ReviewMessage = {
-			role: 'review',
-			type: 'agent_review',
+			role: "review",
+			type: "agent_review",
 			completed,
 			summary,
 			issues,
@@ -3614,28 +5232,40 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			executionTime,
 			stepsCompleted,
 			stepsTotal,
-			checkpointCount: lastCheckpointIdx >= 0 ? lastCheckpointIdx - (planIdx >= 0 ? planIdx : 0) : 0,
+			checkpointCount:
+				lastCheckpointIdx >= 0
+					? lastCheckpointIdx - (planIdx >= 0 ? planIdx : 0)
+					: 0,
 			lastCheckpointIdx: lastCheckpointIdx >= 0 ? lastCheckpointIdx : null,
-			nextSteps: failedSteps.length > 0 ? [
-				'Review failed steps and retry if needed',
-				'Check error messages for details',
-				failedSteps.length === 1 ? 'Consider skipping the failed step if it\'s not critical' : ''
-			].filter(Boolean) : [
-				'Review the changes made',
-				'Test the implementation',
-				'Continue with additional improvements if needed'
-			]
+			nextSteps:
+				failedSteps.length > 0
+					? [
+							"Review failed steps and retry if needed",
+							"Check error messages for details",
+							failedSteps.length === 1
+								? "Consider skipping the failed step if it's not critical"
+								: "",
+						].filter(Boolean)
+					: [
+							"Review the changes made",
+							"Test the implementation",
+							"Continue with additional improvements if needed",
+						],
 		};
 
 		this._addMessageToThread(threadId, reviewMessage);
 	}
 
-
-
-	private _editMessageInThread(threadId: string, messageIdx: number, newMessage: ChatMessage,) {
+	private _editMessageInThread(
+		threadId: string,
+		messageIdx: number,
+		newMessage: ChatMessage,
+	) {
 		const { allThreads } = this.state;
 		const oldThread = allThreads[threadId];
-		if (!oldThread) { return; } // should never happen
+		if (!oldThread) {
+			return;
+		} // should never happen
 		// update state and store it
 		const newThreads = {
 			...allThreads,
@@ -3647,158 +5277,267 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					newMessage,
 					...oldThread.messages.slice(messageIdx + 1, Infinity),
 				],
-			}
+			},
 		};
 		this._storeAllThreads(newThreads);
 		this._setState({ allThreads: newThreads }); // the current thread just changed (it had a message added to it)
 		// Invalidate plan cache when plan messages are edited
-		if (newMessage.role === 'plan') {
+		if (newMessage.role === "plan") {
 			this._planCache.delete(threadId);
 		}
 	}
 
+	private _getCheckpointInfo = (
+		checkpointMessage: ChatMessage & { role: "checkpoint" },
+		fsPath: string,
+		opts: { includeUserModifiedChanges: boolean },
+	) => {
+		const voidFileSnapshot = checkpointMessage.voidFileSnapshotOfURI
+			? (checkpointMessage.voidFileSnapshotOfURI[fsPath] ?? null)
+			: null;
+		if (!opts.includeUserModifiedChanges) {
+			return { voidFileSnapshot };
+		}
 
-	private _getCheckpointInfo = (checkpointMessage: ChatMessage & { role: 'checkpoint' }, fsPath: string, opts: { includeUserModifiedChanges: boolean }) => {
-		const voidFileSnapshot = checkpointMessage.voidFileSnapshotOfURI ? checkpointMessage.voidFileSnapshotOfURI[fsPath] ?? null : null;
-		if (!opts.includeUserModifiedChanges) { return { voidFileSnapshot, }; }
-
-		const userModifiedCortexideFileSnapshot = fsPath in checkpointMessage.userModifications.voidFileSnapshotOfURI ? checkpointMessage.userModifications.voidFileSnapshotOfURI[fsPath] ?? null : null;
-		return { voidFileSnapshot: userModifiedCortexideFileSnapshot ?? voidFileSnapshot, };
+		const userModifiedCortexideFileSnapshot =
+			fsPath in checkpointMessage.userModifications.voidFileSnapshotOfURI
+				? (checkpointMessage.userModifications.voidFileSnapshotOfURI[fsPath] ??
+					null)
+				: null;
+		return {
+			voidFileSnapshot: userModifiedCortexideFileSnapshot ?? voidFileSnapshot,
+		};
 	};
 
 	private _computeNewCheckpointInfo({ threadId }: { threadId: string }) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
-		const lastCheckpointIdx = findLastIdx(thread.messages, (m) => m.role === 'checkpoint') ?? -1;
-		if (lastCheckpointIdx === -1) { return; }
+		const lastCheckpointIdx =
+			findLastIdx(thread.messages, (m) => m.role === "checkpoint") ?? -1;
+		if (lastCheckpointIdx === -1) {
+			return;
+		}
 
-		const voidFileSnapshotOfURI: { [fsPath: string]: CortexideFileSnapshot | undefined } = {};
+		const voidFileSnapshotOfURI: {
+			[fsPath: string]: CortexideFileSnapshot | undefined;
+		} = {};
 
 		// add a change for all the URIs in the checkpoint history
-		const { lastIdxOfURI } = this._getCheckpointsBetween({ threadId, loIdx: 0, hiIdx: lastCheckpointIdx, }) ?? {};
+		const { lastIdxOfURI } =
+			this._getCheckpointsBetween({
+				threadId,
+				loIdx: 0,
+				hiIdx: lastCheckpointIdx,
+			}) ?? {};
 		for (const fsPath in lastIdxOfURI ?? {}) {
 			const { model } = this._cortexideModelService.getModelFromFsPath(fsPath);
-			if (!model) { continue; }
+			if (!model) {
+				continue;
+			}
 			const checkpoint2 = thread.messages[lastIdxOfURI[fsPath]] || null;
-			if (!checkpoint2) { continue; }
-			if (checkpoint2.role !== 'checkpoint') { continue; }
-			const res = this._getCheckpointInfo(checkpoint2, fsPath, { includeUserModifiedChanges: false });
-			if (!res) { continue; }
+			if (!checkpoint2) {
+				continue;
+			}
+			if (checkpoint2.role !== "checkpoint") {
+				continue;
+			}
+			const res = this._getCheckpointInfo(checkpoint2, fsPath, {
+				includeUserModifiedChanges: false,
+			});
+			if (!res) {
+				continue;
+			}
 			const { voidFileSnapshot: oldCortexideFileSnapshot } = res;
 
 			// if there was any change to the str or diffAreaSnapshot, update. rough approximation of equality, oldDiffAreasSnapshot === diffAreasSnapshot is not perfect
-			const voidFileSnapshot = this._editCodeService.getCortexideFileSnapshot(URI.file(fsPath));
-			if (oldCortexideFileSnapshot === voidFileSnapshot) { continue; }
+			const voidFileSnapshot = this._editCodeService.getCortexideFileSnapshot(
+				URI.file(fsPath),
+			);
+			if (oldCortexideFileSnapshot === voidFileSnapshot) {
+				continue;
+			}
 			voidFileSnapshotOfURI[fsPath] = voidFileSnapshot;
 		}
 
 		return { voidFileSnapshotOfURI };
 	}
 
-
 	private _addUserCheckpoint({ threadId }: { threadId: string }) {
-		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {};
+		const { voidFileSnapshotOfURI } =
+			this._computeNewCheckpointInfo({ threadId }) ?? {};
 		this._addCheckpoint(threadId, {
-			role: 'checkpoint',
-			type: 'user_edit',
+			role: "checkpoint",
+			type: "user_edit",
 			voidFileSnapshotOfURI: voidFileSnapshotOfURI ?? {},
-			userModifications: { voidFileSnapshotOfURI: {}, },
+			userModifications: { voidFileSnapshotOfURI: {} },
 		});
 	}
 	// call this right after LLM edits a file
-	private _addToolEditCheckpoint({ threadId, uri, }: { threadId: string; uri: URI }) {
+	private _addToolEditCheckpoint({
+		threadId,
+		uri,
+	}: {
+		threadId: string;
+		uri: URI;
+	}) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		const { model } = this._cortexideModelService.getModel(uri);
-		if (!model) { return; } // should never happen
-		const diffAreasSnapshot = this._editCodeService.getCortexideFileSnapshot(uri);
+		if (!model) {
+			return;
+		} // should never happen
+		const diffAreasSnapshot =
+			this._editCodeService.getCortexideFileSnapshot(uri);
 		this._addCheckpoint(threadId, {
-			role: 'checkpoint',
-			type: 'tool_edit',
+			role: "checkpoint",
+			type: "tool_edit",
 			voidFileSnapshotOfURI: { [uri.fsPath]: diffAreasSnapshot },
 			userModifications: { voidFileSnapshotOfURI: {} },
 		});
 	}
 
-
-	private _getCheckpointBeforeMessage = ({ threadId, messageIdx }: { threadId: string; messageIdx: number }): [CheckpointEntry, number] | undefined => {
+	private _getCheckpointBeforeMessage = ({
+		threadId,
+		messageIdx,
+	}: {
+		threadId: string;
+		messageIdx: number;
+	}): [CheckpointEntry, number] | undefined => {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return undefined; }
+		if (!thread) {
+			return undefined;
+		}
 		for (let i = messageIdx; i >= 0; i--) {
 			const message = thread.messages[i];
-			if (message.role === 'checkpoint') {
+			if (message.role === "checkpoint") {
 				return [message, i];
 			}
 		}
 		return undefined;
 	};
 
-	private _getCheckpointsBetween({ threadId, loIdx, hiIdx }: { threadId: string; loIdx: number; hiIdx: number }) {
+	private _getCheckpointsBetween({
+		threadId,
+		loIdx,
+		hiIdx,
+	}: {
+		threadId: string;
+		loIdx: number;
+		hiIdx: number;
+	}) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return { lastIdxOfURI: {} }; } // should never happen
+		if (!thread) {
+			return { lastIdxOfURI: {} };
+		} // should never happen
 		const lastIdxOfURI: { [fsPath: string]: number } = {};
 		for (let i = loIdx; i <= hiIdx; i += 1) {
 			const message = thread.messages[i];
-			if (message?.role !== 'checkpoint') { continue; }
-			for (const fsPath in message.voidFileSnapshotOfURI) { // do not include userModified.beforeStrOfURI here, jumping should not include those changes
+			if (message?.role !== "checkpoint") {
+				continue;
+			}
+			for (const fsPath in message.voidFileSnapshotOfURI) {
+				// do not include userModified.beforeStrOfURI here, jumping should not include those changes
 				lastIdxOfURI[fsPath] = i;
 			}
 		}
 		return { lastIdxOfURI };
 	}
 
-	private _readCurrentCheckpoint(threadId: string): [CheckpointEntry, number] | undefined {
+	private _readCurrentCheckpoint(
+		threadId: string,
+	): [CheckpointEntry, number] | undefined {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		const { currCheckpointIdx } = thread.state;
-		if (currCheckpointIdx === null) { return; }
+		if (currCheckpointIdx === null) {
+			return;
+		}
 
 		const checkpoint = thread.messages[currCheckpointIdx];
-		if (!checkpoint) { return; }
-		if (checkpoint.role !== 'checkpoint') { return; }
+		if (!checkpoint) {
+			return;
+		}
+		if (checkpoint.role !== "checkpoint") {
+			return;
+		}
 		return [checkpoint, currCheckpointIdx];
 	}
-	private _addUserModificationsToCurrCheckpoint({ threadId }: { threadId: string }) {
-		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {};
+	private _addUserModificationsToCurrCheckpoint({
+		threadId,
+	}: {
+		threadId: string;
+	}) {
+		const { voidFileSnapshotOfURI } =
+			this._computeNewCheckpointInfo({ threadId }) ?? {};
 		const res = this._readCurrentCheckpoint(threadId);
-		if (!res) { return; }
+		if (!res) {
+			return;
+		}
 		const [checkpoint, checkpointIdx] = res;
 		this._editMessageInThread(threadId, checkpointIdx, {
 			...checkpoint,
-			userModifications: { voidFileSnapshotOfURI: voidFileSnapshotOfURI ?? {}, },
+			userModifications: { voidFileSnapshotOfURI: voidFileSnapshotOfURI ?? {} },
 		});
 	}
 
-
 	private _makeUsStandOnCheckpoint({ threadId }: { threadId: string }) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 		if (thread.state.currCheckpointIdx === null) {
 			const lastMsg = thread.messages[thread.messages.length - 1];
-			if (lastMsg?.role !== 'checkpoint') { this._addUserCheckpoint({ threadId }); }
-			this._setThreadState(threadId, { currCheckpointIdx: thread.messages.length - 1 });
+			if (lastMsg?.role !== "checkpoint") {
+				this._addUserCheckpoint({ threadId });
+			}
+			this._setThreadState(threadId, {
+				currCheckpointIdx: thread.messages.length - 1,
+			});
 		}
 	}
 
-	jumpToCheckpointBeforeMessageIdx({ threadId, messageIdx, jumpToUserModified }: { threadId: string; messageIdx: number; jumpToUserModified: boolean }) {
-
+	jumpToCheckpointBeforeMessageIdx({
+		threadId,
+		messageIdx,
+		jumpToUserModified,
+	}: {
+		threadId: string;
+		messageIdx: number;
+		jumpToUserModified: boolean;
+	}) {
 		// if null, add a new temp checkpoint so user can jump forward again
 		this._makeUsStandOnCheckpoint({ threadId });
 
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
-		if (this.streamState[threadId]?.isRunning) { return; }
+		if (!thread) {
+			return;
+		}
+		if (this.streamState[threadId]?.isRunning) {
+			return;
+		}
 
 		const c = this._getCheckpointBeforeMessage({ threadId, messageIdx });
-		if (c === undefined) { return; } // should never happen
+		if (c === undefined) {
+			return;
+		} // should never happen
 
 		const fromIdx = thread.state.currCheckpointIdx;
-		if (fromIdx === null) { return; } // should never happen
+		if (fromIdx === null) {
+			return;
+		} // should never happen
 
 		const [_, toIdx] = c;
-		if (toIdx === fromIdx) { return; }
+		if (toIdx === fromIdx) {
+			return;
+		}
 
 		// console.log(`going from ${fromIdx} to ${toIdx}`)
 
@@ -3824,15 +5563,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		 * We need to revert anything that happened between to+1 and from.
 		 * **We do this by finding the last x from 0...`to` for each file and applying those contents.**
 		 * We only need to do it for files that were edited since `to`, ie files between to+1...from.
-*/
+		 */
 		if (toIdx < fromIdx) {
-			const { lastIdxOfURI } = this._getCheckpointsBetween({ threadId, loIdx: toIdx + 1, hiIdx: fromIdx });
+			const { lastIdxOfURI } = this._getCheckpointsBetween({
+				threadId,
+				loIdx: toIdx + 1,
+				hiIdx: fromIdx,
+			});
 
 			const idxes = function* () {
-				for (let k = toIdx; k >= 0; k -= 1) { // first go up
+				for (let k = toIdx; k >= 0; k -= 1) {
+					// first go up
 					yield k;
 				}
-				for (let k = toIdx + 1; k < thread.messages.length; k += 1) { // then go down
+				for (let k = toIdx + 1; k < thread.messages.length; k += 1) {
+					// then go down
 					yield k;
 				}
 			};
@@ -3841,12 +5586,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// find the first instance of this file starting at toIdx (go up to latest file; if there is none, go down)
 				for (const k of idxes()) {
 					const message = thread.messages[k];
-					if (message.role !== 'checkpoint') { continue; }
-					const res = this._getCheckpointInfo(message, fsPath, { includeUserModifiedChanges: jumpToUserModified });
-					if (!res) { continue; }
+					if (message.role !== "checkpoint") {
+						continue;
+					}
+					const res = this._getCheckpointInfo(message, fsPath, {
+						includeUserModifiedChanges: jumpToUserModified,
+					});
+					if (!res) {
+						continue;
+					}
 					const { voidFileSnapshot } = res;
-					if (!voidFileSnapshot) { continue; }
-					this._editCodeService.restoreCortexideFileSnapshot(URI.file(fsPath), voidFileSnapshot);
+					if (!voidFileSnapshot) {
+						continue;
+					}
+					this._editCodeService.restoreCortexideFileSnapshot(
+						URI.file(fsPath),
+						voidFileSnapshot,
+					);
 					break;
 				}
 			}
@@ -3868,19 +5624,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		 *
 		 * We need to apply latest change for anything that happened between from+1 and to.
 		 * We only need to do it for files that were edited since `from`, ie files between from+1...to.
-*/
+		 */
 		if (toIdx > fromIdx) {
-			const { lastIdxOfURI } = this._getCheckpointsBetween({ threadId, loIdx: fromIdx + 1, hiIdx: toIdx });
+			const { lastIdxOfURI } = this._getCheckpointsBetween({
+				threadId,
+				loIdx: fromIdx + 1,
+				hiIdx: toIdx,
+			});
 			for (const fsPath in lastIdxOfURI) {
 				// apply lowest down content for each uri
 				for (let k = toIdx; k >= fromIdx + 1; k -= 1) {
 					const message = thread.messages[k];
-					if (message.role !== 'checkpoint') { continue; }
-					const res = this._getCheckpointInfo(message, fsPath, { includeUserModifiedChanges: jumpToUserModified });
-					if (!res) { continue; }
+					if (message.role !== "checkpoint") {
+						continue;
+					}
+					const res = this._getCheckpointInfo(message, fsPath, {
+						includeUserModifiedChanges: jumpToUserModified,
+					});
+					if (!res) {
+						continue;
+					}
 					const { voidFileSnapshot } = res;
-					if (!voidFileSnapshot) { continue; }
-					this._editCodeService.restoreCortexideFileSnapshot(URI.file(fsPath), voidFileSnapshot);
+					if (!voidFileSnapshot) {
+						continue;
+					}
+					this._editCodeService.restoreCortexideFileSnapshot(
+						URI.file(fsPath),
+						voidFileSnapshot,
+					);
 					break;
 				}
 			}
@@ -3889,15 +5660,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._setThreadState(threadId, { currCheckpointIdx: toIdx });
 	}
 
-
 	private _wrapRunAgentToNotify(p: Promise<void>, threadId: string) {
 		const notify = ({ error }: { error: string | null }) => {
 			const thread = this.state.allThreads[threadId];
-			if (!thread) { return; }
-			const userMsg = findLast(thread.messages, m => m.role === 'user');
-			if (!userMsg) { return; }
-			if (userMsg.role !== 'user') { return; }
-			const messageContent = truncate(userMsg.displayContent, 50, '...');
+			if (!thread) {
+				return;
+			}
+			const userMsg = findLast(thread.messages, (m) => m.role === "user");
+			if (!userMsg) {
+				return;
+			}
+			if (userMsg.role !== "user") {
+				return;
+			}
+			const messageContent = truncate(userMsg.displayContent, 50, "...");
 
 			this._notificationService.notify({
 				severity: error ? Severity.Warning : Severity.Info,
@@ -3905,28 +5681,36 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				source: messageContent,
 				sticky: true,
 				actions: {
-					primary: [{
-						id: 'void.goToChat',
-						enabled: true,
-						label: `Jump to Chat`,
-						tooltip: '',
-						class: undefined,
-						run: () => {
-							this.switchToThread(threadId);
-							// scroll to bottom
-							this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
-								m.scrollToBottom();
-							});
-						}
-					}]
+					primary: [
+						{
+							id: "void.goToChat",
+							enabled: true,
+							label: `Jump to Chat`,
+							tooltip: "",
+							class: undefined,
+							run: () => {
+								this.switchToThread(threadId);
+								// scroll to bottom
+								this.state.allThreads[
+									threadId
+								]?.state.mountedInfo?.whenMounted.then((m) => {
+									m.scrollToBottom();
+								});
+							},
+						},
+					],
 				},
 			});
 		};
 
 		p.then(() => {
-			if (threadId !== this.state.currentThreadId) { notify({ error: null }); }
+			if (threadId !== this.state.currentThreadId) {
+				notify({ error: null });
+			}
 		}).catch((e) => {
-			if (threadId !== this.state.currentThreadId) { notify({ error: getErrorMessage(e) }); }
+			if (threadId !== this.state.currentThreadId) {
+				notify({ error: getErrorMessage(e) });
+			}
 			throw e;
 		});
 	}
@@ -3935,10 +5719,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._setStreamState(threadId, undefined);
 	}
 
-
-	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string }) {
+	private async _addUserMessageAndStreamResponse({
+		userMessage,
+		_chatSelections,
+		threadId,
+		images,
+		pdfs,
+		noPlan,
+		displayContent,
+	}: {
+		userMessage: string;
+		_chatSelections?: StagingSelectionItem[];
+		threadId: string;
+		images?: ChatImageAttachment[];
+		pdfs?: ChatPDFAttachment[];
+		noPlan?: boolean;
+		displayContent?: string;
+	}) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; } // should never happen
+		if (!thread) {
+			return;
+		} // should never happen
 
 		// interrupt existing stream
 		if (this.streamState[threadId]?.isRunning) {
@@ -3950,7 +5751,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._addUserCheckpoint({ threadId });
 		}
 
-
 		// Optionally suppress plan generation for this message
 		if (noPlan) {
 			this._suppressPlanOnceByThread[threadId] = true;
@@ -3958,9 +5758,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// add user's message to chat history
 		const instructions = userMessage;
-		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections;
+		const currSelns: StagingSelectionItem[] =
+			_chatSelections ?? thread.state.stagingSelections;
 
-		let userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }); // user message + names of files (NOT content)
+		let userMessageContent = await chat_userMessageContent(
+			instructions,
+			currSelns,
+			{
+				directoryStrService: this._directoryStringService,
+				fileService: this._fileService,
+			},
+		); // user message + names of files (NOT content)
 
 		// Append PDF extracted text to message content for context
 		if (pdfs && pdfs.length > 0) {
@@ -3969,54 +5777,81 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				if (pdf.extractedText && pdf.extractedText.trim().length > 0) {
 					// Only include selected pages if specified
 					let textToInclude = pdf.extractedText;
-					if (pdf.selectedPages && pdf.selectedPages.length > 0 && pdf.pageCount) {
+					if (
+						pdf.selectedPages &&
+						pdf.selectedPages.length > 0 &&
+						pdf.pageCount
+					) {
 						// Filter text by selected pages
 						const pageTexts = pdf.extractedText.split(/\n\n\[Page \d+\]\n/);
 						const selectedTexts: string[] = [];
 						for (const pageNum of pdf.selectedPages) {
 							const pageIndex = pageNum - 1; // Convert to 0-based index
 							if (pageIndex >= 0 && pageIndex < pageTexts.length) {
-								selectedTexts.push(`[Page ${pageNum}]\n${pageTexts[pageIndex]}`);
+								selectedTexts.push(
+									`[Page ${pageNum}]\n${pageTexts[pageIndex]}`,
+								);
 							}
 						}
 						if (selectedTexts.length > 0) {
-							textToInclude = selectedTexts.join('\n\n');
+							textToInclude = selectedTexts.join("\n\n");
 						}
 					}
-					const pageInfo = pdf.pageCount ? ` (${pdf.pageCount} page${pdf.pageCount !== 1 ? 's' : ''})` : '';
-					pdfTexts.push(`\n\n[PDF: ${pdf.filename}${pageInfo}]\n${textToInclude}`);
+					const pageInfo = pdf.pageCount
+						? ` (${pdf.pageCount} page${pdf.pageCount !== 1 ? "s" : ""})`
+						: "";
+					pdfTexts.push(
+						`\n\n[PDF: ${pdf.filename}${pageInfo}]\n${textToInclude}`,
+					);
 				} else {
-					console.warn(`PDF ${pdf.filename} has no extracted text - it may not have been processed correctly`);
+					console.warn(
+						`PDF ${pdf.filename} has no extracted text - it may not have been processed correctly`,
+					);
 				}
 			}
 			if (pdfTexts.length > 0) {
-				userMessageContent += '\n\n' + pdfTexts.join('\n\n');
+				userMessageContent += "\n\n" + pdfTexts.join("\n\n");
 			} else {
-				console.warn('PDFs were attached but no extracted text was available to send to the model');
+				console.warn(
+					"PDFs were attached but no extracted text was available to send to the model",
+				);
 			}
 		}
 
-		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: displayContent || instructions, selections: currSelns, images, pdfs, state: defaultMessageState };
+		const userHistoryElt: ChatMessage = {
+			role: "user",
+			content: userMessageContent,
+			displayContent: displayContent || instructions,
+			selections: currSelns,
+			images,
+			pdfs,
+			state: defaultMessageState,
+		};
 		this._addMessageToThread(threadId, userHistoryElt);
 
 		this._setThreadState(threadId, { currCheckpointIdx: null }); // no longer at a checkpoint because started streaming
 
 		// Set early preparing state to give immediate feedback
 		let preparationCancelled = false;
-		const preparationInterruptor = Promise.resolve(() => { preparationCancelled = true; });
+		const preparationInterruptor = Promise.resolve(() => {
+			preparationCancelled = true;
+		});
 		this._setStreamState(threadId, {
-			isRunning: 'preparing',
+			isRunning: "preparing",
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
-				reasoningSoFar: '',
-				toolCallSoFar: null
+				displayContentSoFar: "Preparing request...",
+				reasoningSoFar: "",
+				toolCallSoFar: null,
 			},
-			interrupt: preparationInterruptor
+			interrupt: preparationInterruptor,
 		});
 
 		// Check if user selected "Auto" mode
-		const userModelSelection = this._currentModelSelectionProps().modelSelection;
-		const isAutoMode = userModelSelection?.providerName === 'auto' && userModelSelection?.modelName === 'auto';
+		const userModelSelection =
+			this._currentModelSelectionProps().modelSelection;
+		const isAutoMode =
+			userModelSelection?.providerName === "auto" &&
+			userModelSelection?.modelName === "auto";
 
 		// Auto-select model based on task context if in auto mode, otherwise use user's selection
 		// Generate requestId early for router tracking in auto mode, then reuse it in _runChatAgent
@@ -4025,23 +5860,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// PERFORMANCE: Start prompt prep in parallel with router decision for auto mode
 		// This can save 50-200ms by doing work that doesn't need model selection
-		let repoIndexerPromise: Promise<{ results: string[]; metrics: unknown } | null> | undefined;
+		let repoIndexerPromise:
+			| Promise<{ results: string[]; metrics: unknown } | null>
+			| undefined;
 		if (isAutoMode && earlyRequestId) {
 			// Update status to show model selection in progress
 			if (!preparationCancelled) {
 				this._setStreamState(threadId, {
-					isRunning: 'preparing',
+					isRunning: "preparing",
 					llmInfo: {
-						displayContentSoFar: 'Selecting best model for this task...',
-						reasoningSoFar: '',
-						toolCallSoFar: null
+						displayContentSoFar: "Selecting best model for this task...",
+						reasoningSoFar: "",
+						toolCallSoFar: null,
 					},
-					interrupt: preparationInterruptor
+					interrupt: preparationInterruptor,
 				});
 			}
 
 			// Track router timing for auto mode
-			chatLatencyAudit.startRequest(earlyRequestId, 'auto', 'auto');
+			chatLatencyAudit.startRequest(earlyRequestId, "auto", "auto");
 			chatLatencyAudit.markRouterStart(earlyRequestId);
 
 			// Start router decision and repo indexer query in parallel
@@ -4052,7 +5889,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const { chatMode } = this._settingsService.state.globalSettings;
 
 			// Start repo indexer query in parallel (saves 50-200ms)
-			repoIndexerPromise = this._convertToLLMMessagesService.startRepoIndexerQuery(chatMessages, chatMode);
+			repoIndexerPromise =
+				this._convertToLLMMessagesService.startRepoIndexerQuery(
+					chatMessages,
+					chatMode,
+				);
 
 			// Wait for router decision
 			const autoSelectedModel = await routerPromise;
@@ -4067,11 +5908,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				const fallbackModel = this._getFallbackModel();
 				if (fallbackModel) {
 					modelSelection = fallbackModel;
-					this._notificationService.warn('Auto model selection failed. Using fallback model. Please configure your model providers.');
+					this._notificationService.warn(
+						"Auto model selection failed. Using fallback model. Please configure your model providers.",
+					);
 				} else {
 					// Last resort: show error and don't proceed
-					this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+					this._notificationService.error(
+						"No models available. Please configure at least one model provider in settings.",
+					);
+					this._setStreamState(threadId, {
+						isRunning: "idle",
+						interrupt: "not_needed",
+					});
 					return;
 				}
 			}
@@ -4086,22 +5934,45 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const fallbackModel = this._getFallbackModel();
 			if (fallbackModel) {
 				modelSelection = fallbackModel;
-				this._notificationService.warn('Invalid model selection detected. Using fallback model.');
+				this._notificationService.warn(
+					"Invalid model selection detected. Using fallback model.",
+				);
 			} else {
-				this._notificationService.error('No models available. Please configure at least one model provider in settings.');
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				this._notificationService.error(
+					"No models available. Please configure at least one model provider in settings.",
+				);
+				this._setStreamState(threadId, {
+					isRunning: "idle",
+					interrupt: "not_needed",
+				});
 				return;
 			}
 		}
 
 		// Validate model capabilities if attachments are present
 		// This applies to both auto and manual mode to ensure images are handled correctly
-		if ((images && images.length > 0 || pdfs && pdfs.length > 0) && modelSelection && !(modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')) {
-			const { getModelCapabilities } = await import('../common/modelCapabilities.js');
-			const capabilities = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel);
+		if (
+			((images && images.length > 0) || (pdfs && pdfs.length > 0)) &&
+			modelSelection &&
+			!(
+				modelSelection.providerName === "auto" &&
+				modelSelection.modelName === "auto"
+			)
+		) {
+			const { getModelCapabilities } = await import(
+				"../common/modelCapabilities.js"
+			);
+			const capabilities = getModelCapabilities(
+				modelSelection.providerName,
+				modelSelection.modelName,
+				this._settingsService.state.overridesOfModel,
+			);
 
 			// Check if model is vision-capable using the same logic as modelRouter
-			const isVisionCapable = this._isModelVisionCapable(modelSelection, capabilities);
+			const isVisionCapable = this._isModelVisionCapable(
+				modelSelection,
+				capabilities,
+			);
 
 			if (!isVisionCapable) {
 				// For PDFs, we can still send them as text (extractedText), so no warning needed
@@ -4110,9 +5981,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// In auto mode, this shouldn't happen (router should select vision-capable model)
 					// But if it does (e.g., no vision models available), remove images and warn
 					if (isAutoMode) {
-						this._notificationService.warn(`Auto-selected model (${modelSelection.providerName}/${modelSelection.modelName}) does not support images. Images will not be sent. Please configure a vision-capable model.`);
+						this._notificationService.warn(
+							`Auto-selected model (${modelSelection.providerName}/${modelSelection.modelName}) does not support images. Images will not be sent. Please configure a vision-capable model.`,
+						);
 					} else {
-						this._notificationService.warn(`The selected model (${modelSelection.providerName}/${modelSelection.modelName}) does not support images. Images will not be sent to the model.`);
+						this._notificationService.warn(
+							`The selected model (${modelSelection.providerName}/${modelSelection.modelName}) does not support images. Images will not be sent to the model.`,
+						);
 					}
 					// Remove images from the message since model can't process them
 					images = [];
@@ -4130,38 +6005,71 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// Update status to show request preparation
 		this._setStreamState(threadId, {
-			isRunning: 'preparing',
+			isRunning: "preparing",
 			llmInfo: {
-				displayContentSoFar: 'Preparing request...',
-				reasoningSoFar: '',
-				toolCallSoFar: null
+				displayContentSoFar: "Preparing request...",
+				reasoningSoFar: "",
+				toolCallSoFar: null,
 			},
-			interrupt: preparationInterruptor
+			interrupt: preparationInterruptor,
 		});
 
 		// Get model options (skip for "auto" since it's not a real model)
-		const modelSelectionOptions = modelSelection && !(modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')
-			? this._settingsService.state.optionsOfModelSelection['Chat'][modelSelection.providerName]?.[modelSelection.modelName]
-			: undefined;
+		const modelSelectionOptions =
+			modelSelection &&
+			!(
+				modelSelection.providerName === "auto" &&
+				modelSelection.modelName === "auto"
+			)
+				? this._settingsService.state.optionsOfModelSelection["Chat"][
+						modelSelection.providerName
+					]?.[modelSelection.modelName]
+				: undefined;
 
 		// repoIndexerPromise is already set above if in auto mode
 
 		// Pass earlyRequestId, isAutoMode, and repoIndexerPromise to _runChatAgent for latency tracking
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId, modelSelection, modelSelectionOptions, earlyRequestId, isAutoMode, repoIndexerPromise }),
+			this._runChatAgent({
+				threadId,
+				modelSelection,
+				modelSelectionOptions,
+				earlyRequestId,
+				isAutoMode,
+				repoIndexerPromise,
+			}),
 			threadId,
 		);
 
 		// scroll to bottom
-		this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
-			m.scrollToBottom();
-		});
+		this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(
+			(m) => {
+				m.scrollToBottom();
+			},
+		);
 	}
 
-
-	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string }) {
+	async addUserMessageAndStreamResponse({
+		userMessage,
+		_chatSelections,
+		threadId,
+		images,
+		pdfs,
+		noPlan,
+		displayContent,
+	}: {
+		userMessage: string;
+		_chatSelections?: StagingSelectionItem[];
+		threadId: string;
+		images?: ChatImageAttachment[];
+		pdfs?: ChatPDFAttachment[];
+		noPlan?: boolean;
+		displayContent?: string;
+	}) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		// if there's a current checkpoint, delete all messages after it
 		if (thread.state.currCheckpointIdx !== null) {
@@ -4175,150 +6083,172 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					...thread,
 					lastModified: new Date().toISOString(),
 					messages: newMessages,
-				}
+				},
 			};
 			this._storeAllThreads(newThreads);
 			this._setState({ allThreads: newThreads });
 		}
 
-
 		// Now call the original method to add the user message and stream the response
-		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent });
+		await this._addUserMessageAndStreamResponse({
+			userMessage,
+			_chatSelections,
+			threadId,
+			images,
+			pdfs,
+			noPlan,
+			displayContent,
+		});
 
 		// Safety: ensure stream state is cleared when the stream finishes (unless awaiting user approval)
 		const s = this.streamState[threadId];
-		if (!s || s.isRunning === undefined || s.isRunning === 'idle' || s.isRunning === 'awaiting_user') {
+		if (
+			!s ||
+			s.isRunning === undefined ||
+			s.isRunning === "idle" ||
+			s.isRunning === "awaiting_user"
+		) {
 			return;
 		}
 		// If still running after completion, clear it (stream should have been handled by _addUserMessageAndStreamResponse)
 		this._setStreamState(threadId, undefined);
-
 	}
 
-	editUserMessageAndStreamResponse: IChatThreadService['editUserMessageAndStreamResponse'] = async ({ userMessage, messageIdx, threadId }) => {
+	editUserMessageAndStreamResponse: IChatThreadService["editUserMessageAndStreamResponse"] =
+		async ({ userMessage, messageIdx, threadId }) => {
+			const thread = this.state.allThreads[threadId];
+			if (!thread) {
+				return;
+			} // should never happen
 
-		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; } // should never happen
-
-		if (thread.messages?.[messageIdx]?.role !== 'user') {
-			throw new Error(`Error: editing a message with role !=='user'`);
-		}
-
-		// get prev and curr selections before clearing the message
-		const currSelns = thread.messages[messageIdx].state.stagingSelections || []; // staging selections for the edited message
-
-		// clear messages up to the index
-		const slicedMessages = thread.messages.slice(0, messageIdx);
-		this._setState({
-			allThreads: {
-				...this.state.allThreads,
-				[thread.id]: {
-					...thread,
-					messages: slicedMessages
-				}
+			if (thread.messages?.[messageIdx]?.role !== "user") {
+				throw new Error(`Error: editing a message with role !=='user'`);
 			}
-		});
 
-		// re-add the message and stream it
-		this._addUserMessageAndStreamResponse({ userMessage, _chatSelections: currSelns, threadId });
-	};
+			// get prev and curr selections before clearing the message
+			const currSelns =
+				thread.messages[messageIdx].state.stagingSelections || []; // staging selections for the edited message
+
+			// clear messages up to the index
+			const slicedMessages = thread.messages.slice(0, messageIdx);
+			this._setState({
+				allThreads: {
+					...this.state.allThreads,
+					[thread.id]: {
+						...thread,
+						messages: slicedMessages,
+					},
+				},
+			});
+
+			// re-add the message and stream it
+			this._addUserMessageAndStreamResponse({
+				userMessage,
+				_chatSelections: currSelns,
+				threadId,
+			});
+		};
 
 	// ---------- the rest ----------
 
 	private _getAllSeenFileURIs(threadId: string) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return []; }
+		if (!thread) {
+			return [];
+		}
 
 		const fsPathsSet = new Set<string>();
 		const uris: URI[] = [];
 		const addURI = (uri: URI) => {
-			if (!fsPathsSet.has(uri.fsPath)) { uris.push(uri); }
+			if (!fsPathsSet.has(uri.fsPath)) {
+				uris.push(uri);
+			}
 			fsPathsSet.add(uri.fsPath);
 			uris.push(uri);
 		};
 
 		for (const m of thread.messages) {
 			// URIs of user selections
-			if (m.role === 'user') {
+			if (m.role === "user") {
 				for (const sel of m.selections ?? []) {
 					addURI(sel.uri);
 				}
 			}
 			// URIs of files that have been read
-			else if (m.role === 'tool' && m.type === 'success' && m.name === 'read_file') {
-				const params = m.params as BuiltinToolCallParams['read_file'];
+			else if (
+				m.role === "tool" &&
+				m.type === "success" &&
+				m.name === "read_file"
+			) {
+				const params = m.params as BuiltinToolCallParams["read_file"];
 				addURI(params.uri);
 			}
 		}
 		return uris;
 	}
 
-
-
 	getRelativeStr = (uri: URI) => {
 		const isInside = this._workspaceContextService.isInsideWorkspace(uri);
 		if (isInside) {
-			const f = this._workspaceContextService.getWorkspace().folders.find(f => uri.fsPath.startsWith(f.uri.fsPath));
-			if (f) { return uri.fsPath.replace(f.uri.fsPath, ''); }
-			else { return undefined; }
-		}
-		else {
+			const f = this._workspaceContextService
+				.getWorkspace()
+				.folders.find((f) => uri.fsPath.startsWith(f.uri.fsPath));
+			if (f) {
+				return uri.fsPath.replace(f.uri.fsPath, "");
+			} else {
+				return undefined;
+			}
+		} else {
 			return undefined;
 		}
 	};
 
-
 	// gets the location of codespan link so the user can click on it
-	generateCodespanLink: IChatThreadService['generateCodespanLink'] = async ({ codespanStr: _codespanStr, threadId }) => {
-
+	generateCodespanLink: IChatThreadService["generateCodespanLink"] = async ({
+		codespanStr: _codespanStr,
+		threadId,
+	}) => {
 		// process codespan to understand what we are searching for
 		// TODO account for more complicated patterns eg `ITextEditorService.openEditor()`
 		const functionOrMethodPattern = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/; // `fUnCt10n_name`
 		const functionParensPattern = /^([^\s(]+)\([^)]*\)$/; // `functionName( args )`
 
 		let target = _codespanStr; // the string to search for
-		let codespanType: 'file-or-folder' | 'function-or-class';
-		if (target.includes('.') || target.includes('/')) {
-
-			codespanType = 'file-or-folder';
+		let codespanType: "file-or-folder" | "function-or-class";
+		if (target.includes(".") || target.includes("/")) {
+			codespanType = "file-or-folder";
 			target = _codespanStr;
-
 		} else if (functionOrMethodPattern.test(target)) {
-
-			codespanType = 'function-or-class';
+			codespanType = "function-or-class";
 			target = _codespanStr;
-
 		} else if (functionParensPattern.test(target)) {
 			const match = target.match(functionParensPattern);
 			if (match && match[1]) {
-
-				codespanType = 'function-or-class';
+				codespanType = "function-or-class";
 				target = match[1];
-
+			} else {
+				return null;
 			}
-			else { return null; }
-		}
-		else {
+		} else {
 			return null;
 		}
 
 		// get history of all AI and user added files in conversation + store in reverse order (MRU)
 		const prevUris = this._getAllSeenFileURIs(threadId).reverse();
 
-		if (codespanType === 'file-or-folder') {
+		if (codespanType === "file-or-folder") {
 			const doesUriMatchTarget = (uri: URI) => uri.path.includes(target);
 
 			// check if any prevFiles are the `target`
 			for (const [idx, uri] of prevUris.entries()) {
 				if (doesUriMatchTarget(uri)) {
-
 					// shorten it
 
 					// TODO make this logic more general
-					const prevUriStrs = prevUris.map(uri => uri.fsPath);
+					const prevUriStrs = prevUris.map((uri) => uri.fsPath);
 					const shortenedUriStrs = shorten(prevUriStrs);
 					let displayText = shortenedUriStrs[idx];
-					const ellipsisIdx = displayText.lastIndexOf('…/');
+					const ellipsisIdx = displayText.lastIndexOf("…/");
 					if (ellipsisIdx >= 0) {
 						displayText = displayText.slice(ellipsisIdx + 2);
 					}
@@ -4330,7 +6260,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// else search codebase for `target`
 			let uris: URI[] = [];
 			try {
-				const { result } = await this._toolsService.callTool['search_pathnames_only']({ query: target, includePattern: null, pageNumber: 0 });
+				const { result } = await this._toolsService.callTool[
+					"search_pathnames_only"
+				]({ query: target, includePattern: null, pageNumber: 0 });
 				const { uris: uris_ } = await result;
 				uris = uris_;
 			} catch (e) {
@@ -4339,60 +6271,65 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 			for (const [idx, uri] of uris.entries()) {
 				if (doesUriMatchTarget(uri)) {
-
 					// TODO make this logic more general
-					const prevUriStrs = prevUris.map(uri => uri.fsPath);
+					const prevUriStrs = prevUris.map((uri) => uri.fsPath);
 					const shortenedUriStrs = shorten(prevUriStrs);
 					let displayText = shortenedUriStrs[idx];
-					const ellipsisIdx = displayText.lastIndexOf('…/');
+					const ellipsisIdx = displayText.lastIndexOf("…/");
 					if (ellipsisIdx >= 0) {
 						displayText = displayText.slice(ellipsisIdx + 2);
 					}
 
-
 					return { uri, displayText };
 				}
 			}
-
 		}
 
-
-		if (codespanType === 'function-or-class') {
-
-
+		if (codespanType === "function-or-class") {
 			// check all prevUris for the target
 			for (const uri of prevUris) {
-
 				const modelRef = await this._cortexideModelService.getModelSafe(uri);
 				const { model } = modelRef;
-				if (!model) { continue; }
+				if (!model) {
+					continue;
+				}
 
 				const matches = model.findMatches(
 					target,
 					false, // searchOnlyEditableRange
 					false, // isRegex
-					true,  // matchCase
+					true, // matchCase
 					null, //' ',   // wordSeparators
-					true   // captureMatches
+					true, // captureMatches
 				);
 
 				const firstThree = matches.slice(0, 3);
 
 				// take first 3 occurences, attempt to goto definition on them
 				for (const match of firstThree) {
-					const position = new Position(match.range.startLineNumber, match.range.startColumn);
-					const definitionProviders = this._languageFeaturesService.definitionProvider.ordered(model);
+					const position = new Position(
+						match.range.startLineNumber,
+						match.range.startColumn,
+					);
+					const definitionProviders =
+						this._languageFeaturesService.definitionProvider.ordered(model);
 
 					for (const provider of definitionProviders) {
+						const _definitions = await provider.provideDefinition(
+							model,
+							position,
+							CancellationToken.None,
+						);
 
-						const _definitions = await provider.provideDefinition(model, position, CancellationToken.None);
+						if (!_definitions) {
+							continue;
+						}
 
-						if (!_definitions) { continue; }
-
-						const definitions = Array.isArray(_definitions) ? _definitions : [_definitions];
+						const definitions = Array.isArray(_definitions)
+							? _definitions
+							: [_definitions];
 
 						for (const definition of definitions) {
-
 							return {
 								uri: definition.uri,
 								selection: {
@@ -4409,31 +6346,52 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			// unlike above do not search codebase (doesnt make sense)
-
 		}
 
 		return null;
-
 	};
 
-	getCodespanLink({ codespanStr, messageIdx, threadId }: { codespanStr: string; messageIdx: number; threadId: string }): CodespanLocationLink | undefined {
+	getCodespanLink({
+		codespanStr,
+		messageIdx,
+		threadId,
+	}: {
+		codespanStr: string;
+		messageIdx: number;
+		threadId: string;
+	}): CodespanLocationLink | undefined {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return undefined; }
+		if (!thread) {
+			return undefined;
+		}
 
 		const links = thread.state.linksOfMessageIdx?.[messageIdx];
-		if (!links) { return undefined; }
+		if (!links) {
+			return undefined;
+		}
 
 		const link = links[codespanStr];
 
 		return link;
 	}
 
-	async addCodespanLink({ newLinkText, newLinkLocation, messageIdx, threadId }: { newLinkText: string; newLinkLocation: CodespanLocationLink; messageIdx: number; threadId: string }) {
+	async addCodespanLink({
+		newLinkText,
+		newLinkLocation,
+		messageIdx,
+		threadId,
+	}: {
+		newLinkText: string;
+		newLinkLocation: CodespanLocationLink;
+		messageIdx: number;
+		threadId: string;
+	}) {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		this._setState({
-
 			allThreads: {
 				...this.state.allThreads,
 				[threadId]: {
@@ -4444,16 +6402,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							...thread.state.linksOfMessageIdx,
 							[messageIdx]: {
 								...thread.state.linksOfMessageIdx?.[messageIdx],
-								[newLinkText]: newLinkLocation
-							}
-						}
-					}
-
-				}
-			}
+								[newLinkText]: newLinkLocation,
+							},
+						},
+					},
+				},
+			},
 		});
 	}
-
 
 	getCurrentThread(): ThreadType | undefined {
 		const state = this.state;
@@ -4463,16 +6419,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	getCurrentFocusedMessageIdx() {
 		const thread = this.getCurrentThread();
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		// get the focusedMessageIdx
 		const focusedMessageIdx = thread.state.focusedMessageIdx;
-		if (focusedMessageIdx === undefined) { return; }
+		if (focusedMessageIdx === undefined) {
+			return;
+		}
 
 		// check that the message is actually being edited
 		const focusedMessage = thread.messages[focusedMessageIdx];
-		if (focusedMessage.role !== 'user') { return; }
-		if (!focusedMessage.state) { return; }
+		if (focusedMessage.role !== "user") {
+			return;
+		}
+		if (!focusedMessage.state) {
+			return;
+		}
 
 		return focusedMessageIdx;
 	}
@@ -4488,7 +6452,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			: [...this.state.openTabs, threadId];
 		this._setState({ currentThreadId: threadId, openTabs });
 	}
-
 
 	/**
 	 * Opens a new chat thread. Always creates a new thread and adds it to open tabs.
@@ -4507,25 +6470,32 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// update state
 		const newThreads: ChatThreads = {
 			...currentThreads,
-			[newThread.id]: newThread
+			[newThread.id]: newThread,
 		};
 		const openTabs = this.state.openTabs.includes(newThread.id)
 			? this.state.openTabs
 			: [...this.state.openTabs, newThread.id];
 		this._storeAllThreads(newThreads);
-		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabs });
+		this._setState({
+			allThreads: newThreads,
+			currentThreadId: newThread.id,
+			openTabs,
+		});
 	}
 
-
 	deleteThread(threadId: string): void {
-		const { allThreads: currentThreads, openTabs, currentThreadId } = this.state;
+		const {
+			allThreads: currentThreads,
+			openTabs,
+			currentThreadId,
+		} = this.state;
 
 		// delete the thread
 		const newThreads = { ...currentThreads };
 		delete newThreads[threadId];
 
 		// remove from openTabs if present
-		const newOpenTabs = openTabs.filter(id => id !== threadId);
+		const newOpenTabs = openTabs.filter((id) => id !== threadId);
 
 		// if we deleted the current thread, switch to another tab or create a new one
 		let newCurrentThreadId = currentThreadId;
@@ -4541,13 +6511,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		// store the updated threads
 		this._storeAllThreads(newThreads);
-		this._setState({ allThreads: newThreads, openTabs: newOpenTabs, currentThreadId: newCurrentThreadId });
+		this._setState({
+			allThreads: newThreads,
+			openTabs: newOpenTabs,
+			currentThreadId: newCurrentThreadId,
+		});
 	}
 
 	duplicateThread(threadId: string) {
 		const { allThreads: currentThreads } = this.state;
 		const threadToDuplicate = currentThreads[threadId];
-		if (!threadToDuplicate) { return; }
+		if (!threadToDuplicate) {
+			return;
+		}
 		const newThread = {
 			...deepClone(threadToDuplicate),
 			id: generateUuid(),
@@ -4561,7 +6537,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 	openTab(threadId: string): void {
-		if (!this.state.allThreads[threadId]) { return; }
+		if (!this.state.allThreads[threadId]) {
+			return;
+		}
 		const openTabs = this.state.openTabs.includes(threadId)
 			? this.state.openTabs
 			: [...this.state.openTabs, threadId];
@@ -4569,39 +6547,45 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	}
 
 	closeTab(threadId: string): void {
-		const openTabs = this.state.openTabs.filter(id => id !== threadId);
-		const currentThreadId = this.state.currentThreadId === threadId ? (null as unknown as string) : this.state.currentThreadId;
+		const openTabs = this.state.openTabs.filter((id) => id !== threadId);
+		const currentThreadId =
+			this.state.currentThreadId === threadId
+				? (null as unknown as string)
+				: this.state.currentThreadId;
 		this._setState({ openTabs, currentThreadId });
 	}
 
 	switchToTab(threadId: string): void {
-		if (!this.state.allThreads[threadId]) { return; }
+		if (!this.state.allThreads[threadId]) {
+			return;
+		}
 		this._setState({ currentThreadId: threadId });
 	}
 
 	getOpenTabs(): string[] {
-		return this.state.openTabs.filter(threadId => this.state.allThreads[threadId] !== undefined);
+		return this.state.openTabs.filter(
+			(threadId) => this.state.allThreads[threadId] !== undefined,
+		);
 	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
 		// Invalidate plan cache when plan messages are added
-		if (message.role === 'plan') {
+		if (message.role === "plan") {
 			this._planCache.delete(threadId);
 		}
 		const { allThreads } = this.state;
 		const oldThread = allThreads[threadId];
-		if (!oldThread) { return; } // should never happen
+		if (!oldThread) {
+			return;
+		} // should never happen
 		// update state and store it
 		const newThreads = {
 			...allThreads,
 			[oldThread.id]: {
 				...oldThread,
 				lastModified: new Date().toISOString(),
-				messages: [
-					...oldThread.messages,
-					message
-				],
-			}
+				messages: [...oldThread.messages, message],
+			},
 		};
 		this._storeAllThreads(newThreads);
 		this._setState({ allThreads: newThreads }); // the current thread just changed (it had a message added to it)
@@ -4609,10 +6593,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	// sets the currently selected message (must be undefined if no message is selected)
 	setCurrentlyFocusedMessageIdx(messageIdx: number | undefined) {
-
 		const threadId = this.state.currentThreadId;
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		this._setState({
 			allThreads: {
@@ -4622,9 +6607,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					state: {
 						...thread.state,
 						focusedMessageIdx: messageIdx,
-					}
-				}
-			}
+					},
+				},
+			},
 		});
 
 		// // when change focused message idx, jump - do not jump back when click edit, too confusing.
@@ -4632,21 +6617,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// 	this.jumpToCheckpointBeforeMessageIdx({ threadId, messageIdx, jumpToUserModified: true })
 	}
 
-
 	addNewStagingSelection(newSelection: StagingSelectionItem): void {
-
 		const focusedMessageIdx = this.getCurrentFocusedMessageIdx();
 
 		// set the selections to the proper value
 		let selections: StagingSelectionItem[] = [];
-		let setSelections = (s: StagingSelectionItem[]) => { };
+		let setSelections = (s: StagingSelectionItem[]) => {};
 
 		if (focusedMessageIdx === undefined) {
 			selections = this.getCurrentThreadState().stagingSelections;
-			setSelections = (s: StagingSelectionItem[]) => this.setCurrentThreadState({ stagingSelections: s });
+			setSelections = (s: StagingSelectionItem[]) =>
+				this.setCurrentThreadState({ stagingSelections: s });
 		} else {
-			selections = this.getCurrentMessageState(focusedMessageIdx).stagingSelections;
-			setSelections = (s) => this.setCurrentMessageState(focusedMessageIdx, { stagingSelections: s });
+			selections =
+				this.getCurrentMessageState(focusedMessageIdx).stagingSelections;
+			setSelections = (s) =>
+				this.setCurrentMessageState(focusedMessageIdx, {
+					stagingSelections: s,
+				});
 		}
 
 		// if matches with existing selection, overwrite (since text may change)
@@ -4657,7 +6645,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			setSelections([
 				...currentSelections.slice(0, idx),
 				newSelection,
-				...currentSelections.slice(idx + 1, Infinity)
+				...currentSelections.slice(idx + 1, Infinity),
 			]);
 		}
 		// if no match, add it
@@ -4666,38 +6654,42 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		}
 	}
 
-
 	// Pops the staging selections from the current thread's state
 	popStagingSelections(numPops: number): void {
-
 		numPops = numPops ?? 1;
 
 		const focusedMessageIdx = this.getCurrentFocusedMessageIdx();
 
 		// set the selections to the proper value
 		let selections: StagingSelectionItem[] = [];
-		let setSelections = (s: StagingSelectionItem[]) => { };
+		let setSelections = (s: StagingSelectionItem[]) => {};
 
 		if (focusedMessageIdx === undefined) {
 			selections = this.getCurrentThreadState().stagingSelections;
-			setSelections = (s: StagingSelectionItem[]) => this.setCurrentThreadState({ stagingSelections: s });
+			setSelections = (s: StagingSelectionItem[]) =>
+				this.setCurrentThreadState({ stagingSelections: s });
 		} else {
-			selections = this.getCurrentMessageState(focusedMessageIdx).stagingSelections;
-			setSelections = (s) => this.setCurrentMessageState(focusedMessageIdx, { stagingSelections: s });
+			selections =
+				this.getCurrentMessageState(focusedMessageIdx).stagingSelections;
+			setSelections = (s) =>
+				this.setCurrentMessageState(focusedMessageIdx, {
+					stagingSelections: s,
+				});
 		}
 
-		setSelections([
-			...selections.slice(0, selections.length - numPops)
-		]);
-
+		setSelections([...selections.slice(0, selections.length - numPops)]);
 	}
 
 	// set message.state
-	private _setCurrentMessageState(state: Partial<UserMessageState>, messageIdx: number): void {
-
+	private _setCurrentMessageState(
+		state: Partial<UserMessageState>,
+		messageIdx: number,
+	): void {
 		const threadId = this.state.currentThreadId;
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
 		this._setState({
 			allThreads: {
@@ -4705,41 +6697,48 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				[threadId]: {
 					...thread,
 					messages: thread.messages.map((m, i) =>
-						i === messageIdx && m.role === 'user' ? {
-							...m,
-							state: {
-								...m.state,
-								...state
-							},
-						} : m
-					)
-				}
-			}
+						i === messageIdx && m.role === "user"
+							? {
+									...m,
+									state: {
+										...m.state,
+										...state,
+									},
+								}
+							: m,
+					),
+				},
+			},
 		});
-
 	}
 
 	// set thread.state
-	private _setThreadState(threadId: string, state: Partial<ThreadType['state']>, doNotRefreshMountInfo?: boolean): void {
+	private _setThreadState(
+		threadId: string,
+		state: Partial<ThreadType["state"]>,
+		doNotRefreshMountInfo?: boolean,
+	): void {
 		const thread = this.state.allThreads[threadId];
-		if (!thread) { return; }
+		if (!thread) {
+			return;
+		}
 
-		this._setState({
-			allThreads: {
-				...this.state.allThreads,
-				[thread.id]: {
-					...thread,
-					state: {
-						...thread.state,
-						...state
-					}
-				}
-			}
-		}, doNotRefreshMountInfo);
-
+		this._setState(
+			{
+				allThreads: {
+					...this.state.allThreads,
+					[thread.id]: {
+						...thread,
+						state: {
+							...thread.state,
+							...state,
+						},
+					},
+				},
+			},
+			doNotRefreshMountInfo,
+		);
 	}
-
-
 
 	getCurrentThreadState = () => {
 		const currentThread = this.getCurrentThread();
@@ -4750,12 +6749,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				stagingSelections: [],
 				focusedMessageIdx: undefined,
 				linksOfMessageIdx: {},
-				filesWithUserChanges: new Set()
+				filesWithUserChanges: new Set(),
 			};
 		}
 		return currentThread.state;
 	};
-	setCurrentThreadState = (newState: Partial<ThreadType['state']>) => {
+	setCurrentThreadState = (newState: Partial<ThreadType["state"]>) => {
 		this._setThreadState(this.state.currentThreadId, newState);
 	};
 
@@ -4763,17 +6762,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	getCurrentMessageState(messageIdx: number): UserMessageState {
 		const currMessage = this.getCurrentThread()?.messages?.[messageIdx];
-		if (!currMessage || currMessage.role !== 'user') { return defaultMessageState; }
+		if (!currMessage || currMessage.role !== "user") {
+			return defaultMessageState;
+		}
 		return currMessage.state;
 	}
-	setCurrentMessageState(messageIdx: number, newState: Partial<UserMessageState>) {
+	setCurrentMessageState(
+		messageIdx: number,
+		newState: Partial<UserMessageState>,
+	) {
 		const currMessage = this.getCurrentThread()?.messages?.[messageIdx];
-		if (!currMessage || currMessage.role !== 'user') { return; }
+		if (!currMessage || currMessage.role !== "user") {
+			return;
+		}
 		this._setCurrentMessageState(newState, messageIdx);
 	}
-
-
-
 }
 
-registerSingleton(IChatThreadService, ChatThreadService, InstantiationType.Eager);
+registerSingleton(
+	IChatThreadService,
+	ChatThreadService,
+	InstantiationType.Eager,
+);

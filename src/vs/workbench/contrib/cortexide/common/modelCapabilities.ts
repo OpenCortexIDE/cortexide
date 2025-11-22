@@ -126,13 +126,13 @@ export const defaultModelsOfProvider = {
 		'grok-2', // Older version
 	],
 	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
-		// Latest models (Nov 2025)
-		'gemini-3.0-pro', // Released Nov 18, 2025 - most advanced model
-		'gemini-3.0-deep-think', // Released Nov 18, 2025 - complex reasoning
-		// Gemini 2.5 series (generally available)
+		// Gemini 2.5 series (generally available) - prefer these until 3.0 is confirmed available
 		'gemini-2.5-pro', // Generally available - strong reasoning, coding, math
 		'gemini-2.5-flash', // Generally available - balanced performance
 		'gemini-2.5-flash-lite', // Generally available - fastest and most cost-efficient
+		// Latest models (Nov 2025) - may not be available in all regions/API versions yet
+		'gemini-3.0-pro', // Released Nov 18, 2025 - most advanced model (auto-fallback to 2.5-pro if unavailable)
+		'gemini-3.0-deep-think', // Released Nov 18, 2025 - complex reasoning (auto-fallback to 2.5-pro if unavailable)
 		// Preview/experimental models (may be less stable)
 		'gemini-2.5-pro-preview-05-06',
 		'gemini-2.5-flash-preview-04-17',
@@ -1657,6 +1657,51 @@ const ollamaModelOptions = {
 		cost: { input: 0, output: 0 },
 		downloadable: { sizeGb: 14 },
 		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'llama3.3:70b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 40 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'qwen2.5-coder:32b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 19 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'deepseek-r1:32b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 19 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'deepseek-r1:1.5b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 1.0 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'codestral:latest': {
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 7 },
+		supportsFIM: true,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
 	},
