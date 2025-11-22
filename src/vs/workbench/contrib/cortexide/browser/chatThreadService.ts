@@ -593,7 +593,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	};
 
 	// !!! this is important for properly restoring URIs and images from storage
-	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
+	// should probably re-use code from src/vs/base/common/marshalling.ts instead. but this is simple enough
 	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
 		return JSON.parse(threadsStr, (key, value) => {
 			if (value && typeof value === "object" && value.$mid === 1) {
