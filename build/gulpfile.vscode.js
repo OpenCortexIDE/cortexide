@@ -100,7 +100,10 @@ const vscodeResourceIncludes = [
 	'out-build/vs/editor/common/languages/highlights/*.scm',
 
 	// Tree Sitter injection queries
-	'out-build/vs/editor/common/languages/injections/*.scm'
+	'out-build/vs/editor/common/languages/injections/*.scm',
+
+	// React components (Cortexide)
+	'out-build/vs/workbench/contrib/cortexide/browser/react/out/**'
 ];
 
 const vscodeResources = [
