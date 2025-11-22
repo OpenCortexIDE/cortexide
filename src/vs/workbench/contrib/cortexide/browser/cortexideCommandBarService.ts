@@ -36,8 +36,8 @@ function getMountVoidCommandBar() {
 			.then(m => m.mountVoidCommandBar)
 			.catch(error => {
 				console.error('[CortexideCommandBar] Failed to load React component:', error);
-				// Return a no-op function to prevent crashes
-				return () => { /* no-op */ };
+				// Return a no-op function that matches the expected signature
+				return (_rootElement: any, _accessor: any, _props: any) => undefined;
 			});
 	}
 	return mountVoidCommandBarPromise;
@@ -563,6 +563,10 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 		// Instead, get the mount function first, then call invokeFunction with a fresh accessor
 		(async () => {
 			const mountVoidCommandBar = await getMountVoidCommandBar();
+			if (!mountVoidCommandBar) {
+				console.error('[CortexideCommandBar] mountVoidCommandBar is undefined');
+				return;
+			}
 			const uri = editor.getModel()?.uri || null
 
 			// Get a fresh accessor for mountVoidCommandBar - this accessor will be valid

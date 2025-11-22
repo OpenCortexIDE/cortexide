@@ -27,16 +27,16 @@ function doesPathExist(filePath) {
 }
 
 /*
- 
+
 This function finds `globalDesiredPath` given `localDesiredPath` and `currentPath`
- 
+
 Diagram:
- 
+
 ...basePath/
 - void/
   - ...currentPath/ (defined globally)
   - ...localDesiredPath/ (defined locally)
- 
+
 */
 function findDesiredPathFromLocalPath(localDesiredPath, currentPath) {
 
