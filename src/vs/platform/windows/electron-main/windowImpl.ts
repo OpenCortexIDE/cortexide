@@ -757,6 +757,43 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 
 	private registerListeners(): void {
 
+		// macOS: Use 'ready-to-show' event to show window when ready (prevents blank screen)
+		// This is the Electron best practice for macOS to avoid flicker and blank screens
+		// The 'ready-to-show' event fires when the window is ready to be displayed without flicker
+		if (isMacintosh) {
+			let readyToShowFired = false;
+			this._register(Event.fromNodeEventEmitter(this._win, 'ready-to-show')(() => {
+				if (!readyToShowFired && this._win && !this._win.isDestroyed()) {
+					readyToShowFired = true;
+					this.logService.trace('window#ready-to-show: window ready, ensuring visibility on macOS');
+
+					// Ensure window is visible with valid bounds
+					if (!this._win.isVisible()) {
+						this._win.showInactive();
+					}
+					if (this._win.isMinimized()) {
+						this._win.restore();
+					}
+
+					// Validate bounds
+					const bounds = this._win.getBounds();
+					if (bounds && (bounds.width === 0 || bounds.height === 0)) {
+						this.logService.warn('window#ready-to-show: invalid bounds, resetting');
+						this._win.setSize(1024, 768);
+						this._win.center();
+					}
+					
+					// Focus the window to ensure it's active and rendered
+					// Use setTimeout to ensure this happens after the window is fully ready
+					setTimeout(() => {
+						if (this._win && !this._win.isDestroyed()) {
+							this._win.focus();
+						}
+					}, 0);
+				}
+			}));
+		}
+
 		// Window error conditions to handle
 		this._register(Event.fromNodeEventEmitter(this._win, 'unresponsive')(() => this.onWindowError(WindowError.UNRESPONSIVE)));
 		this._register(Event.fromNodeEventEmitter(this._win, 'responsive')(() => this.onWindowError(WindowError.RESPONSIVE)));
@@ -1134,56 +1171,59 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// Load URL
 		this._win.loadURL(FileAccess.asBrowserUri(`vs/code/electron-browser/workbench/workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`).toString(true));
 
-		// Fix for macOS blank screen: Ensure window is visible and has valid bounds
-		// This fix runs immediately and also after the page loads to handle timing issues
+		// macOS: Comprehensive fix for blank screen issue
+		// The window is created with show: false to reduce flicker, but on macOS this can cause blank screens
+		// We use multiple strategies to ensure the window is visible:
+		// 1. 'ready-to-show' event (handled in registerListeners) - primary method
+		// 2. Immediate check after loadURL - fallback if ready-to-show doesn't fire
+		// 3. Page load events - ensure visibility after content loads
+		// 4. Timeout fallback - last resort
 		if (isMacintosh && this._win) {
-			// Immediate fix: Force window to be shown if it's not visible
-			if (!this._win.isVisible()) {
-				this._win.showInactive();
-			}
-			// Ensure window is not minimized
-			if (this._win.isMinimized()) {
-				this._win.restore();
-			}
-			// Validate and fix window bounds if invalid (0x0 or off-screen)
-			const bounds = this._win.getBounds();
-			if (bounds && (bounds.width === 0 || bounds.height === 0)) {
-				// Reset to default size if invalid
-				this._win.setSize(1024, 768);
-				this._win.center();
-			}
-
-			// Additional fix: Ensure window is visible after page loads (handles async loadURL timing)
-			// Use both 'did-finish-load' and 'dom-ready' events to catch all cases
+			// Immediate check: Show window if it's not visible (fallback if ready-to-show hasn't fired)
 			const ensureWindowVisible = () => {
 				if (this._win && !this._win.isDestroyed()) {
 					if (!this._win.isVisible()) {
+						this.logService.trace('window#load: forcing window to show on macOS');
 						this._win.showInactive();
 					}
 					if (this._win.isMinimized()) {
 						this._win.restore();
 					}
-					// Re-check bounds after page load
-					const currentBounds = this._win.getBounds();
-					if (currentBounds && (currentBounds.width === 0 || currentBounds.height === 0)) {
+
+					// Validate and fix window bounds
+					const bounds = this._win.getBounds();
+					if (bounds && (bounds.width === 0 || bounds.height === 0)) {
+						this.logService.warn('window#load: invalid window bounds detected, resetting to default size');
 						this._win.setSize(1024, 768);
 						this._win.center();
 					}
-					// Ensure window is focused to prevent blank screen
+
+					// Focus the window to ensure it's active and rendered
 					this._win.focus();
 				}
 			};
 
-			// Listen for page load events to ensure window is visible
-			this._win.webContents.once('did-finish-load', ensureWindowVisible);
-			this._win.webContents.once('dom-ready', ensureWindowVisible);
+			// Immediate check (in case ready-to-show already fired or won't fire)
+			ensureWindowVisible();
 
-			// Also ensure visibility after a short delay as a fallback
+			// Listen for page load events as additional safety net
+			this._win.webContents.once('did-finish-load', () => {
+				this.logService.trace('window#load: did-finish-load event, ensuring window visibility');
+				ensureWindowVisible();
+			});
+
+			this._win.webContents.once('dom-ready', () => {
+				this.logService.trace('window#load: dom-ready event, ensuring window visibility');
+				ensureWindowVisible();
+			});
+
+			// Fallback: Ensure visibility after a delay (handles edge cases)
 			setTimeout(() => {
-				if (this._win && !this._win.isDestroyed()) {
+				if (this._win && !this._win.isDestroyed() && !this._win.isVisible()) {
+					this.logService.warn('window#load: window still not visible after delay, forcing show');
 					ensureWindowVisible();
 				}
-			}, 100);
+			}, 500);
 		}
 
 		// Remember that we did load
