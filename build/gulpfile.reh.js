@@ -156,9 +156,16 @@ function getNodeChecksum(expectedName) {
 
 function extractAlpinefromDocker(nodeVersion, platform, arch) {
 	const imageName = arch === 'arm64' ? 'arm64v8/node' : 'node';
-	log(`Downloading node.js ${nodeVersion} ${platform} ${arch} from docker image ${imageName}`);
-	const contents = cp.execSync(`docker run --rm ${imageName}:${nodeVersion}-alpine /bin/sh -c 'cat \`which node\`'`, { maxBuffer: 100 * 1024 * 1024, encoding: 'buffer' });
-	return es.readArray([new File({ path: 'node', contents, stat: { mode: parseInt('755', 8) } })]);
+	const imageTag = `${imageName}:${nodeVersion}-alpine`;
+	log(`Downloading node.js ${nodeVersion} ${platform} ${arch} from docker image ${imageTag}`);
+	try {
+		// Use double quotes for the shell command and properly escape the which command
+		const contents = cp.execSync(`docker run --rm "${imageTag}" /bin/sh -c "cat \\$(which node)"`, { maxBuffer: 100 * 1024 * 1024, encoding: 'buffer' });
+		return es.readArray([new File({ path: 'node', contents, stat: { mode: parseInt('755', 8) } })]);
+	} catch (error) {
+		log.error(`Failed to extract Node.js from Docker image ${imageTag}: ${error.message}`);
+		throw new Error(`Docker command failed: ${error.message}`);
+	}
 }
 
 const { nodeVersion, internalNodeVersion } = getNodeVersion();
@@ -231,6 +238,19 @@ function nodejs(platform, arch) {
 				.pipe(rename('node.exe'));
 		case 'darwin':
 		case 'linux':
+			// Handle alternative architectures that may not have official Node.js builds
+			if (arch === 'riscv64' && product.nodejsRepository === 'https://nodejs.org') {
+				// Try unofficial builds site for riscv64
+				const unofficialUrl = process.env['VSCODE_NODEJS_SITE'] || 'https://unofficial-builds.nodejs.org';
+				log(`Attempting to download Node.js from ${unofficialUrl} for ${arch}...`);
+				return fetchUrls(`/download/release/v${nodeVersion}/node-v${nodeVersion}-linux-${arch}.tar.gz`, { 
+					base: unofficialUrl, 
+					checksumSha256 
+				}).pipe(flatmap(stream => stream.pipe(gunzip()).pipe(untar())))
+					.pipe(filter('**/node'))
+					.pipe(util.setExecutableBit('**'))
+					.pipe(rename('node'));
+			}
 			return (product.nodejsRepository !== 'https://nodejs.org' ?
 				fetchGithub(product.nodejsRepository, { version: `${nodeVersion}-${internalNodeVersion}`, name: expectedName, checksumSha256 }) :
 				fetchUrls(`/dist/v${nodeVersion}/node-v${nodeVersion}-${platform}-${arch}.tar.gz`, { base: 'https://nodejs.org', checksumSha256 })
