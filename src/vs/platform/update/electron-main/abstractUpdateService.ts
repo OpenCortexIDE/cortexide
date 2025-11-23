@@ -117,7 +117,10 @@ export abstract class AbstractUpdateService implements IUpdateService {
 			setTimeout(() => this.checkForUpdates(false), 30 * 1000);
 		} else {
 			// Start checking for updates after 30 seconds
-			this.scheduleCheckForUpdates(30 * 1000).then(undefined, err => this.logService.error(err));
+			this.scheduleCheckForUpdates(30 * 1000).then(undefined, err => {
+				// Downgrade to trace - update check failures are not critical
+				this.logService.trace('update#scheduleCheckForUpdates: Update check scheduling failed (non-critical):', err);
+			});
 		}
 	}
 
