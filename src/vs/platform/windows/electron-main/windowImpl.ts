@@ -1134,6 +1134,27 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// Load URL
 		this._win.loadURL(FileAccess.asBrowserUri(`vs/code/electron-browser/workbench/workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`).toString(true));
 
+		// Fix for macOS blank screen: Ensure window is visible and has valid bounds
+		if (isMacintosh && this._win) {
+			// Force window to be shown if it's not visible
+			if (!this._win.isVisible()) {
+				this._win.showInactive();
+			}
+			// Ensure window is not minimized
+			if (this._win.isMinimized()) {
+				this._win.restore();
+			}
+			// Validate and fix window bounds if invalid (0x0 or off-screen)
+			const bounds = this._win.getBounds();
+			if (bounds && (bounds.width === 0 || bounds.height === 0)) {
+				// Reset to default size if invalid
+				this._win.setSize(1024, 768);
+				this._win.center();
+			}
+			// Ensure window is focused to prevent blank screen
+			this._win.focus();
+		}
+
 		// Remember that we did load
 		const wasLoaded = this.wasLoaded;
 		this.wasLoaded = true;
