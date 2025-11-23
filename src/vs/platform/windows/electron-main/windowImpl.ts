@@ -1178,13 +1178,21 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// 2. Immediate check after loadURL - fallback if ready-to-show doesn't fire
 		// 3. Page load events - ensure visibility after content loads
 		// 4. Timeout fallback - last resort
+		// 5. Error handling - detect if workbench.html failed to load
 		if (isMacintosh && this._win) {
+			// Track if window was successfully shown
+			let windowShown = false;
+
 			// Immediate check: Show window if it's not visible (fallback if ready-to-show hasn't fired)
 			const ensureWindowVisible = () => {
 				if (this._win && !this._win.isDestroyed()) {
-					if (!this._win.isVisible()) {
+					const wasVisible = this._win.isVisible();
+					if (!wasVisible) {
 						this.logService.trace('window#load: forcing window to show on macOS');
 						this._win.showInactive();
+						windowShown = true;
+					} else {
+						windowShown = true;
 					}
 					if (this._win.isMinimized()) {
 						this._win.restore();
@@ -1203,6 +1211,14 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 				}
 			};
 
+			// Listen for load failures - this could indicate workbench.html is missing
+			this._win.webContents.once('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+				this.logService.error(`window#load: Failed to load workbench on macOS - Code: ${errorCode}, Description: ${errorDescription}, URL: ${validatedURL}`);
+				this.logService.error('window#load: This may indicate workbench.html is missing or the file path is incorrect');
+				// Still try to show the window even if load failed
+				ensureWindowVisible();
+			});
+
 			// Immediate check (in case ready-to-show already fired or won't fire)
 			ensureWindowVisible();
 
@@ -1219,9 +1235,15 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 
 			// Fallback: Ensure visibility after a delay (handles edge cases)
 			setTimeout(() => {
-				if (this._win && !this._win.isDestroyed() && !this._win.isVisible()) {
-					this.logService.warn('window#load: window still not visible after delay, forcing show');
-					ensureWindowVisible();
+				if (this._win && !this._win.isDestroyed()) {
+					if (!this._win.isVisible()) {
+						this.logService.warn('window#load: window still not visible after delay, forcing show');
+						ensureWindowVisible();
+					}
+					// Final diagnostic check
+					if (!windowShown) {
+						this.logService.error('window#load: CRITICAL - Window was never shown on macOS. This indicates a serious issue.');
+					}
 				}
 			}, 500);
 		}
