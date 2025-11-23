@@ -243,9 +243,9 @@ function nodejs(platform, arch) {
 				// Try unofficial builds site for riscv64
 				const unofficialUrl = process.env['VSCODE_NODEJS_SITE'] || 'https://unofficial-builds.nodejs.org';
 				log(`Attempting to download Node.js from ${unofficialUrl} for ${arch}...`);
-				return fetchUrls(`/download/release/v${nodeVersion}/node-v${nodeVersion}-linux-${arch}.tar.gz`, { 
-					base: unofficialUrl, 
-					checksumSha256 
+				return fetchUrls(`/download/release/v${nodeVersion}/node-v${nodeVersion}-linux-${arch}.tar.gz`, {
+					base: unofficialUrl,
+					checksumSha256
 				}).pipe(flatmap(stream => stream.pipe(gunzip()).pipe(untar())))
 					.pipe(filter('**/node'))
 					.pipe(util.setExecutableBit('**'))

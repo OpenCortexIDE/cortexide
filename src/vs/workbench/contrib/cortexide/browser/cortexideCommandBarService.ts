@@ -572,14 +572,19 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 			// Get a fresh accessor for mountVoidCommandBar - this accessor will be valid
 			// during the synchronous execution of this function
 			this.instantiationService.invokeFunction(accessor => {
-				// mountVoidCommandBar will call _registerServices internally with this fresh accessor
-				const res = mountVoidCommandBar(root, accessor, { uri, editor } satisfies CortexideCommandBarProps)
-				if (!res) return
-				this._register(toDisposable(() => res.dispose?.()))
-				this._register(editor.onWillChangeModel((model) => {
-					const uri = model.newModelUrl
-					res.rerender({ uri, editor } satisfies CortexideCommandBarProps)
-				}))
+				try {
+					// mountVoidCommandBar will call _registerServices internally with this fresh accessor
+					const res = mountVoidCommandBar(root, accessor, { uri, editor } satisfies CortexideCommandBarProps)
+					if (!res) return
+					this._register(toDisposable(() => res.dispose?.()))
+					this._register(editor.onWillChangeModel((model) => {
+						const uri = model.newModelUrl
+						res.rerender({ uri, editor } satisfies CortexideCommandBarProps)
+					}))
+				} catch (error) {
+					console.error('[CortexideCommandBar] Failed to mount React command bar:', error);
+					// Command bar failure is non-critical, just log the error
+				}
 			})
 		})().catch(err => {
 			console.error('Error mounting void command bar:', err);
