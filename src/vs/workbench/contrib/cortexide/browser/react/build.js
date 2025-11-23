@@ -183,11 +183,21 @@ function fixImportPaths() {
 			}
 
 			// Replace all relative imports with absolute paths
-			// BUT keep chunk imports relative (they're part of the bundle)
+			// BUT keep chunk imports relative (they're in the same directory structure and work with relative paths)
 			const convertRelativeFromImport = (match, quote, dots, rest) => {
-				if (rest.startsWith('./') || rest.startsWith('vs/') || rest.startsWith('chunk-')) {
+				// Skip if already absolute (starts with vs/)
+				if (rest.startsWith('vs/')) {
 					return match;
 				}
+				// Keep chunk imports relative - they're in the same directory structure
+				if (rest.startsWith('chunk-')) {
+					return match; // Keep relative path
+				}
+				// Skip relative imports starting with ./
+				if (rest.startsWith('./')) {
+					return match;
+				}
+				// Convert other relative imports to absolute paths
 				const resolved = resolveRelativeImport(`${dots}${rest}`);
 				if (resolved !== `${dots}${rest}`) {
 					return `from ${quote}${resolved}${quote}`;
@@ -203,30 +213,24 @@ function fixImportPaths() {
 			content = content.replace(
 				/import\s+(['"])((?:\.\.\/)+)([^'";\n]+)\1/g,
 				(match, quote, dots, rest) => {
-					if (rest.startsWith('./') || rest.startsWith('vs/') || rest.startsWith('chunk-')) {
+					// Skip if already absolute (starts with vs/)
+					if (rest.startsWith('vs/')) {
 						return match;
 					}
+					// Keep chunk imports relative - they're in the same directory structure
+					if (rest.startsWith('chunk-')) {
+						return match; // Keep relative path
+					}
+					// Skip relative imports starting with ./
+					if (rest.startsWith('./')) {
+						return match;
+					}
+					// Convert other relative imports to absolute paths
 					const resolved = resolveRelativeImport(`${dots}${rest}`);
 					if (resolved !== `${dots}${rest}`) {
 						return `import ${quote}${resolved}${quote}`;
 					}
 					return match;
-				}
-			);
-
-			// Also fix any absolute chunk imports that were incorrectly converted
-			// Convert them back to relative imports
-			content = content.replace(
-				/from\s+(['"])vs\/workbench\/contrib\/cortexide\/browser\/react\/out\/(chunk-[^'"]+)\1/g,
-				(match, quote, chunkName) => {
-					// Get the directory of the current file relative to react/out/
-					const currentFileDir = path.dirname(fileRelPath);
-					// Chunks are in react/out/, entry points are in react/out/subdir/
-					if (currentFileDir === 'vs/workbench/contrib/cortexide/browser/react/out') {
-						return `from ${quote}./${chunkName}${quote}`;
-					}
-					// If in a subdirectory (e.g., void-settings-tsx/), use relative path
-					return `from ${quote}../${chunkName}${quote}`;
 				}
 			);
 
@@ -395,6 +399,7 @@ if (isWatch) {
 	execSync('npx tsup', { stdio: 'inherit' });
 
 	// Fix import paths in bundled files
+	// allow-any-unicode-next-line
 	console.log('🔧 Fixing import paths...');
 	fixImportPaths();
 
