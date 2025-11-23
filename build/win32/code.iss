@@ -108,8 +108,8 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 
 [Run]
 ; Automatically install Visual C++ Redistributables if not already installed (silent, no user interaction)
-Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.x64.exe'; $out='{tmp}\vc_redist.x64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "x64"); Flags: runhidden waituntilterminated
-Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.arm64.exe'; $out='{tmp}\vc_redist.arm64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "arm64"); Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.x64.exe'; $out='{tmp}\vc_redist.x64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and IsX64Arch(); Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.arm64.exe'; $out='{tmp}\vc_redist.arm64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and IsArm64Arch(); Flags: runhidden waituntilterminated
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall skipifdoesntexist; Check: ShouldRunAfterUpdate() and ExecutableExists()
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall skipifdoesntexist; Check: (not WizardSilent()) and ExecutableExists()
 
@@ -1305,6 +1305,25 @@ end;
 function IsNotBackgroundUpdate(): Boolean;
 begin
   Result := not IsBackgroundUpdate();
+end;
+
+// Helper functions to check architecture at runtime
+function IsX64Arch(): Boolean;
+begin
+  #if "x64" == Arch
+    Result := True;
+  #else
+    Result := False;
+  #endif
+end;
+
+function IsArm64Arch(): Boolean;
+begin
+  #if "arm64" == Arch
+    Result := True;
+  #else
+    Result := False;
+  #endif
 end;
 
 // Check if Visual C++ Redistributables are installed
