@@ -1233,20 +1233,13 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 			});
 
 			// Listen for renderer process crashes (GPU/rendering issues)
+			// Note: This event also fires for GPU-related crashes, so we don't need a separate GPU event listener
 			this._win.webContents.once('render-process-gone', (event, details) => {
 				this.logService.error(`window#load: Renderer process crashed on macOS - Reason: ${details.reason}, Exit Code: ${details.exitCode}`);
 				if (details.reason === 'crashed' || details.reason === 'killed') {
 					this.logService.error('window#load: This may indicate a GPU/rendering issue. Try launching with --disable-gpu flag.');
 				}
 				// Try to show window anyway
-				ensureWindowVisible();
-			});
-
-			// Listen for GPU process crashes (hardware acceleration issues)
-			this._win.webContents.once('gpu-process-crashed', (event, killed) => {
-				this.logService.warn(`window#load: GPU process crashed on macOS - Killed: ${killed}`);
-				this.logService.warn('window#load: This indicates a GPU/hardware acceleration issue. The app may still work with software rendering.');
-				// Window should still be visible, but ensure it is
 				ensureWindowVisible();
 			});
 
