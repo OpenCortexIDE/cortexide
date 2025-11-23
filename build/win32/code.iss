@@ -1304,6 +1304,28 @@ begin
   Result := not IsBackgroundUpdate();
 end;
 
+// Check if Visual C++ Redistributables are installed
+function IsVCRedistInstalled(): Boolean;
+var
+  Version: String;
+begin
+  Result := False;
+  // Check for Visual C++ 2015-2022 Redistributable (x64)
+  #if "x64" == Arch
+    if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version) or
+       RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version) then begin
+      Result := True;
+    end;
+  #endif
+  // Check for Visual C++ 2015-2022 Redistributable (ARM64)
+  #if "arm64" == Arch
+    if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\ARM64', 'Version', Version) or
+       RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\ARM64', 'Version', Version) then begin
+      Result := True;
+    end;
+  #endif
+end;
+
 // Don't allow installing conflicting architectures
 function InitializeSetup(): Boolean;
 var
@@ -1312,6 +1334,17 @@ var
   AltArch: String;
 begin
   Result := True;
+
+  // Check for Visual C++ Redistributables
+  if not IsVCRedistInstalled() and not WizardSilent() then begin
+    if MsgBox('Visual C++ Redistributables are not detected on this system. ' +
+              'CortexIDE requires Visual C++ Redistributables to run properly. ' +
+              'You can download them from: https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10 + #13#10 +
+              'Do you want to continue with the installation anyway?', 
+              mbConfirmation, MB_YESNO) = IDNO then begin
+      Result := False;
+    end;
+  end;
 
   #if "user" == InstallTarget
     if not WizardSilent() and IsAdmin() then begin
