@@ -110,8 +110,8 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; Automatically install Visual C++ Redistributables if not already installed (silent, no user interaction)
 Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.x64.exe'; $out='{tmp}\vc_redist.x64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "x64"); Flags: runhidden waituntilterminated
 Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.arm64.exe'; $out='{tmp}\vc_redist.arm64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "arm64"); Flags: runhidden waituntilterminated
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate()
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent()
 
 [Registry]
 #if "user" == InstallTarget
