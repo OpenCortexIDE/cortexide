@@ -521,15 +521,10 @@
 			'vs/editor/browser/widget/diffEditor/diffEditorWidget.js',
 		];
 
-		// Add React bundle chunk files to import maps (in case they're imported with absolute paths)
-		const reactChunkModules = [
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-RM77YOHK.js',
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-RJP66NWB.js',
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-PT4A2IRQ.js',
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-SWVXQVDT.js',
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-JSBRDJBE.js',
-			'vs/workbench/contrib/cortexide/browser/react/out/chunk-6FX43ENS.js',
-		];
+		// React bundle chunk files don't need to be in import maps because they use relative imports
+		// (e.g., '../chunk-XXX.js'). The import map is only needed for absolute paths.
+		// Chunk names are generated dynamically by tsup, so hardcoding them would cause mismatches.
+		const reactChunkModules: string[] = [];
 
 		const additionalReactDeps = [
 			'vs/editor/browser/services/codeEditorService.js',
