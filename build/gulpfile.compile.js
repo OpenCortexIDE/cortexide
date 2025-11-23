@@ -39,6 +39,30 @@ const buildReactTask = task.define('build-react', () => {
 });
 
 /**
+ * Task to verify React build files exist after compilation
+ */
+const verifyReactBuildTask = task.define('verify-react-build', () => {
+	const fs = require('fs');
+	const path = require('path');
+	const reactOutPath = path.join(__dirname, '../out-build/vs/workbench/contrib/cortexide/browser/react/out');
+	
+	if (!fs.existsSync(reactOutPath)) {
+		throw new Error(`React build output directory does not exist: ${reactOutPath}`);
+	}
+	
+	const files = fs.readdirSync(reactOutPath);
+	const jsFiles = files.filter(f => f.endsWith('.js'));
+	
+	if (jsFiles.length === 0) {
+		throw new Error(`No React build files found in ${reactOutPath}. Expected at least one .js file.`);
+	}
+	
+	// allow-any-unicode-next-line
+	console.log(`✅ Verified ${jsFiles.length} React build files exist in out-build/`);
+	return Promise.resolve();
+});
+
+/**
  * @param {boolean} disableMangle
  */
 function makeCompileBuildTask(disableMangle) {
@@ -47,7 +71,8 @@ function makeCompileBuildTask(disableMangle) {
 		date.writeISODate('out-build'),
 		compilation.compileApiProposalNamesTask,
 		buildReactTask, // Build React components before compiling
-		compilation.compileTask('src', 'out-build', true, { disableMangle })
+		compilation.compileTask('src', 'out-build', true, { disableMangle }),
+		verifyReactBuildTask // Verify React files are preserved after compilation
 	);
 }
 
