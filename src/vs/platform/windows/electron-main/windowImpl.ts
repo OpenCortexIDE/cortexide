@@ -1135,8 +1135,9 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		this._win.loadURL(FileAccess.asBrowserUri(`vs/code/electron-browser/workbench/workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`).toString(true));
 
 		// Fix for macOS blank screen: Ensure window is visible and has valid bounds
+		// This fix runs immediately and also after the page loads to handle timing issues
 		if (isMacintosh && this._win) {
-			// Force window to be shown if it's not visible
+			// Immediate fix: Force window to be shown if it's not visible
 			if (!this._win.isVisible()) {
 				this._win.showInactive();
 			}
@@ -1151,8 +1152,38 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 				this._win.setSize(1024, 768);
 				this._win.center();
 			}
-			// Ensure window is focused to prevent blank screen
-			this._win.focus();
+
+			// Additional fix: Ensure window is visible after page loads (handles async loadURL timing)
+			// Use both 'did-finish-load' and 'dom-ready' events to catch all cases
+			const ensureWindowVisible = () => {
+				if (this._win && !this._win.isDestroyed()) {
+					if (!this._win.isVisible()) {
+						this._win.showInactive();
+					}
+					if (this._win.isMinimized()) {
+						this._win.restore();
+					}
+					// Re-check bounds after page load
+					const currentBounds = this._win.getBounds();
+					if (currentBounds && (currentBounds.width === 0 || currentBounds.height === 0)) {
+						this._win.setSize(1024, 768);
+						this._win.center();
+					}
+					// Ensure window is focused to prevent blank screen
+					this._win.focus();
+				}
+			};
+
+			// Listen for page load events to ensure window is visible
+			this._win.webContents.once('did-finish-load', ensureWindowVisible);
+			this._win.webContents.once('dom-ready', ensureWindowVisible);
+
+			// Also ensure visibility after a short delay as a fallback
+			setTimeout(() => {
+				if (this._win && !this._win.isDestroyed()) {
+					ensureWindowVisible();
+				}
+			}, 100);
 		}
 
 		// Remember that we did load

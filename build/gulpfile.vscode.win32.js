@@ -75,6 +75,17 @@ function buildWin32Setup(arch, target) {
 		const outputPath = setupDir(arch, target);
 		fs.mkdirSync(outputPath, { recursive: true });
 
+		// CRITICAL: Verify executable exists before creating installer
+		const expectedExePath = path.join(sourcePath, `${product.nameShort}.exe`);
+		if (!fs.existsSync(expectedExePath)) {
+			const errorMsg = `ERROR: Executable not found at expected path: ${expectedExePath}\n` +
+				`This will cause "CreateProcess failed; code 2" error during installation.\n` +
+				`Please verify the Windows build completed successfully and the executable was created.`;
+			console.error(errorMsg);
+			return cb(new Error(errorMsg));
+		}
+		console.log(`✓ Executable verified: ${expectedExePath}`);
+
 		const originalProductJsonPath = path.join(sourcePath, 'resources/app/product.json');
 		const productJsonPath = path.join(outputPath, 'product.json');
 		const productJson = JSON.parse(fs.readFileSync(originalProductJsonPath, 'utf8'));
