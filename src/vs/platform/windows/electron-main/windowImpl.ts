@@ -1168,8 +1168,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// Indicate we are navigting now
 		this.readyState = ReadyState.NAVIGATING;
 
+		// Construct and validate workbench URL before loading
+		const workbenchFileName = `workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`;
+		const workbenchUri = FileAccess.asBrowserUri(`vs/code/electron-browser/workbench/${workbenchFileName}`);
+		const workbenchUrl = workbenchUri.toString(true);
+
+		// Log the URL being loaded for diagnostics
+		this.logService.trace(`window#load: Loading workbench from: ${workbenchUrl}`);
+
 		// Load URL
-		this._win.loadURL(FileAccess.asBrowserUri(`vs/code/electron-browser/workbench/workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`).toString(true));
+		this._win.loadURL(workbenchUrl);
 
 		// macOS: Comprehensive fix for blank screen issue
 		// The window is created with show: false to reduce flicker, but on macOS this can cause blank screens
@@ -1179,9 +1187,12 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// 3. Page load events - ensure visibility after content loads
 		// 4. Timeout fallback - last resort
 		// 5. Error handling - detect if workbench.html failed to load
+		// 6. GPU/rendering crash detection
 		if (isMacintosh && this._win) {
 			// Track if window was successfully shown
 			let windowShown = false;
+			// Store workbench info for error diagnostics
+			const workbenchInfo = { fileName: workbenchFileName, url: workbenchUrl };
 
 			// Immediate check: Show window if it's not visible (fallback if ready-to-show hasn't fired)
 			const ensureWindowVisible = () => {
@@ -1215,7 +1226,27 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 			this._win.webContents.once('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
 				this.logService.error(`window#load: Failed to load workbench on macOS - Code: ${errorCode}, Description: ${errorDescription}, URL: ${validatedURL}`);
 				this.logService.error('window#load: This may indicate workbench.html is missing or the file path is incorrect');
+				this.logService.error(`window#load: Expected file: ${workbenchInfo.fileName}`);
+				this.logService.error(`window#load: Constructed URI: ${workbenchInfo.url}`);
 				// Still try to show the window even if load failed
+				ensureWindowVisible();
+			});
+
+			// Listen for renderer process crashes (GPU/rendering issues)
+			this._win.webContents.once('render-process-gone', (event, details) => {
+				this.logService.error(`window#load: Renderer process crashed on macOS - Reason: ${details.reason}, Exit Code: ${details.exitCode}`);
+				if (details.reason === 'crashed' || details.reason === 'killed') {
+					this.logService.error('window#load: This may indicate a GPU/rendering issue. Try launching with --disable-gpu flag.');
+				}
+				// Try to show window anyway
+				ensureWindowVisible();
+			});
+
+			// Listen for GPU process crashes (hardware acceleration issues)
+			this._win.webContents.once('gpu-process-crashed', (event, killed) => {
+				this.logService.warn(`window#load: GPU process crashed on macOS - Killed: ${killed}`);
+				this.logService.warn('window#load: This indicates a GPU/hardware acceleration issue. The app may still work with software rendering.');
+				// Window should still be visible, but ensure it is
 				ensureWindowVisible();
 			});
 
@@ -1243,9 +1274,20 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 					// Final diagnostic check
 					if (!windowShown) {
 						this.logService.error('window#load: CRITICAL - Window was never shown on macOS. This indicates a serious issue.');
+						this.logService.error('window#load: Possible causes:');
+						this.logService.error('window#load: 1. workbench.html file is missing from app bundle');
+						this.logService.error('window#load: 2. File path is incorrect');
+						this.logService.error('window#load: 3. GPU/rendering issue (try --disable-gpu)');
+						this.logService.error('window#load: 4. Content Security Policy blocking rendering');
 					}
 				}
 			}, 500);
+
+			// Additional check: Verify webContents is ready and can render
+			this._win.webContents.once('did-frame-finish-load', () => {
+				this.logService.trace('window#load: Frame finished loading, verifying window state');
+				ensureWindowVisible();
+			});
 		}
 
 		// Remember that we did load
