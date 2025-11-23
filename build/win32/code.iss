@@ -110,7 +110,7 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; File
 ; Automatically install Visual C++ Redistributables if not already installed (silent, no user interaction)
 Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.x64.exe'; $out='{tmp}\vc_redist.x64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "x64"); Flags: runhidden waituntilterminated
 Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.arm64.exe'; $out='{tmp}\vc_redist.arm64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and (Arch = "arm64"); Flags: runhidden waituntilterminated
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate() and ExecutableExists()
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall skipifdoesntexist; Check: ShouldRunAfterUpdate() and ExecutableExists()
 Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall skipifdoesntexist; Check: (not WizardSilent()) and ExecutableExists()
 
 [Registry]
@@ -1465,18 +1465,29 @@ var
   ExePath: String;
 begin
   ExePath := ExpandConstant('{app}\{#ExeBasename}.exe');
+  Log('Checking for executable at: ' + ExePath);
   Result := FileExists(ExePath);
   if not Result then
   begin
     Log('Warning: Executable not found at: ' + ExePath);
-    // Try alternative locations or wait a bit for file system to sync
-    Sleep(100);
+    // Wait a bit for file system to sync after installation
+    Sleep(500);
     Result := FileExists(ExePath);
     if Result then
       Log('Executable found after retry')
     else
-      Log('Executable still not found after retry');
-  end;
+    begin
+      Log('Error: Executable still not found after retry at: ' + ExePath);
+      Log('Install directory contents:');
+      // Log directory contents for debugging
+      if DirExists(ExpandConstant('{app}')) then
+        Log('  {app} directory exists')
+      else
+        Log('  {app} directory does not exist');
+    end;
+  end
+  else
+    Log('Executable verified at: ' + ExePath);
 end;
 
 // Combined check for launching executable after installation
