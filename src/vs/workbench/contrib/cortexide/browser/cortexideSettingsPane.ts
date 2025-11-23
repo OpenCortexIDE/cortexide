@@ -91,8 +91,16 @@ class CortexideSettingsPane extends EditorPane {
 
 		// Mount React into the scrollable content
 		this.instantiationService.invokeFunction(accessor => {
-			const disposeFn = mountVoidSettings(settingsElt, accessor)?.dispose;
-			this._register(toDisposable(() => disposeFn?.()))
+			try {
+				const result = mountVoidSettings(settingsElt, accessor);
+				if (result?.dispose) {
+					this._register(toDisposable(() => result.dispose()));
+				}
+			} catch (error) {
+				console.error('[CortexideSettingsPane] Failed to mount React settings:', error);
+				// Show error message to user instead of blank screen
+				settingsElt.innerHTML = '<div style="padding: 20px; color: var(--vscode-errorForeground);">Failed to load settings. Please check the console for details.</div>';
+			}
 
 			// setTimeout(() => { // this is a complete hack and I don't really understand how scrollbar works here
 			// 	this._scrollbar?.scanDomNode();
