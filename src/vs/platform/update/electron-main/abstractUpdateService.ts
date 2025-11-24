@@ -12,10 +12,14 @@ import { ILifecycleMainService, LifecycleMainPhase } from '../../lifecycle/elect
 import { ILogService } from '../../log/common/log.js';
 import { IProductService } from '../../product/common/productService.js';
 import { IRequestService } from '../../request/common/request.js';
-import { AvailableForDownload, DisablementReason, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
+import { Architecture, AvailableForDownload, DisablementReason, IUpdateService, Platform, State, StateType, Target, UpdateType } from '../common/update.js';
 
-export function createUpdateURL(platform: string, quality: string, productService: IProductService): string {
-	return `${productService.updateUrl}/api/update/${platform}/${quality}/${productService.commit}`;
+export function createUpdateURL(productService: IProductService, quality: string, platform: Platform, architecture: Architecture, target?: Target): string {
+	if (target) {
+		return `${productService.updateUrl}/${quality}/${platform}/${architecture}/${target}/latest.json`;
+	} else {
+		return `${productService.updateUrl}/${quality}/${platform}/${architecture}/latest.json`;
+	}
 }
 
 export type UpdateErrorClassification = {

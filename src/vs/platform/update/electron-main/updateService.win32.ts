@@ -23,7 +23,7 @@ import { INativeHostMainService } from '../../native/electron-main/nativeHostMai
 import { IProductService } from '../../product/common/productService.js';
 import { asJson, IRequestService } from '../../request/common/request.js';
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
-import { AvailableForDownload, DisablementReason, IUpdate, State, StateType, UpdateType } from '../common/update.js';
+import { AvailableForDownload, DisablementReason, IUpdate, State, StateType, Target, UpdateType } from '../common/update.js';
 import { AbstractUpdateService, createUpdateURL, UpdateErrorClassification } from './abstractUpdateService.js';
 
 async function pollUntil(fn: () => boolean, millis = 1000): Promise<void> {
@@ -40,9 +40,13 @@ interface IAvailableUpdate {
 let _updateType: UpdateType | undefined = undefined;
 function getUpdateType(): UpdateType {
 	if (typeof _updateType === 'undefined') {
-		_updateType = fs.existsSync(path.join(path.dirname(process.execPath), 'unins000.exe'))
-			? UpdateType.Setup
-			: UpdateType.Archive;
+		if (fs.existsSync(path.join(path.dirname(process.execPath), 'unins000.exe'))) {
+			_updateType = UpdateType.Setup;
+		} else if (path.basename(path.normalize(path.join(process.execPath, '..', '..'))) === 'Program Files') {
+			_updateType = UpdateType.WindowsInstaller;
+		} else {
+			_updateType = UpdateType.Archive;
+		}
 	}
 
 	return _updateType;
@@ -100,15 +104,24 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 	}
 
 	protected buildUpdateFeedUrl(quality: string): string | undefined {
-		let platform = `win32-${process.arch}`;
+		let target: Target;
 
-		if (getUpdateType() === UpdateType.Archive) {
-			platform += '-archive';
-		} else if (this.productService.target === 'user') {
-			platform += '-user';
+		switch (getUpdateType()) {
+			case UpdateType.Archive:
+				target = "archive";
+				break;
+			case UpdateType.WindowsInstaller:
+				target = "msi";
+				break;
+			default:
+				if (this.productService.target === 'user') {
+					target = "user";
+				} else {
+					target = "system";
+				}
 		}
 
-		return createUpdateURL(platform, quality, this.productService);
+		return createUpdateURL(this.productService, quality, process.platform, process.arch, target);
 	}
 
 	protected doCheckForUpdates(explicit: boolean): void {

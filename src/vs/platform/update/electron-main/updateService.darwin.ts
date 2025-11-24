@@ -76,13 +76,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	}
 
 	protected buildUpdateFeedUrl(quality: string): string | undefined {
-		let assetID: string;
-		if (!this.productService.darwinUniversalAssetId) {
-			assetID = process.arch === 'x64' ? 'darwin' : 'darwin-arm64';
-		} else {
-			assetID = this.productService.darwinUniversalAssetId;
-		}
-		const url = createUpdateURL(assetID, quality, this.productService);
+		const url = createUpdateURL(this.productService, quality, process.platform, process.arch);
 		try {
 			electron.autoUpdater.setFeedURL({ url });
 		} catch (e) {
