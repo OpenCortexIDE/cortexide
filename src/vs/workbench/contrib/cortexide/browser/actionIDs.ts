@@ -28,3 +28,7 @@ export const CORTEXIDE_REJECT_FILE_ACTION_ID = 'cortexide.rejectFile';
 export const CORTEXIDE_ACCEPT_ALL_DIFFS_ACTION_ID = 'cortexide.acceptAllDiffs';
 
 export const CORTEXIDE_REJECT_ALL_DIFFS_ACTION_ID = 'cortexide.rejectAllDiffs';
+
+export const CORTEXIDE_OPEN_SETTINGS_ACTION_ID = 'workbench.action.openCortexideSettings';
+
+export const CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID = 'workbench.action.toggleCortexideSettings';

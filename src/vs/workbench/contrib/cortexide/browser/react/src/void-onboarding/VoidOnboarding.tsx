@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import { useEffect, useState } from 'react';
 import { useAccessor, useIsDark, useSettingsState } from '../util/services.js';
@@ -63,16 +63,60 @@ export const VoidOnboarding = () => {
 	)
 }
 
-const VoidIcon = () => (
-	<div className="w-full max-w-[220px] aspect-square rounded-full border border-white/10 bg-black shadow-[0_45px_120px_rgba(0,0,0,0.95)] overflow-hidden">
-		<img
-			src={HERO_LOGO_URI}
-			alt="CortexIDE logo"
-			className="w-full h-full object-contain opacity-95"
-			draggable={false}
-		/>
-	</div>
-)
+const VoidIcon = () => {
+	const [imageError, setImageError] = useState(false);
+	const [imageSrc, setImageSrc] = useState(() => {
+		try {
+			return FileAccess.asBrowserUri('vs/workbench/browser/media/cortexide-main.png').toString(true);
+		} catch (e) {
+			// Fallback: try without toString(true)
+			try {
+				return FileAccess.asBrowserUri('vs/workbench/browser/media/cortexide-main.png').toString();
+			} catch (e2) {
+				return '';
+			}
+		}
+	});
+	const [retryCount, setRetryCount] = useState(0);
+
+	const handleImageError = () => {
+		if (retryCount === 0) {
+			// First retry: try without toString(true)
+			setRetryCount(1);
+			try {
+				const altUri = FileAccess.asBrowserUri('vs/workbench/browser/media/cortexide-main.png').toString();
+				setImageSrc(altUri);
+			} catch (e) {
+				setImageError(true);
+			}
+		} else {
+			// Second failure: show placeholder
+			setImageError(true);
+		}
+	};
+
+	return (
+		<div className="w-full max-w-[220px] aspect-square rounded-full border border-white/10 bg-black shadow-[0_45px_120px_rgba(0,0,0,0.95)] overflow-hidden flex items-center justify-center">
+			{imageError || !imageSrc ? (
+				<div className="w-full h-full flex items-center justify-center">
+					<div className="text-white/40 text-4xl font-light">C</div>
+				</div>
+			) : (
+				<img
+					src={imageSrc}
+					alt="CortexIDE logo"
+					className="w-full h-full object-contain opacity-95"
+					draggable={false}
+					onError={handleImageError}
+					onLoad={() => {
+						setImageError(false);
+					}}
+					loading="eager"
+				/>
+			)}
+		</div>
+	);
+}
 
 const FADE_DURATION_MS = 2000
 
@@ -418,6 +462,7 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 						<div>
 							<h1 className="text-5xl font-light text-void-fg-0">Build with the editor AI actually ships in</h1>
 							<p className="text-base text-void-fg-2 mt-3 max-w-xl mx-auto lg:mx-0">
+								{/* allow-any-unicode-next-line */}
 								CortexIDE keeps Chat, Quick Edit, Fast Apply, and source control in the same dark workspace—and it adds native PDF + image uploads so product specs and design mocks travel with every conversation.
 							</p>
 						</div>
@@ -429,8 +474,27 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 							))}
 						</div>
 						<div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-							<PrimaryActionButton ringSize='xl' onClick={onNext}>Start guided setup</PrimaryActionButton>
-							<SecondaryActionButton onClick={onSkip}>Skip for now</SecondaryActionButton>
+							<PrimaryActionButton
+								ringSize='xl'
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									onNext();
+								}}
+								className="cursor-pointer active:scale-[0.98]"
+							>
+								Start guided setup
+							</PrimaryActionButton>
+							<SecondaryActionButton
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									onSkip();
+								}}
+								className="cursor-pointer active:scale-[0.98]"
+							>
+								Skip for now
+							</SecondaryActionButton>
 						</div>
 					</div>
 					<div className="flex-1 w-full flex flex-col items-center gap-6">
@@ -525,16 +589,13 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 				hover:shadow-[0_45px_100px_rgba(0,0,0,0.7)] hover:translate-y-[-1px]
 				focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-white/20
 				focus-visible:ring-offset-[#050612]
-				transition-all duration-300 group
+				transition-all duration-300
 				${sizingClass}
 				${className}
 			`}
 			{...props}
 		>
 			{children}
-			<ChevronRight
-				className="transition-transform duration-300 ease-in-out group-hover:translate-x-1 group-active:translate-x-1"
-			/>
 		</button>
 	)
 }
@@ -637,14 +698,28 @@ const VoidOnboardingContent = () => {
 			<PreviousButton
 				onClick={() => { setPageIndex(pageIndex - 1) }}
 			/>
-			<SecondaryActionButton onClick={() => skipOnboarding('final-step-skip')}>Skip for now</SecondaryActionButton>
+			<SecondaryActionButton
+				onClick={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					skipOnboarding('final-step-skip');
+				}}
+				className="cursor-pointer active:scale-[0.98]"
+			>
+				Skip for now
+			</SecondaryActionButton>
 			<PrimaryActionButton
-				onClick={() => {
+				onClick={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
 					cortexideSettingsService.setGlobalSetting('isOnboardingComplete', true);
 					voidMetricsService.capture('Completed Onboarding', { selectedProviderName, wantToUseOption })
 				}}
 				ringSize={voidSettingsState.globalSettings.isOnboardingComplete ? 'screen' : undefined}
-			>Start with CortexIDE</PrimaryActionButton>
+				className="cursor-pointer active:scale-[0.98]"
+			>
+				Start with CortexIDE
+			</PrimaryActionButton>
 		</div>
 	</div>
 
@@ -660,7 +735,7 @@ const VoidOnboardingContent = () => {
 	// can be md
 	const detailedDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
 		smart: "Most intelligent and best for agent mode.",
-		private: "Private-hosted so your data never leaves your computer or network. [Email us](mailto:founders@voideditor.com) for help setting up at your company.",
+		private: "Private-hosted so your data never leaves your computer or network. [Contact us](https://github.com/opencortexide/cortexide/issues/new) for help setting up at your company.",
 		cheap: "Use great deals like Gemini 2.5 Pro, or self-host a model with Ollama or vLLM for free.",
 		all: "",
 	}

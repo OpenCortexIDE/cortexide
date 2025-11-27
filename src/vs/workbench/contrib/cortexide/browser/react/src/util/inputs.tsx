@@ -23,8 +23,8 @@ import { StagingSelectionItem } from '../../../../common/chatThreadServiceTypes.
 import { DiffEditorWidget } from '../../../../../../../editor/browser/widget/diffEditor/diffEditorWidget.js';
 import { extractSearchReplaceBlocks, ExtractedSearchReplaceBlock } from '../../../../common/helpers/extractCodeFromResult.js';
 import { IAccessibilitySignalService } from '../../../../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
-import { IEditorProgressService } from '../../../../../../../platform/progress/common/progress.js';
 import { detectLanguage } from '../../../../common/helpers/languageHelpers.js';
+import { IInstantiationService } from '../../../../../../../platform/instantiation/common/instantiation.js';
 
 
 // type guard
@@ -1960,11 +1960,192 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 	// Imperatively mount the DiffEditorWidget
 	const divRef = useRef<HTMLDivElement | null>(null);
 	const editorRef = useRef<any>(null);
+	/**
+	 * Store the child instantiation service in a ref to prevent it from being disposed
+	 * prematurely. The child service must outlive the editor instance and be properly
+	 * disposed when the component unmounts.
+	 */
+	const childInstantiationServiceRef = useRef<IInstantiationService | null>(null);
 
 	useEffect(() => {
 		if (!divRef.current) return;
-		// Create the diff editor instance
-		const editor = instantiationService.createInstance(
+
+		/**
+		 * WORKAROUND: DiffEditorWidget requires IEditorProgressService, but it's not registered
+		 * in the workbench service collection. We create a no-op implementation and provide it
+		 * via a child instantiation service.
+		 *
+		 * IMPORTANT DISPOSAL LIFECYCLE:
+		 * - Child instantiation services are disposable and must be properly managed
+		 * - The child service is stored in a ref to persist across React re-renders
+		 * - We check if the parent service is disposed before creating a child
+		 * - The child service is disposed in the cleanup function when the component unmounts
+		 * - If the parent is disposed, we cannot create a child (this prevents the error)
+		 *
+		 * This avoids import issues with the bundler by accessing services dynamically rather
+		 * than importing them directly.
+		 */
+
+		// Check if the parent instantiation service is disposed before proceeding
+		if ((instantiationService as any)._isDisposed) {
+			console.warn('Cannot create diff editor: parent InstantiationService has been disposed');
+			return;
+		}
+
+		// Create a no-op implementation of IEditorProgressService
+		// This service is used by DiffEditorWidget to show progress indicators, but since
+		// we're using it in a simple read-only diff view, we don't need actual progress reporting
+		const emptyProgressRunner = Object.freeze({
+			total() { },
+			worked() { },
+			done() { }
+		});
+
+		const noOpEditorProgressService = {
+			_serviceBrand: undefined,
+			show(infiniteOrTotal: true | number, delay?: number): any {
+				return emptyProgressRunner;
+			},
+			async showWhile(promise: Promise<unknown>, delay?: number): Promise<void> {
+				await promise;
+			}
+		};
+
+		/**
+		 * Get the IEditorProgressService identifier from DiffEditorWidget's dependency metadata.
+		 * This is the most reliable way to get the exact service identifier that the widget expects,
+		 * since service identifiers are matched by object identity, not by string.
+		 *
+		 * Service dependencies are stored in the class's DI_DEPENDENCIES metadata when using
+		 * dependency injection decorators.
+		 */
+		const instantiationUtil = (instantiationService as any)._util;
+		let editorProgressServiceId: any;
+
+		// Method 1: Extract from DiffEditorWidget's dependency metadata (MOST RELIABLE)
+		// This gives us the exact service identifier object that the widget expects
+		// Service identifiers are matched by object identity, so we need the exact object
+		const DI_DEPENDENCIES = '$di$dependencies';
+		const diffEditorDeps = (DiffEditorWidget as any)[DI_DEPENDENCIES];
+		if (diffEditorDeps && Array.isArray(diffEditorDeps)) {
+			// Find the dependency that matches IEditorProgressService
+			// Based on constructor: IEditorProgressService is the 5th parameter (index 4)
+			for (const dep of diffEditorDeps) {
+				const depId = dep.id;
+				if (typeof depId === 'function') {
+					const idStr = String(depId);
+					// Check if this is the IEditorProgressService identifier
+					// The toString() method of service identifiers returns the serviceId string
+					if (idStr === 'editorProgressService') {
+						editorProgressServiceId = depId;
+						break;
+					}
+				}
+			}
+		}
+
+		// Also try using getServiceDependencies if available
+		if (!editorProgressServiceId && instantiationUtil?.getServiceDependencies) {
+			const deps = instantiationUtil.getServiceDependencies(DiffEditorWidget);
+			if (deps) {
+				for (const dep of deps) {
+					const depId = dep.id;
+					if (typeof depId === 'function' && String(depId) === 'editorProgressService') {
+						editorProgressServiceId = depId;
+						break;
+					}
+				}
+			}
+		}
+
+		// Method 2: Get from serviceIds map (if the service was already registered)
+		if (!editorProgressServiceId && instantiationUtil?.serviceIds) {
+			editorProgressServiceId = instantiationUtil.serviceIds.get('editorProgressService');
+		}
+
+		// Method 3: Search through the instantiation service's service collection
+		if (!editorProgressServiceId) {
+			const serviceCollection = (instantiationService as any)._services || (instantiationService as any)._serviceCollection;
+			if (serviceCollection?._entries) {
+				for (const [id] of serviceCollection._entries.entries()) {
+					if (typeof id === 'function' && String(id).includes('editorProgressService')) {
+						editorProgressServiceId = id;
+						break;
+					}
+				}
+			}
+		}
+
+		// Method 4: Create a service identifier that matches createDecorator's structure
+		// This is a last resort and may not work if the service identifier object identity doesn't match
+		if (!editorProgressServiceId) {
+			// Create a function that matches the ServiceIdentifier interface
+			// This must match the exact structure created by createDecorator()
+			const createServiceId = function (target: Function, key: string, index: number) {
+				// This is the decorator function signature - matches createDecorator's output
+			} as any;
+			createServiceId.toString = () => 'editorProgressService';
+			createServiceId.type = undefined;
+
+			// Register it in the serviceIds map
+			if (instantiationUtil?.serviceIds) {
+				instantiationUtil.serviceIds.set('editorProgressService', createServiceId);
+			}
+
+			editorProgressServiceId = createServiceId;
+			console.warn('Created fallback IEditorProgressService identifier. The diff editor may not work correctly if service identity doesn\'t match.');
+		}
+
+		/**
+		 * Get ServiceCollection class from the instantiation service.
+		 * ServiceCollection is used to create a child service collection that includes
+		 * our no-op IEditorProgressService implementation.
+		 */
+		const ServiceCollectionClass = (instantiationService as any).constructor?.ServiceCollection ||
+			((instantiationService as any)._serviceCollection?.constructor);
+
+		// Create a child service collection with our no-op service
+		let childServiceCollection: any;
+		if (ServiceCollectionClass) {
+			// Use the real ServiceCollection class if available
+			childServiceCollection = new ServiceCollectionClass();
+		} else {
+			// Fallback: create a minimal ServiceCollection-like object
+			// ServiceCollection uses a private _entries Map internally
+			childServiceCollection = {
+				_entries: new Map(),
+				set(id: any, service: any) {
+					this._entries.set(id, service);
+				},
+				get(id: any) {
+					return this._entries.get(id);
+				},
+				has(id: any) {
+					return this._entries.has(id);
+				}
+			};
+		}
+
+		// Register our no-op service in the child collection
+		childServiceCollection.set(editorProgressServiceId, noOpEditorProgressService);
+
+		/**
+		 * Create a child instantiation service that includes our service.
+		 * This child service inherits all parent services and adds/overwrites with our collection.
+		 *
+		 * IMPORTANT: Store it in a ref so it persists across React re-renders and can be
+		 * properly disposed when the component unmounts. Child services are disposable and
+		 * must be managed carefully to avoid "has been disposed" errors.
+		 */
+		const childInstantiationService = instantiationService.createChild(childServiceCollection);
+		childInstantiationServiceRef.current = childInstantiationService;
+
+		/**
+		 * Create the DiffEditorWidget instance using the child instantiation service.
+		 * The child service includes our no-op IEditorProgressService, which satisfies
+		 * the widget's dependency injection requirements.
+		 */
+		const editor = childInstantiationService.createInstance(
 			DiffEditorWidget,
 			divRef.current,
 			{
@@ -1998,7 +2179,11 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 		);
 		editor.setModel({ original: originalModel, modified: modifiedModel });
 
-		// Calculate the height based on content
+		/**
+		 * Calculate and update the editor height based on content.
+		 * Uses approximate line height (19px) to estimate total height needed.
+		 * Clamps height between 100px and 300px for reasonable display.
+		 */
 		const updateHeight = () => {
 			const contentHeight = Math.max(
 				originalModel.getLineCount() * 19, // approximate line height
@@ -2013,18 +2198,52 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 			}
 		};
 
+		// Initial height calculation
 		updateHeight();
 		editorRef.current = editor;
 
-		// Update height when content changes
+		/**
+		 * Listen for content changes in both models to update the editor height.
+		 * This ensures the diff editor resizes when the content changes.
+		 */
 		const disposable1 = originalModel.onDidChangeContent(() => updateHeight());
 		const disposable2 = modifiedModel.onDidChangeContent(() => updateHeight());
 
+		// Store disposables for cleanup
+		(editorRef.current as any).__disposables = [disposable1, disposable2];
+
+		/**
+		 * Cleanup function: dispose of the editor, child instantiation service, and all disposables.
+		 * This is called when the component unmounts or when dependencies change.
+		 *
+		 * DISPOSAL ORDER:
+		 * 1. Dispose editor disposables (model listeners, etc.)
+		 * 2. Dispose the editor itself
+		 * 3. Dispose the child instantiation service (this will dispose all services it created)
+		 *
+		 * The child instantiation service must be disposed to prevent memory leaks and
+		 * to avoid "has been disposed" errors if the component is recreated.
+		 */
 		return () => {
-			disposable1.dispose();
-			disposable2.dispose();
-			editor.dispose();
+			if (editorRef.current) {
+				const disposables = (editorRef.current as any).__disposables;
+				if (disposables) {
+					disposables.forEach((d: any) => d.dispose());
+				}
+				editorRef.current.dispose();
 			editorRef.current = null;
+			}
+
+			// Dispose the child instantiation service
+			if (childInstantiationServiceRef.current) {
+				try {
+					childInstantiationServiceRef.current.dispose();
+				} catch (e) {
+					// Ignore errors if already disposed
+					console.warn('Error disposing child instantiation service:', e);
+				}
+				childInstantiationServiceRef.current = null;
+			}
 		};
 	}, [originalModel, modifiedModel, instantiationService]);
 

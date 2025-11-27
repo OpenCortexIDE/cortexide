@@ -1,14 +1,14 @@
 {
 	"nameShort": "CortexIDE",
 	"nameLong": "CortexIDE",
-	"cortexVersion": "0.0.1",
-	"cortexRelease": "0001",
+	"cortexVersion": "0.0.2",
+	"cortexRelease": "0002",
 	"applicationName": "cortexide",
 	"dataFolderName": ".cortexide",
 	"win32MutexName": "cortexide",
 	"licenseName": "MIT",
-	"licenseUrl": "https://github.com/cortexide/cortexide/blob/main/LICENSE.txt",
-	"serverLicenseUrl": "https://github.com/cortexide/cortexide/blob/main/LICENSE.txt",
+	"licenseUrl": "https://github.com/opencortexide/cortexide/blob/main/LICENSE.txt",
+	"serverLicenseUrl": "https://github.com/opencortexide/cortexide/blob/main/LICENSE.txt",
 	"serverGreeting": [],
 	"serverLicense": [],
 	"serverLicensePrompt": "",
@@ -29,7 +29,8 @@
 	"darwinBundleIdentifier": "com.cortexide.code",
 	"linuxIconName": "cortexide",
 	"licenseFileName": "LICENSE.txt",
-	"reportIssueUrl": "https://github.com/cortexide/cortexide/issues/new",
+	"reportIssueUrl": "https://github.com/opencortexide/cortexide/issues/new",
+	"releaseNotesUrl": "https://github.com/opencortexide/cortexide/releases",
 	"nodejsRepository": "https://nodejs.org",
 	"urlProtocol": "cortexide",
 	"extensionsGallery": {
@@ -39,7 +40,7 @@
 	"builtInExtensions": [],
 	"linkProtectionTrustedDomains": [
 		"https://opencortexide.com",
-		"https://github.com/cortexide/cortexide",
+		"https://github.com/opencortexide/cortexide",
 		"https://ollama.com"
 	]
 	,

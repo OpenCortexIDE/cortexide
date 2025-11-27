@@ -107,8 +107,11 @@ Name: "{autodesktop}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: 
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: quicklaunchicon; AppUserModelID: "{#AppUserId}"
 
 [Run]
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall; Check: ShouldRunAfterUpdate
-Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall; Check: WizardNotSilent
+; Automatically install Visual C++ Redistributables if not already installed (silent, no user interaction)
+Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.x64.exe'; $out='{tmp}\vc_redist.x64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and IsX64Arch(); Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$url='https://aka.ms/vs/17/release/vc_redist.arm64.exe'; $out='{tmp}\vc_redist.arm64.exe'; if (-not (Test-Path $out)) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing }; Start-Process -FilePath $out -ArgumentList '/install','/quiet','/norestart' -Wait -NoNewWindow"""; StatusMsg: "Installing Visual C++ Redistributables..."; Check: not IsVCRedistInstalled() and IsArm64Arch(); Flags: runhidden waituntilterminated
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Tasks: runcode; Flags: nowait postinstall skipifdoesntexist; Check: ShouldRunAfterUpdate() and ExecutableExists()
+Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong}}"; Flags: nowait postinstall skipifdoesntexist; Check: (not WizardSilent()) and ExecutableExists()
 
 [Registry]
 #if "user" == InstallTarget
@@ -1304,6 +1307,48 @@ begin
   Result := not IsBackgroundUpdate();
 end;
 
+// Helper functions to check architecture at runtime
+function IsX64Arch(): Boolean;
+begin
+  #if "x64" == Arch
+    Result := True;
+  #else
+    Result := False;
+  #endif
+end;
+
+function IsArm64Arch(): Boolean;
+begin
+  #if "arm64" == Arch
+    Result := True;
+  #else
+    Result := False;
+  #endif
+end;
+
+// Check if Visual C++ Redistributables are installed
+function IsVCRedistInstalled(): Boolean;
+var
+  Version: String;
+begin
+  Result := False;
+  // Check for Visual C++ 2015-2022 Redistributable (x64)
+  #if "x64" == Arch
+    if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version) or
+       RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version) then begin
+      Result := True;
+    end;
+  #endif
+  // Check for Visual C++ 2015-2022 Redistributable (ARM64)
+  #if "arm64" == Arch
+    if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\ARM64', 'Version', Version) or
+       RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\ARM64', 'Version', Version) then begin
+      Result := True;
+    end;
+  #endif
+end;
+
+
 // Don't allow installing conflicting architectures
 function InitializeSetup(): Boolean;
 var
@@ -1432,6 +1477,44 @@ begin
     Result := True;
 end;
 
+// Verify that the executable file exists before trying to launch it
+// This prevents "CreateProcess failed; code 2" errors
+function ExecutableExists(): Boolean;
+var
+  ExePath: String;
+begin
+  ExePath := ExpandConstant('{app}\{#ExeBasename}.exe');
+  Log('Checking for executable at: ' + ExePath);
+  Result := FileExists(ExePath);
+  if not Result then
+  begin
+    Log('Warning: Executable not found at: ' + ExePath);
+    // Wait a bit for file system to sync after installation
+    Sleep(500);
+    Result := FileExists(ExePath);
+    if Result then
+      Log('Executable found after retry')
+    else
+    begin
+      Log('Error: Executable still not found after retry at: ' + ExePath);
+      Log('Install directory contents:');
+      // Log directory contents for debugging
+      if DirExists(ExpandConstant('{app}')) then
+        Log('  {app} directory exists')
+      else
+        Log('  {app} directory does not exist');
+    end;
+  end
+  else
+    Log('Executable verified at: ' + ExePath);
+end;
+
+// Combined check for launching executable after installation
+function ShouldLaunchAfterInstall(): Boolean;
+begin
+  Result := (not WizardSilent()) and ExecutableExists();
+end;
+
 function IsWindows11OrLater(): Boolean;
 begin
   Result := (GetWindowsVersion >= $0A0055F0);
@@ -1530,9 +1613,27 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   UpdateResultCode: Integer;
 	StartServiceResultCode: Integer;
+  ExePath: String;
 begin
   if CurStep = ssPostInstall then
   begin
+    // Verify executable exists after installation
+    ExePath := ExpandConstant('{app}\{#ExeBasename}.exe');
+    if not FileExists(ExePath) then
+    begin
+      Log('ERROR: Executable not found after installation at: ' + ExePath);
+      Log('This will cause "CreateProcess failed; code 2" error when trying to launch.');
+      // Try to find the actual executable name
+      // This is a fallback in case the executable has a different name
+      if FileExists(ExpandConstant('{app}\{#ApplicationName}.exe')) then
+        Log('Found alternative executable: {#ApplicationName}.exe')
+      else
+        Log('No alternative executable found either.');
+    end
+    else
+    begin
+      Log('Executable verified at: ' + ExePath);
+    end;
 #ifdef AppxPackageName
     // Remove the old context menu registry keys for insiders
     if QualityIsInsiders() and WizardIsTaskSelected('addcontextmenufiles') then begin

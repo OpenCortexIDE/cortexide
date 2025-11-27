@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } from './cortexideSettingsTypes.js';
 
@@ -66,89 +66,181 @@ export const defaultProviderSettings = {
 		endpoint: '', // optionally allow overriding default
 	},
 
-} as const
+} as const;
 
 
 
 
 export const defaultModelsOfProvider = {
 	openAI: [ // https://platform.openai.com/docs/models/gp
-		'gpt-5',
-		'gpt-5-mini',
-		'gpt-4.1',
+		// Latest models (Nov 2025)
+		'gpt-5.1-thinking', // Released Nov 12, 2025 - flagship with enhanced reasoning
+		'gpt-5.1-instant', // Released Nov 12, 2025 - fast responses
+		'gpt-5.1-codex', // Released Nov 12, 2025 - advanced coding model
+		'gpt-5.1-codex-mini', // Released Nov 12, 2025 - lightweight coding model
+		'gpt-5-pro', // Premium model with enhanced reasoning
+		// GPT-5 series (Aug 2025)
+		'gpt-5', // Released Aug 7, 2025 - flagship multimodal model
+		'gpt-5-mini', // Fast variant of GPT-5
+		// GPT-4.1 series (Apr 2025)
+		'gpt-4.1', // Enhanced coding, reasoning, multimodal
 		'gpt-4.1-mini',
 		'gpt-4.1-nano',
-		'o3',
-		'o4-mini',
-		// 'o1',
-		// 'o1-mini',
-		// 'gpt-4o',
-		// 'gpt-4o-mini',
+		// Reasoning models
+		'o3', // Advanced reasoning model
+		'o4-mini', // Fast reasoning model
+		// Legacy models (deprecated)
+		// 'o1', // Deprecated
+		// 'o1-mini', // Deprecated
+		// 'gpt-4o', // Deprecated - use GPT-5 or GPT-4.1
+		// 'gpt-4o-mini', // Deprecated
 	],
 	anthropic: [ // https://docs.anthropic.com/en/docs/about-claude/models
-		'claude-opus-4-0',
-		'claude-sonnet-4-0',
-		'claude-3-7-sonnet-latest',
-		'claude-3-5-sonnet-latest',
-		'claude-3-5-haiku-latest',
-		'claude-3-opus-latest',
+		// Claude 4.5 series (Oct 2025)
+		'claude-sonnet-4.5', // Released Oct 14, 2025 - optimized for coding and agents
+		'claude-haiku-4.5', // Released Oct 15, 2025 - low latency, cost-efficient
+		// Claude 4.1 series (May-Aug 2025)
+		'claude-opus-4.1', // Released Aug 5, 2025 - enhanced coding and reasoning
+		'claude-opus-4.0', // Released May 2025
+		'claude-sonnet-4.0', // Released May 2025
+		// Claude 3.7 series
+		'claude-3-7-sonnet-latest', // Latest 3.7 sonnet
+		// Claude 3.5 series
+		'claude-3-5-sonnet-latest', // Latest 3.5 sonnet
+		'claude-3-5-haiku-latest', // Latest 3.5 haiku
+		// Legacy Claude 3
+		'claude-3-opus-latest', // Latest 3.0 opus
 	],
 	xAI: [ // https://docs.x.ai/docs/models?cluster=us-east-1
-		'grok-2',
+		// Latest models (Nov 2025)
+		'grok-4', // Flagship model - high performance in math, reasoning, NLP
+		'grok-4-fast', // Cost-efficient for quick responses
+		'grok-4-fast-reasoning', // Cost-efficient reasoning model
+		'grok-4-heavy', // Real-time data processing and speed
+		// Grok 3 series
 		'grok-3',
 		'grok-3-mini',
 		'grok-3-fast',
-		'grok-3-mini-fast'
+		'grok-3-mini-fast',
+		// Legacy
+		'grok-2', // Older version
 	],
 	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
-		'gemini-2.5-pro-exp-03-25',
-		'gemini-2.5-flash-preview-04-17',
-		'gemini-2.0-flash',
-		'gemini-2.0-flash-lite',
+		// Gemini 2.5 series (generally available) - prefer these until 3.0 is confirmed available
+		'gemini-2.5-pro', // Generally available - strong reasoning, coding, math
+		'gemini-2.5-flash', // Generally available - balanced performance
+		'gemini-2.5-flash-lite', // Generally available - fastest and most cost-efficient
+		// Latest models (Nov 2025) - may not be available in all regions/API versions yet
+		'gemini-3.0-pro', // Released Nov 18, 2025 - most advanced model (auto-fallback to 2.5-pro if unavailable)
+		'gemini-3.0-deep-think', // Released Nov 18, 2025 - complex reasoning (auto-fallback to 2.5-pro if unavailable)
+		// Preview/experimental models (may be less stable)
 		'gemini-2.5-pro-preview-05-06',
+		'gemini-2.5-flash-preview-04-17',
+		// Deprecated models (scheduled for deprecation Feb 2026)
+		// 'gemini-2.0-flash', // Deprecated - use 2.5 or 3.0 models instead
+		'gemini-2.0-flash-lite', // Still available but consider migrating to 2.5-flash-lite
 	],
 	deepseek: [ // https://api-docs.deepseek.com/quick_start/pricing
-		'deepseek-chat',
-		'deepseek-reasoner',
+		// Latest models (Nov 2025)
+		'deepseek-r1', // Cost-efficient reasoning model - top performer
+		'deepseek-r1-zero', // Free variant of R1
+		'deepseek-v3.1', // Latest general model
+		// Standard models
+		'deepseek-chat', // General-purpose conversations, coding, summarization
+		'deepseek-reasoner', // Complex step-by-step logical reasoning
 	],
-	ollama: [ // autodetected
+	ollama: [ // autodetected - common models listed for reference
+		// Latest models (2025) - these are autodetected but listed for documentation
+		// Coding models
+		// 'qwen2.5-coder:32b', // Strong coding capabilities
+		// 'qwen2.5-coder:7b', // Lightweight coding model
+		// 'deepseek-r1:32b', // Reasoning and coding
+		// 'deepseek-r1:1.5b', // Lightweight reasoning
+		// 'codestral:latest', // Mistral's coding model
+		// 'devstral:latest', // Mistral's development model
+		// General models
+		// 'llama3.3:70b', // Latest Llama model
+		// 'llama3.1:70b', // Strong general purpose
+		// 'llama3.1:8b', // Fast and efficient
+		// 'mistral-large:latest', // High performance
+		// 'mistral-medium:latest', // Balanced performance
+		// 'qwen2.5:72b', // Multilingual model
+		// Vision models
+		// 'llava:latest', // Vision-language model
+		// 'bakllava:latest', // Alternative vision model
 	],
-	vLLM: [ // autodetected
+	vLLM: [ // autodetected - common models listed for reference
+		// Latest models (2025) - these are autodetected but listed for documentation
+		// 'meta-llama/Llama-3.3-70B-Instruct',
+		// 'meta-llama/Llama-3.1-70B-Instruct',
+		// 'meta-llama/Llama-3.1-8B-Instruct',
+		// 'Qwen/Qwen2.5-72B-Instruct',
+		// 'Qwen/Qwen2.5-Coder-32B-Instruct',
+		// 'mistralai/Mistral-Large-2407',
+		// 'mistralai/Codestral-2407',
+		// 'deepseek-ai/DeepSeek-R1',
 	],
-	lmStudio: [], // autodetected
+	lmStudio: [], // autodetected - supports same models as vLLM
 
 	openRouter: [ // https://openrouter.ai/models
-		// 'anthropic/claude-3.7-sonnet:thinking',
+		// Latest models (Nov 2025)
+		'anthropic/claude-sonnet-4.5', // Latest Claude - optimized for coding
+		'anthropic/claude-opus-4.1', // Enhanced reasoning
+		'anthropic/claude-haiku-4.5', // Fast and cost-efficient
+		'google/gemini-3.0-pro', // Latest Gemini
+		'google/gemini-3.0-deep-think', // Complex reasoning
+		'qwen/qwen3-max', // Latest Qwen - outperforms many models
+		'qwen/qwen3-next', // Advanced Qwen variant
+		'qwen/qwen3-235b-a22b', // Large Qwen model
+		'deepseek/deepseek-r1', // Top-performing reasoning model
+		'deepseek/deepseek-r1-zero:free', // Free reasoning model
+		'deepseek/deepseek-v3.1', // Latest DeepSeek general model
+		// Claude 4.0 series
 		'anthropic/claude-opus-4',
 		'anthropic/claude-sonnet-4',
-		'qwen/qwen3-235b-a22b',
+		// Claude 3.7 series
 		'anthropic/claude-3.7-sonnet',
+		// 'anthropic/claude-3.7-sonnet:thinking', // Thinking variant
+		// Claude 3.5 series
 		'anthropic/claude-3.5-sonnet',
-		'deepseek/deepseek-r1',
-		'deepseek/deepseek-r1-zero:free',
-		'mistralai/devstral-small:free'
-		// 'openrouter/quasar-alpha',
-		// 'google/gemini-2.5-pro-preview-03-25',
-		// 'mistralai/codestral-2501',
-		// 'qwen/qwen-2.5-coder-32b-instruct',
-		// 'mistralai/mistral-small-3.1-24b-instruct:free',
-		// 'google/gemini-2.0-flash-lite-preview-02-05:free',
-		// 'google/gemini-2.0-pro-exp-02-05:free',
-		// 'google/gemini-2.0-flash-exp:free',
+		// Mistral models
+		'mistralai/devstral-small:free', // Free coding model
+		'mistralai/mistral-large-2407', // Latest Mistral Large
+		'mistralai/mistral-medium-3', // Latest Mistral Medium
+		'mistralai/codestral-2407', // Latest Codestral
+		// 'mistralai/mistral-small-3.1-24b-instruct:free', // Free small model
+		// Google models
+		'google/gemini-2.5-pro', // Generally available
+		'google/gemini-2.5-flash', // Fast variant
+		// 'google/gemini-2.5-pro-preview-03-25', // Preview
+		// 'google/gemini-2.0-flash-lite-preview-02-05:free', // Free preview
+		// 'google/gemini-2.0-pro-exp-02-05:free', // Experimental
+		// 'google/gemini-2.0-flash-exp:free', // Experimental
+		// Other models
+		// 'openrouter/quasar-alpha', // Experimental
 	],
 	groq: [ // https://console.groq.com/docs/models
-		'qwen-qwq-32b',
-		'llama-3.3-70b-versatile',
-		'llama-3.1-8b-instant',
-		// 'qwen-2.5-coder-32b', // preview mode (experimental)
+		// Latest models (2025)
+		'llama-3.3-70b-versatile', // Latest Llama 3.3 - versatile capabilities
+		'llama-3.1-70b-versatile', // Large Llama 3.1
+		'llama-3.1-8b-instant', // Fast Llama 3.1
+		'qwen-qwq-32b', // Qwen model optimized for Groq
+		'qwen-2.5-coder-32b', // Coding model (now generally available)
+		'qwen-2.5-72b-instruct', // Large Qwen model
+		'mistral-large-2407', // Latest Mistral Large
+		'mixtral-8x7b-32768', // Mixtral model
 	],
 	mistral: [ // https://docs.mistral.ai/getting-started/models/models_overview/
-		'codestral-latest',
-		'devstral-small-latest',
-		'mistral-large-latest',
-		'mistral-medium-latest',
-		'ministral-3b-latest',
-		'ministral-8b-latest',
+		// Latest models (2025)
+		'mistral-medium-3', // Released 2025 - performs at 90%+ of Claude Sonnet 3.7
+		'mistral-large-latest', // Latest large model
+		'mistral-medium-latest', // Latest medium model
+		// Coding models
+		'codestral-latest', // AI-powered software development
+		'devstral-small-latest', // Small development model
+		// Small models
+		'ministral-3b-latest', // 3B parameter model
+		'ministral-8b-latest', // 8B parameter model
 	],
 	openAICompatible: [], // fallback
 	googleVertex: [],
@@ -157,7 +249,7 @@ export const defaultModelsOfProvider = {
 	liteLLM: [],
 
 
-} as const satisfies Record<ProviderName, string[]>
+} as const satisfies Record<ProviderName, string[]>;
 
 
 
@@ -169,10 +261,10 @@ export type CortexideStaticModelInfo = { // not stateful
 	reservedOutputTokenSpace: number | null; // reserve this much space in the context window for output, defaults to 4096 if null
 
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated'; // typically you should use 'system-role'. 'separated' means the system message is passed as a separate field (e.g. anthropic)
-	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style', // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style'; // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 
-	additionalOpenAIPayload?: { [key: string]: string } // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
+	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
 
 	// reasoning options
 	reasoningCapabilities: false | {
@@ -183,7 +275,7 @@ export type CortexideStaticModelInfo = { // not stateful
 		readonly reasoningSlider?:
 		| undefined
 		| { type: 'budget_slider'; min: number; max: number; default: number } // anthropic supports this (reasoning budget)
-		| { type: 'effort_slider'; values: string[]; default: string } // openai-compatible supports this (reasoning effort)
+		| { type: 'effort_slider'; values: string[]; default: string }; // openai-compatible supports this (reasoning effort)
 
 		// if it's open source and specifically outputs think tags, put the think tags here and we'll parse them out (e.g. ollama)
 		readonly openSourceThinkTags?: [string, string];
@@ -198,11 +290,11 @@ export type CortexideStaticModelInfo = { // not stateful
 		output: number;
 		cache_read?: number;
 		cache_write?: number;
-	}
+	};
 	downloadable: false | {
-		sizeGb: number | 'not-known'
-	}
-}
+		sizeGb: number | 'not-known';
+	};
+};
 // if you change the above type, remember to update the Settings link
 
 
@@ -215,31 +307,31 @@ export const modelOverrideKeys = [
 	'supportsFIM',
 	'reasoningCapabilities',
 	'additionalOpenAIPayload'
-] as const
+] as const;
 
 export type ModelOverrides = Pick<
 	CortexideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]
->
+>;
 
 
 
 
 type ProviderReasoningIOSettings = {
 	// include this in payload to get reasoning
-	input?: { includeInPayload?: (reasoningState: SendableReasoningInfo) => null | { [key: string]: any }, };
+	input?: { includeInPayload?: (reasoningState: SendableReasoningInfo) => null | { [key: string]: unknown } };
 	// nameOfFieldInDelta: reasoning output is in response.choices[0].delta[deltaReasoningField]
 	// needsManualParse: whether we must manually parse out the <think> tags
 	output?:
-	| { nameOfFieldInDelta?: string, needsManualParse?: undefined, }
-	| { nameOfFieldInDelta?: undefined, needsManualParse?: true, };
-}
+	| { nameOfFieldInDelta?: string; needsManualParse?: undefined }
+	| { nameOfFieldInDelta?: undefined; needsManualParse?: true };
+};
 
 type VoidStaticProviderInfo = { // doesn't change (not stateful)
 	providerReasoningIOSettings?: ProviderReasoningIOSettings; // input/output settings around thinking (allowed to be empty) - only applied if the model supports reasoning output
 	modelOptions: { [key: string]: CortexideStaticModelInfo };
-	modelOptionsFallback: (modelName: string, fallbackKnownValues?: Partial<CortexideStaticModelInfo>) => (CortexideStaticModelInfo & { modelName: string, recognizedModelName: string }) | null;
-}
+	modelOptionsFallback: (modelName: string, fallbackKnownValues?: Partial<CortexideStaticModelInfo>) => (CortexideStaticModelInfo & { modelName: string; recognizedModelName: string }) | null;
+};
 
 
 
@@ -251,7 +343,7 @@ const defaultModelOptions = {
 	supportsSystemMessage: false,
 	supportsFIM: false,
 	reasoningCapabilities: false,
-} as const satisfies CortexideStaticModelInfo
+} as const satisfies CortexideStaticModelInfo;
 
 // TODO!!! double check all context sizes below
 // TODO!!! add openrouter common models
@@ -387,7 +479,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		reasoningCapabilities: false,
 		contextWindow: 1_000_000, reservedOutputTokenSpace: 32_000,
 	}
-} as const satisfies { [s: string]: Partial<CortexideStaticModelInfo> }
+} as const satisfies { [s: string]: Partial<CortexideStaticModelInfo> };
 
 
 
@@ -395,15 +487,15 @@ const openSourceModelOptions_assumingOAICompat = {
 // keep modelName, but use the fallback's defaults
 const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallback'] = (modelName, fallbackKnownValues) => {
 
-	const lower = modelName.toLowerCase()
+	const lower = modelName.toLowerCase();
 
 	const toFallback = <T extends { [s: string]: Omit<CortexideStaticModelInfo, 'cost' | 'downloadable'> },>(obj: T, recognizedModelName: string & keyof T)
-		: CortexideStaticModelInfo & { modelName: string, recognizedModelName: string } => {
+		: CortexideStaticModelInfo & { modelName: string; recognizedModelName: string } => {
 
-		const opts = obj[recognizedModelName]
+		const opts = obj[recognizedModelName];
 		const supportsSystemMessage = opts.supportsSystemMessage === 'separated'
 			? 'system-role'
-			: opts.supportsSystemMessage
+			: opts.supportsSystemMessage;
 
 		return {
 			recognizedModelName,
@@ -414,65 +506,129 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 			downloadable: false,
 			...fallbackKnownValues
 		};
+	};
+
+	// Gemini 3.0 models
+	if (lower.includes('gemini') && (lower.includes('3.0') || lower.includes('3-0') || lower.includes('3'))) {
+		if (lower.includes('deep') || lower.includes('think')) {
+			return toFallback(geminiModelOptions, 'gemini-3.0-deep-think');
+		}
+		return toFallback(geminiModelOptions, 'gemini-3.0-pro');
+	}
+	// Gemini 2.5 models
+	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) {
+		if (lower.includes('flash') && lower.includes('lite')) {
+			return toFallback(geminiModelOptions, 'gemini-2.5-flash-lite');
+		}
+		if (lower.includes('flash')) {
+			return toFallback(geminiModelOptions, 'gemini-2.5-flash');
+		}
+		return toFallback(geminiModelOptions, 'gemini-2.5-pro');
 	}
 
-	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) return toFallback(geminiModelOptions, 'gemini-2.5-pro-exp-03-25')
+	// Claude 4.5 series (Oct 2025)
+	if (lower.includes('claude') && (lower.includes('4.5') || lower.includes('4-5'))) {
+		if (lower.includes('haiku')) { return toFallback(anthropicModelOptions, 'claude-haiku-4.5-20251015'); }
+		if (lower.includes('sonnet')) { return toFallback(anthropicModelOptions, 'claude-sonnet-4.5-20251014'); }
+		return toFallback(anthropicModelOptions, 'claude-sonnet-4.5-20251014');
+	}
+	// Claude 4.1 series (May-Aug 2025)
+	if (lower.includes('claude') && (lower.includes('4.1') || lower.includes('4-1'))) {
+		if (lower.includes('opus')) { return toFallback(anthropicModelOptions, 'claude-opus-4.1-20250805'); }
+		return toFallback(anthropicModelOptions, 'claude-opus-4.1-20250805');
+	}
+	// Claude 4.0 series
+	if (lower.includes('claude') && (lower.includes('4.0') || lower.includes('4-0') || (lower.includes('4') && !lower.includes('3')))) {
+		if (lower.includes('opus')) { return toFallback(anthropicModelOptions, 'claude-opus-4.0-20250503'); }
+		if (lower.includes('sonnet')) { return toFallback(anthropicModelOptions, 'claude-sonnet-4.0-20250503'); }
+		return toFallback(anthropicModelOptions, 'claude-sonnet-4.0-20250503');
+	}
+	// Claude 3.7 series
+	if (lower.includes('claude') && (lower.includes('3.7') || lower.includes('3-7'))) {
+		return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219');
+	}
+	// Claude 3.5 series
+	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) { return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022'); }
+	// Claude 3.x fallback
+	if (lower.includes('claude')) { return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219'); }
 
-	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022')
-	if (lower.includes('claude')) return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219')
+	// Grok 4 series (Nov 2025)
+	if (lower.includes('grok') && (lower.includes('4') || lower.includes('four'))) {
+		if (lower.includes('heavy')) { return toFallback(xAIModelOptions, 'grok-4-heavy'); }
+		if (lower.includes('fast') && lower.includes('reasoning')) { return toFallback(xAIModelOptions, 'grok-4-fast-reasoning'); }
+		if (lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-4-fast'); }
+		return toFallback(xAIModelOptions, 'grok-4');
+	}
+	// Grok 3 series
+	if (lower.includes('grok') && (lower.includes('3') || lower.includes('three'))) {
+		if (lower.includes('mini') && lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-3-mini-fast'); }
+		if (lower.includes('mini')) { return toFallback(xAIModelOptions, 'grok-3-mini'); }
+		if (lower.includes('fast')) { return toFallback(xAIModelOptions, 'grok-3-fast'); }
+		return toFallback(xAIModelOptions, 'grok-3');
+	}
+	// Grok 2 (legacy)
+	if (lower.includes('grok2') || (lower.includes('grok') && lower.includes('2'))) { return toFallback(xAIModelOptions, 'grok-2'); }
+	// Generic Grok fallback
+	if (lower.includes('grok')) { return toFallback(xAIModelOptions, 'grok-4'); }
 
-	if (lower.includes('grok2') || lower.includes('grok2')) return toFallback(xAIModelOptions, 'grok-2')
-	if (lower.includes('grok')) return toFallback(xAIModelOptions, 'grok-3')
+	if (lower.includes('deepseek-r1') || lower.includes('deepseek-reasoner')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekR1'); }
+	if (lower.includes('deepseek') && lower.includes('v2')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2'); }
+	if (lower.includes('deepseek')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3'); }
 
-	if (lower.includes('deepseek-r1') || lower.includes('deepseek-reasoner')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekR1')
-	if (lower.includes('deepseek') && lower.includes('v2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2')
-	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3')
+	if (lower.includes('llama3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3'); }
+	if (lower.includes('llama3.1')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1'); }
+	if (lower.includes('llama3.2')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2'); }
+	if (lower.includes('llama3.3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.3'); }
+	if (lower.includes('llama') || lower.includes('scout')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout'); }
+	if (lower.includes('llama') || lower.includes('maverick')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout'); }
+	if (lower.includes('llama')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout'); }
 
-	if (lower.includes('llama3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
-	if (lower.includes('llama3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
-	if (lower.includes('llama3.2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2')
-	if (lower.includes('llama3.3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.3')
-	if (lower.includes('llama') || lower.includes('scout')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
-	if (lower.includes('llama') || lower.includes('maverick')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
-	if (lower.includes('llama')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	if (lower.includes('qwen') && lower.includes('2.5') && lower.includes('coder')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen2.5coder'); }
+	if (lower.includes('qwen') && lower.includes('3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
+	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
+	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
+	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
+	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
+	if (lower.includes('devstral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral'); }
 
-	if (lower.includes('qwen') && lower.includes('2.5') && lower.includes('coder')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen2.5coder')
-	if (lower.includes('qwen') && lower.includes('3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3')
-	if (lower.includes('qwen')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3')
-	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq') }
-	if (lower.includes('phi4')) return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4')
-	if (lower.includes('codestral')) return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral')
-	if (lower.includes('devstral')) return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral')
+	if (lower.includes('gemma')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'gemma'); }
 
-	if (lower.includes('gemma')) return toFallback(openSourceModelOptions_assumingOAICompat, 'gemma')
+	if (lower.includes('starcoder2')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'starcoder2'); }
 
-	if (lower.includes('starcoder2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'starcoder2')
+	if (lower.includes('openhands')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'openhands-lm-32b'); } // max output uncler
 
-	if (lower.includes('openhands')) return toFallback(openSourceModelOptions_assumingOAICompat, 'openhands-lm-32b') // max output uncler
+	if (lower.includes('quasar') || lower.includes('quaser')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'quasar'); }
 
-	if (lower.includes('quasar') || lower.includes('quaser')) return toFallback(openSourceModelOptions_assumingOAICompat, 'quasar')
+	// GPT-5.1 series (Nov 2025)
+	if (lower.includes('gpt') && lower.includes('5.1')) {
+		if (lower.includes('codex') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'gpt-5.1-codex-mini'); }
+		if (lower.includes('codex')) { return toFallback(openAIModelOptions, 'gpt-5.1-codex'); }
+		if (lower.includes('thinking')) { return toFallback(openAIModelOptions, 'gpt-5.1-thinking'); }
+		if (lower.includes('instant')) { return toFallback(openAIModelOptions, 'gpt-5.1-instant'); }
+		return toFallback(openAIModelOptions, 'gpt-5.1-thinking'); // Default to thinking
+	}
+	// GPT-5 series (Aug 2025)
+	if (lower.includes('gpt') && lower.includes('5') && lower.includes('pro')) { return toFallback(openAIModelOptions, 'gpt-5-pro'); }
+	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('5') || lower.includes('5.0'))) { return toFallback(openAIModelOptions, 'gpt-5-mini'); }
+	if (lower.includes('gpt') && (lower.includes('5') || lower.includes('5.0'))) { return toFallback(openAIModelOptions, 'gpt-5'); }
+	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('4.1') || lower.includes('4-1'))) { return toFallback(openAIModelOptions, 'gpt-4.1-mini'); }
+	if (lower.includes('gpt') && lower.includes('nano') && (lower.includes('4.1') || lower.includes('4-1'))) { return toFallback(openAIModelOptions, 'gpt-4.1-nano'); }
+	if (lower.includes('gpt') && (lower.includes('4.1') || lower.includes('4-1'))) { return toFallback(openAIModelOptions, 'gpt-4.1'); }
 
-	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('5') || lower.includes('5.0'))) return toFallback(openAIModelOptions, 'gpt-5-mini')
-	if (lower.includes('gpt') && (lower.includes('5') || lower.includes('5.0'))) return toFallback(openAIModelOptions, 'gpt-5')
-	if (lower.includes('gpt') && lower.includes('mini') && (lower.includes('4.1') || lower.includes('4-1'))) return toFallback(openAIModelOptions, 'gpt-4.1-mini')
-	if (lower.includes('gpt') && lower.includes('nano') && (lower.includes('4.1') || lower.includes('4-1'))) return toFallback(openAIModelOptions, 'gpt-4.1-nano')
-	if (lower.includes('gpt') && (lower.includes('4.1') || lower.includes('4-1'))) return toFallback(openAIModelOptions, 'gpt-4.1')
+	if (lower.includes('4o') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'gpt-4o-mini'); }
+	if (lower.includes('4o')) { return toFallback(openAIModelOptions, 'gpt-4o'); }
 
-	if (lower.includes('4o') && lower.includes('mini')) return toFallback(openAIModelOptions, 'gpt-4o-mini')
-	if (lower.includes('4o')) return toFallback(openAIModelOptions, 'gpt-4o')
-
-	if (lower.includes('o1') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o1-mini')
-	if (lower.includes('o1')) return toFallback(openAIModelOptions, 'o1')
-	if (lower.includes('o3') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o3-mini')
-	if (lower.includes('o3')) return toFallback(openAIModelOptions, 'o3')
-	if (lower.includes('o4') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o4-mini')
+	if (lower.includes('o1') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o1-mini'); }
+	if (lower.includes('o1')) { return toFallback(openAIModelOptions, 'o1'); }
+	if (lower.includes('o3') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o3-mini'); }
+	if (lower.includes('o3')) { return toFallback(openAIModelOptions, 'o3'); }
+	if (lower.includes('o4') && lower.includes('mini')) { return toFallback(openAIModelOptions, 'o4-mini'); }
 
 
-	if (Object.keys(openSourceModelOptions_assumingOAICompat).map(k => k.toLowerCase()).includes(lower))
-		return toFallback(openSourceModelOptions_assumingOAICompat, lower as keyof typeof openSourceModelOptions_assumingOAICompat)
+	if (Object.keys(openSourceModelOptions_assumingOAICompat).map(k => k.toLowerCase()).includes(lower)) { return toFallback(openSourceModelOptions_assumingOAICompat, lower as keyof typeof openSourceModelOptions_assumingOAICompat); }
 
-	return null
-}
+	return null;
+};
 
 
 
@@ -532,6 +688,80 @@ const anthropicModelOptions = {
 		},
 
 	},
+	'claude-sonnet-4.5-20251014': { // Released Oct 14, 2025 - optimized for coding and agents
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-haiku-4.5-20251015': { // Released Oct 15, 2025 - low latency, cost-efficient
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-opus-4.1-20250805': { // Released Aug 5, 2025 - enhanced coding and reasoning
+		contextWindow: 1_000_000, // 1M token context window
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-opus-4.0-20250503': { // Released May 2025
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-sonnet-4.0-20250503': { // Released May 2025
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
 	'claude-3-5-sonnet-20241022': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
@@ -571,42 +801,103 @@ const anthropicModelOptions = {
 		supportsSystemMessage: 'separated',
 		reasoningCapabilities: false,
 	}
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 const anthropicSettings: VoidStaticProviderInfo = {
 	providerReasoningIOSettings: {
 		input: {
 			includeInPayload: (reasoningInfo) => {
-				if (!reasoningInfo?.isReasoningEnabled) return null
+				if (!reasoningInfo?.isReasoningEnabled) { return null; }
 
 				if (reasoningInfo.type === 'budget_slider_value') {
-					return { thinking: { type: 'enabled', budget_tokens: reasoningInfo.reasoningBudget } }
+					return { thinking: { type: 'enabled', budget_tokens: reasoningInfo.reasoningBudget } };
 				}
-				return null
+				return null;
 			}
 		},
 	},
 	modelOptions: anthropicModelOptions,
 	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof anthropicModelOptions | null = null
-		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4')) fallbackName = 'claude-opus-4-20250514'
-		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4')) fallbackName = 'claude-sonnet-4-20250514'
+		const lower = modelName.toLowerCase();
+		let fallbackName: keyof typeof anthropicModelOptions | null = null;
+		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4')) { fallbackName = 'claude-opus-4-20250514'; }
+		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4')) { fallbackName = 'claude-sonnet-4-20250514'; }
 
 
-		if (lower.includes('claude-3-7-sonnet')) fallbackName = 'claude-3-7-sonnet-20250219'
-		if (lower.includes('claude-3-5-sonnet')) fallbackName = 'claude-3-5-sonnet-20241022'
-		if (lower.includes('claude-3-5-haiku')) fallbackName = 'claude-3-5-haiku-20241022'
-		if (lower.includes('claude-3-opus')) fallbackName = 'claude-3-opus-20240229'
-		if (lower.includes('claude-3-sonnet')) fallbackName = 'claude-3-sonnet-20240229'
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }
-		return null
+		if (lower.includes('claude-3-7-sonnet')) { fallbackName = 'claude-3-7-sonnet-20250219'; }
+		if (lower.includes('claude-3-5-sonnet')) { fallbackName = 'claude-3-5-sonnet-20241022'; }
+		if (lower.includes('claude-3-5-haiku')) { fallbackName = 'claude-3-5-haiku-20241022'; }
+		if (lower.includes('claude-3-opus')) { fallbackName = 'claude-3-opus-20240229'; }
+		if (lower.includes('claude-3-sonnet')) { fallbackName = 'claude-3-sonnet-20240229'; }
+		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }; }
+		return null;
 	},
-}
+};
 
 
 // ---------------- OPENAI ----------------
 const openAIModelOptions = { // https://platform.openai.com/docs/pricing
+	// GPT-5.1 series (Nov 2025)
+	'gpt-5.1-thinking': { // Released Nov 12, 2025 - flagship with enhanced reasoning
+		contextWindow: 196_000, // Enhanced context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.50, output: 10.00, cache_read: 0.625 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
+	'gpt-5.1-instant': { // Released Nov 12, 2025 - fast responses
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.50, output: 2.00, cache_read: 0.125 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5.1-codex': { // Released Nov 12, 2025 - advanced coding model
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 3.00, output: 12.00, cache_read: 0.75 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: true, // Coding models typically support FIM
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5.1-codex-mini': { // Released Nov 12, 2025 - lightweight coding model
+		contextWindow: 196_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.60, output: 2.40, cache_read: 0.15 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5-pro': { // Premium model with enhanced reasoning
+		contextWindow: 1_047_576,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 5.00, output: 20.00, cache_read: 1.25 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
 	'gpt-5': {
 		contextWindow: 1_047_576,
 		reservedOutputTokenSpace: 32_768,
@@ -724,40 +1015,96 @@ const openAIModelOptions = { // https://platform.openai.com/docs/pricing
 		supportsSystemMessage: 'system-role', // ??
 		reasoningCapabilities: false,
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 
 // https://platform.openai.com/docs/guides/reasoning?api-mode=chat
 const openAICompatIncludeInPayloadReasoning = (reasoningInfo: SendableReasoningInfo) => {
-	if (!reasoningInfo?.isReasoningEnabled) return null
+	if (!reasoningInfo?.isReasoningEnabled) { return null; }
 	if (reasoningInfo.type === 'effort_slider_value') {
-		return { reasoning_effort: reasoningInfo.reasoningEffort }
+		return { reasoning_effort: reasoningInfo.reasoningEffort };
 	}
-	return null
+	return null;
 
-}
+};
 
 const openAISettings: VoidStaticProviderInfo = {
 	modelOptions: openAIModelOptions,
 	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof openAIModelOptions | null = null
-		if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) { fallbackName = 'gpt-5' }
-		if (lower.includes('o1')) { fallbackName = 'o1' }
-		if (lower.includes('o3-mini')) { fallbackName = 'o3-mini' }
-		if (lower.includes('gpt-4o')) { fallbackName = 'gpt-4o' }
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }
-		return null
+		const lower = modelName.toLowerCase();
+		let fallbackName: keyof typeof openAIModelOptions | null = null;
+		if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) { fallbackName = 'gpt-5'; }
+		if (lower.includes('o1')) { fallbackName = 'o1'; }
+		if (lower.includes('o3-mini')) { fallbackName = 'o3-mini'; }
+		if (lower.includes('gpt-4o')) { fallbackName = 'gpt-4o'; }
+		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }; }
+		return null;
 	},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 // ---------------- XAI ----------------
 const xAIModelOptions = {
 	// https://docs.x.ai/docs/guides/reasoning#reasoning
 	// https://docs.x.ai/docs/models#models-and-pricing
+	// Grok 4 series (Nov 2025)
+	'grok-4': { // Flagship model - high performance in math, reasoning, NLP
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.50, output: 17.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'medium' },
+		},
+	},
+	'grok-4-fast': { // Cost-efficient for quick responses
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 1.00, output: 5.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+	'grok-4-fast-reasoning': { // Cost-efficient reasoning model
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 1.50, output: 7.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium'], default: 'low' },
+		},
+	},
+	'grok-4-heavy': { // Real-time data processing and speed
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 5.00, output: 25.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' },
+		},
+	},
 	'grok-2': {
 		contextWindow: 131_072,
 		reservedOutputTokenSpace: null,
@@ -809,29 +1156,109 @@ const xAIModelOptions = {
 		specialToolFormat: 'openai-style',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 const xAISettings: VoidStaticProviderInfo = {
 	modelOptions: xAIModelOptions,
 	modelOptionsFallback: (modelName) => {
-		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof xAIModelOptions | null = null
-		if (lower.includes('grok-2')) fallbackName = 'grok-2'
-		if (lower.includes('grok-3')) fallbackName = 'grok-3'
-		if (lower.includes('grok')) fallbackName = 'grok-3'
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...xAIModelOptions[fallbackName] }
-		return null
+		const lower = modelName.toLowerCase();
+		let fallbackName: keyof typeof xAIModelOptions | null = null;
+		if (lower.includes('grok-2')) { fallbackName = 'grok-2'; }
+		if (lower.includes('grok-3')) { fallbackName = 'grok-3'; }
+		if (lower.includes('grok')) { fallbackName = 'grok-3'; }
+		if (fallbackName) { return { modelName: fallbackName, recognizedModelName: fallbackName, ...xAIModelOptions[fallbackName] }; }
+		return null;
 	},
 	// same implementation as openai
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 
 // ---------------- GEMINI ----------------
 const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
+
+	// Gemini 3.0 series (Nov 2025)
+	'gemini-3.0-pro': {
+		contextWindow: 1_048_576, // 1M tokens
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-3.0-deep-think': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+
+	// Gemini 2.5 series (generally available)
+	'gemini-2.5-pro': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Update with actual pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.15, output: 0.60 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-flash-lite': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.075, output: 0.30 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+
+	// Preview/experimental models
 	'gemini-2.5-pro-preview-05-06': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
@@ -940,12 +1367,12 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 		specialToolFormat: 'gemini-style',
 		reasoningCapabilities: false,
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 const geminiSettings: VoidStaticProviderInfo = {
 	modelOptions: geminiModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
-}
+	modelOptionsFallback: (modelName) => { return null; },
+};
 
 
 
@@ -965,18 +1392,18 @@ const deepseekModelOptions = {
 		cost: { cache_read: .14, input: .55, output: 2.19, },
 		downloadable: false,
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 
 const deepseekSettings: VoidStaticProviderInfo = {
 	modelOptions: deepseekModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		// reasoning: OAICompat +  response.choices[0].delta.reasoning_content // https://api-docs.deepseek.com/guides/reasoning_model
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { nameOfFieldInDelta: 'reasoning_content' },
 	},
-}
+};
 
 
 
@@ -1055,15 +1482,15 @@ const mistralModelOptions = { // https://mistral.ai/products/la-plateforme#prici
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 const mistralSettings: VoidStaticProviderInfo = {
 	modelOptions: mistralModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 
 // ---------------- GROQ ----------------
@@ -1104,59 +1531,59 @@ const groqModelOptions = { // https://console.groq.com/docs/models, https://groq
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] }, // we're using reasoning_format:parsed so really don't need to know openSourceThinkTags
 	},
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 const groqSettings: VoidStaticProviderInfo = {
 	modelOptions: groqModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		// Must be set to either parsed or hidden when using tool calling https://console.groq.com/docs/reasoning
 		input: {
 			includeInPayload: (reasoningInfo) => {
-				if (!reasoningInfo?.isReasoningEnabled) return null
+				if (!reasoningInfo?.isReasoningEnabled) { return null; }
 				if (reasoningInfo.type === 'budget_slider_value') {
-					return { reasoning_format: 'parsed' }
+					return { reasoning_format: 'parsed' };
 				}
-				return null
+				return null;
 			}
 		},
 		output: { nameOfFieldInDelta: 'reasoning' },
 	},
-}
+};
 
 
 // ---------------- GOOGLE VERTEX ----------------
 const googleVertexModelOptions = {
-} as const satisfies Record<string, CortexideStaticModelInfo>
+} as const satisfies Record<string, CortexideStaticModelInfo>;
 const googleVertexSettings: VoidStaticProviderInfo = {
 	modelOptions: googleVertexModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 // ---------------- MICROSOFT AZURE ----------------
 const microsoftAzureModelOptions = {
-} as const satisfies Record<string, CortexideStaticModelInfo>
+} as const satisfies Record<string, CortexideStaticModelInfo>;
 const microsoftAzureSettings: VoidStaticProviderInfo = {
 	modelOptions: microsoftAzureModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 // ---------------- AWS BEDROCK ----------------
 const awsBedrockModelOptions = {
-} as const satisfies Record<string, CortexideStaticModelInfo>
+} as const satisfies Record<string, CortexideStaticModelInfo>;
 
 const awsBedrockSettings: VoidStaticProviderInfo = {
 	modelOptions: awsBedrockModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => { return null; },
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
-}
+};
 
 
 // ---------------- VLLM, OLLAMA, OPENAICOMPAT (self-hosted / local) ----------------
@@ -1233,10 +1660,69 @@ const ollamaModelOptions = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
 	},
+	'llama3.3:70b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 40 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'qwen2.5-coder:32b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 19 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'deepseek-r1:32b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 19 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'deepseek-r1:1.5b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 1.0 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'codestral:latest': {
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 7 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
 
-} as const satisfies Record<string, CortexideStaticModelInfo>
+} as const satisfies Record<string, CortexideStaticModelInfo>;
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
+export const ollamaRecommendedModels = [
+	// Latest models (2025)
+	'llama3.3:70b', // Latest Llama - versatile capabilities
+	'qwen2.5-coder:32b', // Strong coding capabilities
+	'qwen2.5-coder:7b', // Lightweight coding
+	'deepseek-r1:32b', // Top reasoning model
+	'deepseek-r1:1.5b', // Lightweight reasoning
+	'codestral:latest', // Mistral coding model
+	'devstral:latest', // Mistral dev model
+	// Legacy names (for backward compatibility)
+	'llama3.1',
+	'qwq',
+	'deepseek-r1',
+	'qwen2.5-coder:1.5b',
+] as const satisfies (keyof typeof ollamaModelOptions)[];
 
 
 const vLLMSettings: VoidStaticProviderInfo = {
@@ -1247,7 +1733,7 @@ const vLLMSettings: VoidStaticProviderInfo = {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { nameOfFieldInDelta: 'reasoning_content' },
 	},
-}
+};
 
 const lmStudioSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, contextWindow: 4_096 }),
@@ -1256,7 +1742,7 @@ const lmStudioSettings: VoidStaticProviderInfo = {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { needsManualParse: true },
 	},
-}
+};
 
 const ollamaSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } }),
@@ -1266,17 +1752,34 @@ const ollamaSettings: VoidStaticProviderInfo = {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { needsManualParse: true },
 	},
-}
+};
 
 const openaiCompatible: VoidStaticProviderInfo = {
-	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
+	modelOptionsFallback: (modelName) => {
+		const result = extensiveModelOptionsFallback(modelName, { specialToolFormat: 'openai-style' });
+		if (result) {
+			// Ensure OpenAI-compatible models use openai-style tool format
+			if (!result.specialToolFormat) {
+				result.specialToolFormat = 'openai-style';
+			}
+			return result;
+		}
+		// For unrecognized models, return a default with openai-style tool format
+		// since they're supposed to be OpenAI-compatible
+		return {
+			modelName,
+			recognizedModelName: modelName,
+			...defaultModelOptions,
+			specialToolFormat: 'openai-style',
+		};
+	},
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { nameOfFieldInDelta: 'reasoning_content' },
 	},
-}
+};
 
 const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/docs/reasoning_content
 	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } }),
@@ -1285,7 +1788,7 @@ const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/doc
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 		output: { nameOfFieldInDelta: 'reasoning_content' },
 	},
-}
+};
 
 
 // ---------------- OPENROUTER ----------------
@@ -1432,44 +1935,45 @@ const openRouterModelOptions_assumingOpenAICompat = {
 		cost: { input: 0.07, output: 0.16 },
 		downloadable: false,
 	}
-} as const satisfies { [s: string]: CortexideStaticModelInfo }
+} as const satisfies { [s: string]: CortexideStaticModelInfo };
 
 const openRouterSettings: VoidStaticProviderInfo = {
 	modelOptions: openRouterModelOptions_assumingOpenAICompat,
 	modelOptionsFallback: (modelName) => {
-		const res = extensiveModelOptionsFallback(modelName)
+		const res = extensiveModelOptionsFallback(modelName);
 		// openRouter does not support gemini-style, use openai-style instead
 		if (res?.specialToolFormat === 'gemini-style') {
-			res.specialToolFormat = 'openai-style'
+			res.specialToolFormat = 'openai-style';
 		}
-		return res
+		return res;
 	},
 	providerReasoningIOSettings: {
 		// reasoning: OAICompat + response.choices[0].delta.reasoning : payload should have {include_reasoning: true} https://openrouter.ai/announcements/reasoning-tokens-for-thinking-models
 		input: {
 			// https://openrouter.ai/docs/use-cases/reasoning-tokens
 			includeInPayload: (reasoningInfo) => {
-				if (!reasoningInfo?.isReasoningEnabled) return null
+				if (!reasoningInfo?.isReasoningEnabled) { return null; }
 
 				if (reasoningInfo.type === 'budget_slider_value') {
 					return {
 						reasoning: {
 							max_tokens: reasoningInfo.reasoningBudget
 						}
-					}
+					};
 				}
-				if (reasoningInfo.type === 'effort_slider_value')
+				if (reasoningInfo.type === 'effort_slider_value') {
 					return {
 						reasoning: {
 							effort: reasoningInfo.reasoningEffort
 						}
-					}
-				return null
+					};
+				}
+				return null;
 			}
 		},
 		output: { nameOfFieldInDelta: 'reasoning' },
 	},
-}
+};
 
 
 
@@ -1499,7 +2003,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	googleVertex: googleVertexSettings,
 	microsoftAzure: microsoftAzureSettings,
 	awsBedrock: awsBedrockSettings,
-} as const
+} as const;
 
 
 // ---------------- exports ----------------
@@ -1519,45 +2023,45 @@ export const getModelCapabilities = (
 		return { modelName, ...defaultModelOptions, isUnrecognizedModel: true };
 	}
 
-	const lowercaseModelName = modelName.toLowerCase()
+	const lowercaseModelName = modelName.toLowerCase();
 
-	const { modelOptions, modelOptionsFallback } = modelSettingsOfProvider[providerName]
+	const { modelOptions, modelOptionsFallback } = modelSettingsOfProvider[providerName];
 
 	// Get any override settings for this model
 	const overrides = overridesOfModel?.[providerName]?.[modelName];
 
 	// search model options object directly first
 	for (const modelName_ in modelOptions) {
-		const lowercaseModelName_ = modelName_.toLowerCase()
+		const lowercaseModelName_ = modelName_.toLowerCase();
 		if (lowercaseModelName === lowercaseModelName_) {
 			return { ...modelOptions[modelName], ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
 		}
 	}
 
-	const result = modelOptionsFallback(modelName)
+	const result = modelOptionsFallback(modelName);
 	if (result) {
 		return { ...result, ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
 	}
 
 	return { modelName, ...defaultModelOptions, ...overrides, isUnrecognizedModel: true };
-}
+};
 
 // non-model settings
 export const getProviderCapabilities = (providerName: ProviderName) => {
-	const { providerReasoningIOSettings } = modelSettingsOfProvider[providerName]
-	return { providerReasoningIOSettings }
-}
+	const { providerReasoningIOSettings } = modelSettingsOfProvider[providerName];
+	return { providerReasoningIOSettings };
+};
 
 
 export type SendableReasoningInfo = {
-	type: 'budget_slider_value',
-	isReasoningEnabled: true,
-	reasoningBudget: number,
+	type: 'budget_slider_value';
+	isReasoningEnabled: true;
+	reasoningBudget: number;
 } | {
-	type: 'effort_slider_value',
-	isReasoningEnabled: true,
-	reasoningEffort: string,
-} | null
+	type: 'effort_slider_value';
+	isReasoningEnabled: true;
+	reasoningEffort: string;
+} | null;
 
 
 
@@ -1568,24 +2072,24 @@ export const getIsReasoningEnabledState = (
 	modelSelectionOptions: ModelSelectionOptions | undefined,
 	overridesOfModel: OverridesOfModel | undefined,
 ) => {
-	const { supportsReasoning, canTurnOffReasoning } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {}
-	if (!supportsReasoning) return false
+	const { supportsReasoning, canTurnOffReasoning } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {};
+	if (!supportsReasoning) { return false; }
 
 	// default to enabled if can't turn off, or if the featureName is Chat.
-	const defaultEnabledVal = featureName === 'Chat' || !canTurnOffReasoning
+	const defaultEnabledVal = featureName === 'Chat' || !canTurnOffReasoning;
 
-	const isReasoningEnabled = modelSelectionOptions?.reasoningEnabled ?? defaultEnabledVal
-	return isReasoningEnabled
-}
+	const isReasoningEnabled = modelSelectionOptions?.reasoningEnabled ?? defaultEnabledVal;
+	return isReasoningEnabled;
+};
 
 
-export const getReservedOutputTokenSpace = (providerName: ProviderName, modelName: string, opts: { isReasoningEnabled: boolean, overridesOfModel: OverridesOfModel | undefined }) => {
+export const getReservedOutputTokenSpace = (providerName: ProviderName, modelName: string, opts: { isReasoningEnabled: boolean; overridesOfModel: OverridesOfModel | undefined }) => {
 	const {
 		reasoningCapabilities,
 		reservedOutputTokenSpace,
-	} = getModelCapabilities(providerName, modelName, opts.overridesOfModel)
-	return opts.isReasoningEnabled && reasoningCapabilities ? reasoningCapabilities.reasoningReservedOutputTokenSpace : reservedOutputTokenSpace
-}
+	} = getModelCapabilities(providerName, modelName, opts.overridesOfModel);
+	return opts.isReasoningEnabled && reasoningCapabilities ? reasoningCapabilities.reasoningReservedOutputTokenSpace : reservedOutputTokenSpace;
+};
 
 // used to force reasoning state (complex) into something simple we can just read from when sending a message
 export const getSendableReasoningInfo = (
@@ -1596,21 +2100,21 @@ export const getSendableReasoningInfo = (
 	overridesOfModel: OverridesOfModel | undefined,
 ): SendableReasoningInfo => {
 
-	const { reasoningSlider: reasoningBudgetSlider } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {}
-	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
-	if (!isReasoningEnabled) return null
+	const { reasoningSlider: reasoningBudgetSlider } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {};
+	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel);
+	if (!isReasoningEnabled) { return null; }
 
 	// check for reasoning budget
-	const reasoningBudget = reasoningBudgetSlider?.type === 'budget_slider' ? modelSelectionOptions?.reasoningBudget ?? reasoningBudgetSlider?.default : undefined
+	const reasoningBudget = reasoningBudgetSlider?.type === 'budget_slider' ? modelSelectionOptions?.reasoningBudget ?? reasoningBudgetSlider?.default : undefined;
 	if (reasoningBudget) {
-		return { type: 'budget_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningBudget: reasoningBudget }
+		return { type: 'budget_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningBudget: reasoningBudget };
 	}
 
 	// check for reasoning effort
-	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? modelSelectionOptions?.reasoningEffort ?? reasoningBudgetSlider?.default : undefined
+	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? modelSelectionOptions?.reasoningEffort ?? reasoningBudgetSlider?.default : undefined;
 	if (reasoningEffort) {
-		return { type: 'effort_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningEffort: reasoningEffort }
+		return { type: 'effort_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningEffort: reasoningEffort };
 	}
 
-	return null
-}
+	return null;
+};

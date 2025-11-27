@@ -51,6 +51,23 @@ async function gatherSelectionContext(services: { editorService: ICodeEditorServ
 
     const selection = roundRangeToLines(editor.getSelection(), { emptySelectionBehavior: 'null' })
     if (!selection) {
+        // If no selection, try to use the entire file or current line
+        // This allows Quick Actions to work even when just a file is highlighted/added to chat
+        const lineCount = model.getLineCount()
+        if (lineCount > 0) {
+            // Use the entire file if no selection
+            return {
+                ok: true,
+                taskContext: {
+                    code: model.getValue(),
+                    path: model.uri.fsPath,
+                    language: model.getLanguageId(),
+                    nearby: model.getValue(),
+                    startLine: 1,
+                    endLine: lineCount,
+                }
+            }
+        }
         return { ok: false, error: 'Select some code to use Quick Actions.' }
     }
 
@@ -88,22 +105,34 @@ async function gatherSelectionContext(services: { editorService: ICodeEditorServ
     }
 }
 
-async function addSelectionChip(services: { editorService: ICodeEditorService, chatThreadsService: IChatThreadService }) {
+async function addSelectionChip(services: { editorService: ICodeEditorService, chatThreadsService: IChatThreadService }, useEntireFile: boolean = false) {
     const editorService = services.editorService
     const chatThreadsService = services.chatThreadsService
     const editor = editorService.getActiveCodeEditor()
     const model = editor?.getModel()
     if (!editor || !model) return
-    const selectionRange = roundRangeToLines(editor.getSelection(), { emptySelectionBehavior: 'null' })
-    if (!selectionRange) return
-    editor.setSelection({ startLineNumber: selectionRange.startLineNumber, endLineNumber: selectionRange.endLineNumber, startColumn: 1, endColumn: Number.MAX_SAFE_INTEGER })
-    chatThreadsService.addNewStagingSelection({
-        type: 'CodeSelection',
-        uri: model.uri,
-        language: model.getLanguageId(),
-        range: [selectionRange.startLineNumber, selectionRange.endLineNumber],
-        state: { wasAddedAsCurrentFile: false },
-    })
+
+    if (useEntireFile) {
+        // Add entire file as a File selection (not CodeSelection)
+        chatThreadsService.addNewStagingSelection({
+            type: 'File',
+            uri: model.uri,
+            language: model.getLanguageId(),
+            state: { wasAddedAsCurrentFile: false },
+        })
+    } else {
+        // Add code selection
+        const selectionRange = roundRangeToLines(editor.getSelection(), { emptySelectionBehavior: 'null' })
+        if (!selectionRange) return
+        editor.setSelection({ startLineNumber: selectionRange.startLineNumber, endLineNumber: selectionRange.endLineNumber, startColumn: 1, endColumn: Number.MAX_SAFE_INTEGER })
+        chatThreadsService.addNewStagingSelection({
+            type: 'CodeSelection',
+            uri: model.uri,
+            language: model.getLanguageId(),
+            range: [selectionRange.startLineNumber, selectionRange.endLineNumber],
+            state: { wasAddedAsCurrentFile: false },
+        })
+    }
 }
 
 function registerQuickAction({ id, title, kb, task, promptMaker }: {
@@ -147,7 +176,11 @@ function registerQuickAction({ id, title, kb, task, promptMaker }: {
             }
 
             await openChatIfNeeded(viewsService)
-            await addSelectionChip({ editorService, chatThreadsService })
+            // If we're using the entire file (no selection), add it as a File selection
+            // Otherwise, add it as a CodeSelection
+            const editor = editorService.getActiveCodeEditor()
+            const useEntireFile = !editor?.getSelection() || editor.getSelection()?.isEmpty()
+            await addSelectionChip({ editorService, chatThreadsService }, useEntireFile)
 
             const { path, language, code, nearby, startLine, endLine } = ctx.taskContext
 

@@ -95,7 +95,7 @@ export class CortexideMainUpdateService extends Disposable implements ICortexide
 
 	private async _manualCheckGHTagIfDisabled(explicit: boolean): Promise<CortexideCheckUpdateResponse> {
 		try {
-			const response = await fetch('https://api.github.com/repos/cortexide/cortexide/releases/latest');
+			const response = await fetch('https://api.github.com/repos/opencortexide/cortexide/releases/latest');
 
 			const data = await response.json();
 			const version = data.tag_name;

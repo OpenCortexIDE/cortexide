@@ -35,9 +35,14 @@ export class TooltipContribution extends Disposable implements IWorkbenchContrib
 
 			// Mount the React component
 			this.instantiationService.invokeFunction((accessor: ServicesAccessor) => {
-				const result = mountVoidTooltip(tooltipContainer, accessor);
-				if (result && typeof result.dispose === 'function') {
-					this._register(toDisposable(result.dispose));
+				try {
+					const result = mountVoidTooltip(tooltipContainer, accessor);
+					if (result && typeof result.dispose === 'function') {
+						this._register(toDisposable(result.dispose));
+					}
+				} catch (error) {
+					console.error('[TooltipContribution] Failed to mount React tooltip:', error);
+					// Tooltip failure is non-critical, just log the error
 				}
 			});
 

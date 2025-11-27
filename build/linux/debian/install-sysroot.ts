@@ -87,8 +87,18 @@ async function fetchUrl(options: IFetchOptions, retries = 10, retryDelay = 1000)
 			if (response.ok && (response.status >= 200 && response.status < 300)) {
 				console.log(`Fetch completed: Status ${response.status}.`);
 				const contents = Buffer.from(await response.arrayBuffer());
-				const asset = JSON.parse(contents.toString()).assets.find((a: { name: string }) => a.name === options.assetName);
+				const assets = JSON.parse(contents.toString()).assets;
+				const asset = assets.find((a: { name: string }) => a.name === options.assetName);
 				if (!asset) {
+					// Check if this is a non-critical architecture (ppc64le, riscv64, etc.)
+					const nonCriticalArchs = ['ppc64le', 'riscv64', 'loong64', 's390x'];
+					const isNonCritical = nonCriticalArchs.some(arch => options.assetName.includes(arch));
+					if (isNonCritical) {
+						console.warn(`Warning: Asset ${options.assetName} not found in release. This architecture may not be fully supported.`);
+						console.warn(`Available assets: ${assets.map((a: { name: string }) => a.name).join(', ')}`);
+						// Return undefined to indicate the asset is missing but not critical
+						return undefined;
+					}
 					throw new Error(`Could not find asset in release of Microsoft/vscode-linux-build-agent @ ${version}`);
 				}
 				console.log(`Found asset ${options.assetName} @ ${asset.url}.`);
@@ -172,11 +182,19 @@ export async function getVSCodeSysroot(arch: DebianArchString, isMusl: boolean =
 	console.log(`Installing ${arch} root image: ${sysroot}`);
 	fs.rmSync(sysroot, { recursive: true, force: true });
 	fs.mkdirSync(sysroot, { recursive: true });
-	await fetchUrl({
+	const fetchResult = await fetchUrl({
 		checksumSha256,
 		assetName: expectedName,
 		dest: sysroot
 	});
+	// If fetchUrl returns undefined, it means the asset is missing (non-critical architecture)
+	if (fetchResult === undefined) {
+		console.warn(`Warning: Could not install sysroot for ${arch}. Build may fail or have limited functionality.`);
+		// Create a minimal directory structure to prevent further errors
+		fs.mkdirSync(path.join(sysroot, triple, triple, 'sysroot'), { recursive: true });
+		fs.writeFileSync(stamp, `${expectedName}.missing`);
+		return result;
+	}
 	fs.writeFileSync(stamp, expectedName);
 	return result;
 }

@@ -9,7 +9,7 @@ import { useSettingsState, useRefreshModelState, useAccessor } from '../util/ser
 import { _VoidSelectBox, VoidCustomDropdownBox } from '../util/inputs.js'
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js'
 import { IconWarning } from '../sidebar-tsx/SidebarChat.js'
-import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID, CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js'
+import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID, CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from '../../../actionIDs.js'
 import { modelFilterOfFeatureName, ModelOption } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsService.js'
 import { WarningBox } from './WarningBox.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'

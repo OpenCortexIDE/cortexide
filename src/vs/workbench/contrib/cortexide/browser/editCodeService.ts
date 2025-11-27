@@ -406,32 +406,39 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			// mount react
 			let disposeFn: (() => void) | undefined = undefined
 			this._instantiationService.invokeFunction(accessor => {
-				disposeFn = mountCtrlK(domNode, accessor, {
+				try {
+					const result = mountCtrlK(domNode, accessor, {
 
-					diffareaid: ctrlKZone.diffareaid,
+						diffareaid: ctrlKZone.diffareaid,
 
-					textAreaRef: (r) => {
-						textAreaRef.current = r
-						if (!textAreaRef.current) return
+						textAreaRef: (r) => {
+							textAreaRef.current = r
+							if (!textAreaRef.current) return
 
-						if (!(ctrlKZone.diffareaid in this.mostRecentTextOfCtrlKZoneId)) { // detect first mount this way (a hack)
-							this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] = undefined
-							setTimeout(() => textAreaRef.current?.focus(), 100)
-						}
-					},
-					onChangeHeight(height) {
-						if (height === 0) return // the viewZone sets this height to the container if it's out of view, ignore it
-						viewZone.heightInPx = height
-						// re-render with this new height
-						editor.changeViewZones(accessor => {
-							if (zoneId) accessor.layoutZone(zoneId)
-						})
-					},
-					onChangeText: (text) => {
-						this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] = text;
-					},
-					initText: this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] ?? null,
-				} satisfies QuickEditPropsType)?.dispose
+							if (!(ctrlKZone.diffareaid in this.mostRecentTextOfCtrlKZoneId)) { // detect first mount this way (a hack)
+								this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] = undefined
+								setTimeout(() => textAreaRef.current?.focus(), 100)
+							}
+						},
+						onChangeHeight(height) {
+							if (height === 0) return // the viewZone sets this height to the container if it's out of view, ignore it
+							viewZone.heightInPx = height
+							// re-render with this new height
+							editor.changeViewZones(accessor => {
+								if (zoneId) accessor.layoutZone(zoneId)
+							})
+						},
+						onChangeText: (text) => {
+							this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] = text;
+						},
+						initText: this.mostRecentTextOfCtrlKZoneId[ctrlKZone.diffareaid] ?? null,
+					} satisfies QuickEditPropsType);
+					disposeFn = result?.dispose;
+				} catch (error) {
+					console.error('[EditCodeService] Failed to mount Ctrl+K React component:', error);
+					// Show error message in the editor instead of blank area
+					domNode.innerHTML = '<div style="padding: 10px; color: var(--vscode-errorForeground); font-size: 12px;">Failed to load editor. Please check the console.</div>';
+				}
 			})
 
 			// cleanup
@@ -2199,6 +2206,10 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// console.log('DIFFAREA', diffArea)
 		// console.log('ORIGINAL', diffArea.originalCode)
 		// console.log('new original Code', newOriginalCode)
+
+		// Note: The file model already has the changes from _instantlyApplySRBlocks,
+		// so we don't need to write again. We just update the diffArea.originalCode
+		// to reflect that the diff has been accepted, and onFinishEdit will save the file.
 
 		// update code now accepted as original
 		diffArea.originalCode = newOriginalCode

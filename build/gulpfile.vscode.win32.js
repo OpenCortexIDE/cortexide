@@ -75,6 +75,33 @@ function buildWin32Setup(arch, target) {
 		const outputPath = setupDir(arch, target);
 		fs.mkdirSync(outputPath, { recursive: true });
 
+		// CRITICAL: Verify executable exists before creating installer.
+		// Some upstream builds may still emit Code.exe/Void.exe instead of CortexIDE.exe.
+		// Fall back to whatever executable actually exists so the installer launch step never breaks.
+		let exeBasename = product.nameShort;
+		let expectedExePath = path.join(sourcePath, `${exeBasename}.exe`);
+		if (!fs.existsSync(expectedExePath)) {
+			const executableCandidates = fs.readdirSync(sourcePath)
+				.filter(file => file.toLowerCase().endsWith('.exe'))
+				.filter(file => {
+					const lower = file.toLowerCase();
+					return lower !== 'inno_updater.exe' && !lower.includes('tunnel') && !lower.includes('server');
+				});
+
+			if (executableCandidates.length === 0) {
+				const errorMsg = `ERROR: Executable not found at expected path: ${expectedExePath}\n` +
+					`and no other *.exe files were located in ${sourcePath}. ` +
+					`This will cause "CreateProcess failed; code 2" errors during installation.`;
+				console.error(errorMsg);
+				return cb(new Error(errorMsg));
+			}
+
+			exeBasename = path.basename(executableCandidates[0], '.exe');
+			expectedExePath = path.join(sourcePath, `${exeBasename}.exe`);
+			console.warn(`⚠️ ${product.nameShort}.exe not found. Using detected executable "${exeBasename}.exe" instead.`);
+		}
+		console.log(`✓ Executable verified: ${expectedExePath}`);
+
 		const originalProductJsonPath = path.join(sourcePath, 'resources/app/product.json');
 		const productJsonPath = path.join(outputPath, 'product.json');
 		const productJson = JSON.parse(fs.readFileSync(originalProductJsonPath, 'utf8'));
@@ -82,14 +109,16 @@ function buildWin32Setup(arch, target) {
 		fs.writeFileSync(productJsonPath, JSON.stringify(productJson, undefined, '\t'));
 
 		const quality = product.quality || 'dev';
+		const dirName = product.win32DirName || product.nameShort || exeBasename;
+
 		const definitions = {
 			NameLong: product.nameLong,
 			NameShort: product.nameShort,
-			DirName: product.win32DirName,
+			DirName: dirName,
 			Version: pkg.version,
 			RawVersion: pkg.version.replace(/-\w+$/, ''),
 			NameVersion: product.win32NameVersion + (target === 'user' ? ' (User)' : ''),
-			ExeBasename: product.nameShort,
+			ExeBasename: exeBasename,
 			RegValueName: product.win32RegValueName,
 			ShellNameShort: product.win32ShellNameShort,
 			AppMutex: product.win32MutexName,

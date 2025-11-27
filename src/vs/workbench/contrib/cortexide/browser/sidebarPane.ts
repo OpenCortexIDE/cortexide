@@ -79,9 +79,17 @@ class SidebarViewPane extends ViewPane {
 
 		// gets set immediately
 		this.instantiationService.invokeFunction(accessor => {
-			// mount react
-			const disposeFn: (() => void) | undefined = mountSidebar(parent, accessor)?.dispose;
-			this._register(toDisposable(() => disposeFn?.()));
+			try {
+				// mount react
+				const result = mountSidebar(parent, accessor);
+				if (result?.dispose) {
+					this._register(toDisposable(() => result.dispose()));
+				}
+			} catch (error) {
+				console.error('[SidebarViewPane] Failed to mount React sidebar:', error);
+				// Show error message to user instead of blank screen
+				parent.innerHTML = '<div style="padding: 20px; color: var(--vscode-errorForeground);">Failed to load sidebar. Please check the console for details.</div>';
+			}
 		});
 	}
 

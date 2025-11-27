@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { configurePortable } from './bootstrap-node.js';
 import { bootstrapESM } from './bootstrap-esm.js';
-import { app, protocol, crashReporter, Menu, contentTracing } from 'electron';
+import electron from 'electron';
 import minimist from 'minimist';
 import { product } from './bootstrap-meta.js';
 import { parse } from './vs/base/common/jsonc.js';
@@ -19,6 +19,8 @@ import { resolveNLSConfiguration } from './vs/base/node/nls.js';
 import { getUNCHost, addUNCHostToAllowlist } from './vs/base/node/unc.js';
 import { INLSConfiguration } from './vs/nls.js';
 import { NativeParsedArgs } from './vs/platform/environment/common/argv.js';
+
+const { app, protocol, crashReporter, Menu, contentTracing } = electron;
 
 perf.mark('code/didStartMain');
 

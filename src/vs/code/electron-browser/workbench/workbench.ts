@@ -6,33 +6,65 @@
 /* eslint-disable no-restricted-globals */
 
 (async function () {
-
 	// Add a perf entry right from the top
-	performance.mark('code/didStartRenderer');
+	performance.mark("code/didStartRenderer");
 
-	type ISandboxConfiguration = import('../../../base/parts/sandbox/common/sandboxTypes.js').ISandboxConfiguration;
-	type ILoadResult<M, T extends ISandboxConfiguration> = import('../../../platform/window/electron-browser/window.js').ILoadResult<M, T>;
-	type ILoadOptions<T extends ISandboxConfiguration> = import('../../../platform/window/electron-browser/window.js').ILoadOptions<T>;
-	type INativeWindowConfiguration = import('../../../platform/window/common/window.ts').INativeWindowConfiguration;
-	type IMainWindowSandboxGlobals = import('../../../base/parts/sandbox/electron-browser/globals.js').IMainWindowSandboxGlobals;
-	type IDesktopMain = import('../../../workbench/electron-browser/desktop.main.js').IDesktopMain;
+	// Enhanced diagnostics for blank screen debugging
+	console.log("[Renderer] workbench.ts: Renderer process started");
+	console.log(
+		"[Renderer] workbench.ts: window.location.href:",
+		window.location.href,
+	);
+	console.log(
+		"[Renderer] workbench.ts: document.readyState:",
+		document.readyState,
+	);
 
-	const preloadGlobals = (window as unknown as { vscode: IMainWindowSandboxGlobals }).vscode; // defined by preload.ts
+	type ISandboxConfiguration =
+		import("../../../base/parts/sandbox/common/sandboxTypes.js").ISandboxConfiguration;
+	type ILoadResult<
+		M,
+		T extends ISandboxConfiguration,
+	> = import("../../../platform/window/electron-browser/window.js").ILoadResult<
+		M,
+		T
+	>;
+	type ILoadOptions<T extends ISandboxConfiguration> =
+		import("../../../platform/window/electron-browser/window.js").ILoadOptions<T>;
+	type INativeWindowConfiguration =
+		import("../../../platform/window/common/window.ts").INativeWindowConfiguration;
+	type IMainWindowSandboxGlobals =
+		import("../../../base/parts/sandbox/electron-browser/globals.js").IMainWindowSandboxGlobals;
+	type IDesktopMain =
+		import("../../../workbench/electron-browser/desktop.main.js").IDesktopMain;
+
+	const preloadGlobals = (
+		window as unknown as { vscode: IMainWindowSandboxGlobals }
+	).vscode; // defined by preload.ts
 	const safeProcess = preloadGlobals.process;
 
 	//#region Splash Screen Helpers
 
 	function showSplash(configuration: INativeWindowConfiguration) {
-		performance.mark('code/willShowPartsSplash');
+		performance.mark("code/willShowPartsSplash");
 
 		let data = configuration.partsSplash;
 		if (data) {
-			if (configuration.autoDetectHighContrast && configuration.colorScheme.highContrast) {
-				if ((configuration.colorScheme.dark && data.baseTheme !== 'hc-black') || (!configuration.colorScheme.dark && data.baseTheme !== 'hc-light')) {
+			if (
+				configuration.autoDetectHighContrast &&
+				configuration.colorScheme.highContrast
+			) {
+				if (
+					(configuration.colorScheme.dark && data.baseTheme !== "hc-black") ||
+					(!configuration.colorScheme.dark && data.baseTheme !== "hc-light")
+				) {
 					data = undefined; // high contrast mode has been turned by the OS -> ignore stored colors and layouts
 				}
 			} else if (configuration.autoDetectColorScheme) {
-				if ((configuration.colorScheme.dark && data.baseTheme !== 'vs-dark') || (!configuration.colorScheme.dark && data.baseTheme !== 'vs')) {
+				if (
+					(configuration.colorScheme.dark && data.baseTheme !== "vs-dark") ||
+					(!configuration.colorScheme.dark && data.baseTheme !== "vs")
+				) {
 					data = undefined; // OS color scheme is tracked and has changed
 				}
 			}
@@ -51,35 +83,41 @@
 			baseTheme = data.baseTheme;
 			shellBackground = data.colorInfo.editorBackground;
 			shellForeground = data.colorInfo.foreground;
-		} else if (configuration.autoDetectHighContrast && configuration.colorScheme.highContrast) {
+		} else if (
+			configuration.autoDetectHighContrast &&
+			configuration.colorScheme.highContrast
+		) {
 			if (configuration.colorScheme.dark) {
-				baseTheme = 'hc-black';
-				shellBackground = '#000000';
-				shellForeground = '#FFFFFF';
+				baseTheme = "hc-black";
+				shellBackground = "#000000";
+				shellForeground = "#FFFFFF";
 			} else {
-				baseTheme = 'hc-light';
-				shellBackground = '#FFFFFF';
-				shellForeground = '#000000';
+				baseTheme = "hc-light";
+				shellBackground = "#FFFFFF";
+				shellForeground = "#000000";
 			}
 		} else if (configuration.autoDetectColorScheme) {
 			if (configuration.colorScheme.dark) {
-				baseTheme = 'vs-dark';
-				shellBackground = '#1E1E1E';
-				shellForeground = '#CCCCCC';
+				baseTheme = "vs-dark";
+				shellBackground = "#1E1E1E";
+				shellForeground = "#CCCCCC";
 			} else {
-				baseTheme = 'vs';
-				shellBackground = '#FFFFFF';
-				shellForeground = '#000000';
+				baseTheme = "vs";
+				shellBackground = "#FFFFFF";
+				shellForeground = "#000000";
 			}
 		}
 
-		const style = document.createElement('style');
-		style.className = 'initialShellColors';
+		const style = document.createElement("style");
+		style.className = "initialShellColors";
 		window.document.head.appendChild(style);
 		style.textContent = `body {	background-color: ${shellBackground}; color: ${shellForeground}; margin: 0; padding: 0; }`;
 
 		// set zoom level as soon as possible
-		if (typeof data?.zoomLevel === 'number' && typeof preloadGlobals?.webFrame?.setZoomLevel === 'function') {
+		if (
+			typeof data?.zoomLevel === "number" &&
+			typeof preloadGlobals?.webFrame?.setZoomLevel === "function"
+		) {
 			preloadGlobals.webFrame.setZoomLevel(data.zoomLevel);
 		}
 
@@ -87,18 +125,21 @@
 		if (data?.layoutInfo) {
 			const { layoutInfo, colorInfo } = data;
 
-			const splash = document.createElement('div');
-			splash.id = 'monaco-parts-splash';
-			splash.className = baseTheme ?? 'vs-dark';
+			const splash = document.createElement("div");
+			splash.id = "monaco-parts-splash";
+			splash.className = baseTheme ?? "vs-dark";
 
 			if (layoutInfo.windowBorder && colorInfo.windowBorder) {
-				const borderElement = document.createElement('div');
-				borderElement.style.position = 'absolute';
-				borderElement.style.width = 'calc(100vw - 2px)';
-				borderElement.style.height = 'calc(100vh - 2px)';
-				borderElement.style.zIndex = '1'; // allow border above other elements
+				const borderElement = document.createElement("div");
+				borderElement.style.position = "absolute";
+				borderElement.style.width = "calc(100vw - 2px)";
+				borderElement.style.height = "calc(100vh - 2px)";
+				borderElement.style.zIndex = "1"; // allow border above other elements
 				borderElement.style.border = `1px solid var(--window-border-color)`;
-				borderElement.style.setProperty('--window-border-color', colorInfo.windowBorder);
+				borderElement.style.setProperty(
+					"--window-border-color",
+					colorInfo.windowBorder,
+				);
 
 				if (layoutInfo.windowBorderRadius) {
 					borderElement.style.borderRadius = layoutInfo.windowBorderRadius;
@@ -110,32 +151,49 @@
 			if (layoutInfo.auxiliaryBarWidth === Number.MAX_SAFE_INTEGER) {
 				// if auxiliary bar is maximized, it goes as wide as the
 				// window width but leaving room for activity bar
-				layoutInfo.auxiliaryBarWidth = window.innerWidth - layoutInfo.activityBarWidth;
+				layoutInfo.auxiliaryBarWidth =
+					window.innerWidth - layoutInfo.activityBarWidth;
 			} else {
 				// otherwise adjust for other parts sizes if not maximized
-				layoutInfo.auxiliaryBarWidth = Math.min(layoutInfo.auxiliaryBarWidth, window.innerWidth - (layoutInfo.activityBarWidth + layoutInfo.editorPartMinWidth + layoutInfo.sideBarWidth));
+				layoutInfo.auxiliaryBarWidth = Math.min(
+					layoutInfo.auxiliaryBarWidth,
+					window.innerWidth -
+						(layoutInfo.activityBarWidth +
+							layoutInfo.editorPartMinWidth +
+							layoutInfo.sideBarWidth),
+				);
 			}
-			layoutInfo.sideBarWidth = Math.min(layoutInfo.sideBarWidth, window.innerWidth - (layoutInfo.activityBarWidth + layoutInfo.editorPartMinWidth + layoutInfo.auxiliaryBarWidth));
+			layoutInfo.sideBarWidth = Math.min(
+				layoutInfo.sideBarWidth,
+				window.innerWidth -
+					(layoutInfo.activityBarWidth +
+						layoutInfo.editorPartMinWidth +
+						layoutInfo.auxiliaryBarWidth),
+			);
 
 			// part: title
 			if (layoutInfo.titleBarHeight > 0) {
-				const titleDiv = document.createElement('div');
-				titleDiv.style.position = 'absolute';
-				titleDiv.style.width = '100%';
+				const titleDiv = document.createElement("div");
+				titleDiv.style.position = "absolute";
+				titleDiv.style.width = "100%";
 				titleDiv.style.height = `${layoutInfo.titleBarHeight}px`;
-				titleDiv.style.left = '0';
-				titleDiv.style.top = '0';
+				titleDiv.style.left = "0";
+				titleDiv.style.top = "0";
 				titleDiv.style.backgroundColor = `${colorInfo.titleBarBackground}`;
-				(titleDiv.style as CSSStyleDeclaration & { '-webkit-app-region': string })['-webkit-app-region'] = 'drag';
+				(
+					titleDiv.style as CSSStyleDeclaration & {
+						"-webkit-app-region": string;
+					}
+				)["-webkit-app-region"] = "drag";
 				splash.appendChild(titleDiv);
 
 				if (colorInfo.titleBarBorder) {
-					const titleBorder = document.createElement('div');
-					titleBorder.style.position = 'absolute';
-					titleBorder.style.width = '100%';
-					titleBorder.style.height = '1px';
-					titleBorder.style.left = '0';
-					titleBorder.style.bottom = '0';
+					const titleBorder = document.createElement("div");
+					titleBorder.style.position = "absolute";
+					titleBorder.style.width = "100%";
+					titleBorder.style.height = "1px";
+					titleBorder.style.left = "0";
+					titleBorder.style.bottom = "0";
 					titleBorder.style.borderBottom = `1px solid ${colorInfo.titleBarBorder}`;
 					titleDiv.appendChild(titleBorder);
 				}
@@ -143,30 +201,30 @@
 
 			// part: activity bar
 			if (layoutInfo.activityBarWidth > 0) {
-				const activityDiv = document.createElement('div');
-				activityDiv.style.position = 'absolute';
+				const activityDiv = document.createElement("div");
+				activityDiv.style.position = "absolute";
 				activityDiv.style.width = `${layoutInfo.activityBarWidth}px`;
 				activityDiv.style.height = `calc(100% - ${layoutInfo.titleBarHeight + layoutInfo.statusBarHeight}px)`;
 				activityDiv.style.top = `${layoutInfo.titleBarHeight}px`;
-				if (layoutInfo.sideBarSide === 'left') {
-					activityDiv.style.left = '0';
+				if (layoutInfo.sideBarSide === "left") {
+					activityDiv.style.left = "0";
 				} else {
-					activityDiv.style.right = '0';
+					activityDiv.style.right = "0";
 				}
 				activityDiv.style.backgroundColor = `${colorInfo.activityBarBackground}`;
 				splash.appendChild(activityDiv);
 
 				if (colorInfo.activityBarBorder) {
-					const activityBorderDiv = document.createElement('div');
-					activityBorderDiv.style.position = 'absolute';
-					activityBorderDiv.style.width = '1px';
-					activityBorderDiv.style.height = '100%';
-					activityBorderDiv.style.top = '0';
-					if (layoutInfo.sideBarSide === 'left') {
-						activityBorderDiv.style.right = '0';
+					const activityBorderDiv = document.createElement("div");
+					activityBorderDiv.style.position = "absolute";
+					activityBorderDiv.style.width = "1px";
+					activityBorderDiv.style.height = "100%";
+					activityBorderDiv.style.top = "0";
+					if (layoutInfo.sideBarSide === "left") {
+						activityBorderDiv.style.right = "0";
 						activityBorderDiv.style.borderRight = `1px solid ${colorInfo.activityBarBorder}`;
 					} else {
-						activityBorderDiv.style.left = '0';
+						activityBorderDiv.style.left = "0";
 						activityBorderDiv.style.borderLeft = `1px solid ${colorInfo.activityBarBorder}`;
 					}
 					activityDiv.appendChild(activityBorderDiv);
@@ -175,12 +233,12 @@
 
 			// part: side bar
 			if (layoutInfo.sideBarWidth > 0) {
-				const sideDiv = document.createElement('div');
-				sideDiv.style.position = 'absolute';
+				const sideDiv = document.createElement("div");
+				sideDiv.style.position = "absolute";
 				sideDiv.style.width = `${layoutInfo.sideBarWidth}px`;
 				sideDiv.style.height = `calc(100% - ${layoutInfo.titleBarHeight + layoutInfo.statusBarHeight}px)`;
 				sideDiv.style.top = `${layoutInfo.titleBarHeight}px`;
-				if (layoutInfo.sideBarSide === 'left') {
+				if (layoutInfo.sideBarSide === "left") {
 					sideDiv.style.left = `${layoutInfo.activityBarWidth}px`;
 				} else {
 					sideDiv.style.right = `${layoutInfo.activityBarWidth}px`;
@@ -189,16 +247,16 @@
 				splash.appendChild(sideDiv);
 
 				if (colorInfo.sideBarBorder) {
-					const sideBorderDiv = document.createElement('div');
-					sideBorderDiv.style.position = 'absolute';
-					sideBorderDiv.style.width = '1px';
-					sideBorderDiv.style.height = '100%';
-					sideBorderDiv.style.top = '0';
-					sideBorderDiv.style.right = '0';
-					if (layoutInfo.sideBarSide === 'left') {
+					const sideBorderDiv = document.createElement("div");
+					sideBorderDiv.style.position = "absolute";
+					sideBorderDiv.style.width = "1px";
+					sideBorderDiv.style.height = "100%";
+					sideBorderDiv.style.top = "0";
+					sideBorderDiv.style.right = "0";
+					if (layoutInfo.sideBarSide === "left") {
 						sideBorderDiv.style.borderRight = `1px solid ${colorInfo.sideBarBorder}`;
 					} else {
-						sideBorderDiv.style.left = '0';
+						sideBorderDiv.style.left = "0";
 						sideBorderDiv.style.borderLeft = `1px solid ${colorInfo.sideBarBorder}`;
 					}
 					sideDiv.appendChild(sideBorderDiv);
@@ -207,30 +265,30 @@
 
 			// part: auxiliary sidebar
 			if (layoutInfo.auxiliaryBarWidth > 0) {
-				const auxSideDiv = document.createElement('div');
-				auxSideDiv.style.position = 'absolute';
+				const auxSideDiv = document.createElement("div");
+				auxSideDiv.style.position = "absolute";
 				auxSideDiv.style.width = `${layoutInfo.auxiliaryBarWidth}px`;
 				auxSideDiv.style.height = `calc(100% - ${layoutInfo.titleBarHeight + layoutInfo.statusBarHeight}px)`;
 				auxSideDiv.style.top = `${layoutInfo.titleBarHeight}px`;
-				if (layoutInfo.sideBarSide === 'left') {
-					auxSideDiv.style.right = '0';
+				if (layoutInfo.sideBarSide === "left") {
+					auxSideDiv.style.right = "0";
 				} else {
-					auxSideDiv.style.left = '0';
+					auxSideDiv.style.left = "0";
 				}
 				auxSideDiv.style.backgroundColor = `${colorInfo.sideBarBackground}`;
 				splash.appendChild(auxSideDiv);
 
 				if (colorInfo.sideBarBorder) {
-					const auxSideBorderDiv = document.createElement('div');
-					auxSideBorderDiv.style.position = 'absolute';
-					auxSideBorderDiv.style.width = '1px';
-					auxSideBorderDiv.style.height = '100%';
-					auxSideBorderDiv.style.top = '0';
-					if (layoutInfo.sideBarSide === 'left') {
-						auxSideBorderDiv.style.left = '0';
+					const auxSideBorderDiv = document.createElement("div");
+					auxSideBorderDiv.style.position = "absolute";
+					auxSideBorderDiv.style.width = "1px";
+					auxSideBorderDiv.style.height = "100%";
+					auxSideBorderDiv.style.top = "0";
+					if (layoutInfo.sideBarSide === "left") {
+						auxSideBorderDiv.style.left = "0";
 						auxSideBorderDiv.style.borderLeft = `1px solid ${colorInfo.sideBarBorder}`;
 					} else {
-						auxSideBorderDiv.style.right = '0';
+						auxSideBorderDiv.style.right = "0";
 						auxSideBorderDiv.style.borderRight = `1px solid ${colorInfo.sideBarBorder}`;
 					}
 					auxSideDiv.appendChild(auxSideBorderDiv);
@@ -239,25 +297,29 @@
 
 			// part: statusbar
 			if (layoutInfo.statusBarHeight > 0) {
-				const statusDiv = document.createElement('div');
-				statusDiv.style.position = 'absolute';
-				statusDiv.style.width = '100%';
+				const statusDiv = document.createElement("div");
+				statusDiv.style.position = "absolute";
+				statusDiv.style.width = "100%";
 				statusDiv.style.height = `${layoutInfo.statusBarHeight}px`;
-				statusDiv.style.bottom = '0';
-				statusDiv.style.left = '0';
+				statusDiv.style.bottom = "0";
+				statusDiv.style.left = "0";
 				if (configuration.workspace && colorInfo.statusBarBackground) {
 					statusDiv.style.backgroundColor = colorInfo.statusBarBackground;
-				} else if (!configuration.workspace && colorInfo.statusBarNoFolderBackground) {
-					statusDiv.style.backgroundColor = colorInfo.statusBarNoFolderBackground;
+				} else if (
+					!configuration.workspace &&
+					colorInfo.statusBarNoFolderBackground
+				) {
+					statusDiv.style.backgroundColor =
+						colorInfo.statusBarNoFolderBackground;
 				}
 				splash.appendChild(statusDiv);
 
 				if (colorInfo.statusBarBorder) {
-					const statusBorderDiv = document.createElement('div');
-					statusBorderDiv.style.position = 'absolute';
-					statusBorderDiv.style.width = '100%';
-					statusBorderDiv.style.height = '1px';
-					statusBorderDiv.style.top = '0';
+					const statusBorderDiv = document.createElement("div");
+					statusBorderDiv.style.position = "absolute";
+					statusBorderDiv.style.width = "100%";
+					statusBorderDiv.style.height = "1px";
+					statusBorderDiv.style.top = "0";
 					statusBorderDiv.style.borderTop = `1px solid ${colorInfo.statusBarBorder}`;
 					statusDiv.appendChild(statusBorderDiv);
 				}
@@ -266,15 +328,17 @@
 			window.document.body.appendChild(splash);
 		}
 
-		performance.mark('code/didShowPartsSplash');
+		performance.mark("code/didShowPartsSplash");
 	}
 
 	//#endregion
 
 	//#region Window Helpers
 
-	async function load<M, T extends ISandboxConfiguration>(esModule: string, options: ILoadOptions<T>): Promise<ILoadResult<M, T>> {
-
+	async function load<M, T extends ISandboxConfiguration>(
+		esModule: string,
+		options: ILoadOptions<T>,
+	): Promise<ILoadResult<M, T>> {
 		// Window Configuration from Preload Script
 		const configuration = await resolveWindowConfiguration<T>();
 
@@ -282,107 +346,157 @@
 		options?.beforeImport?.(configuration);
 
 		// Developer settings
-		const { enableDeveloperKeybindings, removeDeveloperKeybindingsAfterLoad, developerDeveloperKeybindingsDisposable, forceDisableShowDevtoolsOnError } = setupDeveloperKeybindings(configuration, options);
+		const {
+			enableDeveloperKeybindings,
+			removeDeveloperKeybindingsAfterLoad,
+			developerDeveloperKeybindingsDisposable,
+			forceDisableShowDevtoolsOnError,
+		} = setupDeveloperKeybindings(configuration, options);
 
 		// NLS
 		setupNLS<T>(configuration);
 
 		// Compute base URL and set as global
-		const baseUrl = new URL(`${fileUriFromPath(configuration.appRoot, { isWindows: safeProcess.platform === 'win32', scheme: 'vscode-file', fallbackAuthority: 'vscode-app' })}/out/`);
+		const baseUrl = new URL(
+			`${fileUriFromPath(configuration.appRoot, { isWindows: safeProcess.platform === "win32", scheme: "vscode-file", fallbackAuthority: "vscode-app" })}/out/`,
+		);
 		globalThis._VSCODE_FILE_ROOT = baseUrl.toString();
+
+		// Enhanced diagnostics for blank screen debugging
+		console.log("[Renderer] load: appRoot:", configuration.appRoot);
+		console.log("[Renderer] load: baseUrl:", baseUrl.toString());
+		console.log(
+			"[Renderer] load: _VSCODE_FILE_ROOT:",
+			globalThis._VSCODE_FILE_ROOT,
+		);
+		console.log("[Renderer] load: esModule:", esModule);
 
 		// Dev only: CSS import map tricks
 		setupCSSImportMaps<T>(configuration, baseUrl);
 
 		// ESM Import
+		const moduleUrl = new URL(`${esModule}.js`, baseUrl).href;
+		console.log("[Renderer] load: Attempting to import from:", moduleUrl);
 		try {
-			const result = await import(new URL(`${esModule}.js`, baseUrl).href);
+			const result = await import(moduleUrl);
+			console.log("[Renderer] load: ✓ Successfully imported module");
 
-			if (developerDeveloperKeybindingsDisposable && removeDeveloperKeybindingsAfterLoad) {
+			if (
+				developerDeveloperKeybindingsDisposable &&
+				removeDeveloperKeybindingsAfterLoad
+			) {
 				developerDeveloperKeybindingsDisposable();
 			}
 
 			return { result, configuration };
 		} catch (error) {
-			onUnexpectedError(error, enableDeveloperKeybindings && !forceDisableShowDevtoolsOnError);
+			console.error(
+				"[Renderer] load: CRITICAL - Failed to import module:",
+				error,
+			);
+			console.error("[Renderer] load: Module URL was:", moduleUrl);
+			console.error("[Renderer] load: baseUrl was:", baseUrl.toString());
+			console.error("[Renderer] load: appRoot was:", configuration.appRoot);
+			onUnexpectedError(
+				error,
+				enableDeveloperKeybindings && !forceDisableShowDevtoolsOnError,
+			);
 
 			throw error;
 		}
 	}
 
 	async function resolveWindowConfiguration<T extends ISandboxConfiguration>() {
-		const timeout = setTimeout(() => { console.error(`[resolve window config] Could not resolve window configuration within 10 seconds, but will continue to wait...`); }, 10000);
-		performance.mark('code/willWaitForWindowConfig');
+		const timeout = setTimeout(() => {
+			console.error(
+				`[resolve window config] Could not resolve window configuration within 10 seconds, but will continue to wait...`,
+			);
+		}, 10000);
+		performance.mark("code/willWaitForWindowConfig");
 
-		const configuration = await preloadGlobals.context.resolveConfiguration() as T;
-		performance.mark('code/didWaitForWindowConfig');
+		const configuration =
+			(await preloadGlobals.context.resolveConfiguration()) as T;
+		performance.mark("code/didWaitForWindowConfig");
 
 		clearTimeout(timeout);
 
 		return configuration;
 	}
 
-	function setupDeveloperKeybindings<T extends ISandboxConfiguration>(configuration: T, options: ILoadOptions<T>) {
+	function setupDeveloperKeybindings<T extends ISandboxConfiguration>(
+		configuration: T,
+		options: ILoadOptions<T>,
+	) {
 		const {
 			forceEnableDeveloperKeybindings,
 			disallowReloadKeybinding,
 			removeDeveloperKeybindingsAfterLoad,
-			forceDisableShowDevtoolsOnError
-		} = typeof options?.configureDeveloperSettings === 'function' ? options.configureDeveloperSettings(configuration) : {
-			forceEnableDeveloperKeybindings: false,
-			disallowReloadKeybinding: false,
-			removeDeveloperKeybindingsAfterLoad: false,
-			forceDisableShowDevtoolsOnError: false
-		};
+			forceDisableShowDevtoolsOnError,
+		} =
+			typeof options?.configureDeveloperSettings === "function"
+				? options.configureDeveloperSettings(configuration)
+				: {
+						forceEnableDeveloperKeybindings: false,
+						disallowReloadKeybinding: false,
+						removeDeveloperKeybindingsAfterLoad: false,
+						forceDisableShowDevtoolsOnError: false,
+					};
 
-		const isDev = !!safeProcess.env['VSCODE_DEV'];
-		const enableDeveloperKeybindings = Boolean(isDev || forceEnableDeveloperKeybindings);
-		let developerDeveloperKeybindingsDisposable: Function | undefined = undefined;
+		const isDev = !!safeProcess.env["VSCODE_DEV"];
+		const enableDeveloperKeybindings = Boolean(
+			isDev || forceEnableDeveloperKeybindings,
+		);
+		let developerDeveloperKeybindingsDisposable: Function | undefined =
+			undefined;
 		if (enableDeveloperKeybindings) {
-			developerDeveloperKeybindingsDisposable = registerDeveloperKeybindings(disallowReloadKeybinding);
+			developerDeveloperKeybindingsDisposable = registerDeveloperKeybindings(
+				disallowReloadKeybinding,
+			);
 		}
 
 		return {
 			enableDeveloperKeybindings,
 			removeDeveloperKeybindingsAfterLoad,
 			developerDeveloperKeybindingsDisposable,
-			forceDisableShowDevtoolsOnError
+			forceDisableShowDevtoolsOnError,
 		};
 	}
 
-	function registerDeveloperKeybindings(disallowReloadKeybinding: boolean | undefined): Function {
+	function registerDeveloperKeybindings(
+		disallowReloadKeybinding: boolean | undefined,
+	): Function {
 		const ipcRenderer = preloadGlobals.ipcRenderer;
 
-		const extractKey =
-			function (e: KeyboardEvent) {
-				return [
-					e.ctrlKey ? 'ctrl-' : '',
-					e.metaKey ? 'meta-' : '',
-					e.altKey ? 'alt-' : '',
-					e.shiftKey ? 'shift-' : '',
-					e.keyCode
-				].join('');
-			};
+		const extractKey = function (e: KeyboardEvent) {
+			return [
+				e.ctrlKey ? "ctrl-" : "",
+				e.metaKey ? "meta-" : "",
+				e.altKey ? "alt-" : "",
+				e.shiftKey ? "shift-" : "",
+				e.keyCode,
+			].join("");
+		};
 
 		// Devtools & reload support
-		const TOGGLE_DEV_TOOLS_KB = (safeProcess.platform === 'darwin' ? 'meta-alt-73' : 'ctrl-shift-73'); // mac: Cmd-Alt-I, rest: Ctrl-Shift-I
-		const TOGGLE_DEV_TOOLS_KB_ALT = '123'; // F12
-		const RELOAD_KB = (safeProcess.platform === 'darwin' ? 'meta-82' : 'ctrl-82'); // mac: Cmd-R, rest: Ctrl-R
+		const TOGGLE_DEV_TOOLS_KB =
+			safeProcess.platform === "darwin" ? "meta-alt-73" : "ctrl-shift-73"; // mac: Cmd-Alt-I, rest: Ctrl-Shift-I
+		const TOGGLE_DEV_TOOLS_KB_ALT = "123"; // F12
+		const RELOAD_KB = safeProcess.platform === "darwin" ? "meta-82" : "ctrl-82"; // mac: Cmd-R, rest: Ctrl-R
 
 		let listener: ((e: KeyboardEvent) => void) | undefined = function (e) {
 			const key = extractKey(e);
 			if (key === TOGGLE_DEV_TOOLS_KB || key === TOGGLE_DEV_TOOLS_KB_ALT) {
-				ipcRenderer.send('vscode:toggleDevTools');
+				ipcRenderer.send("vscode:toggleDevTools");
 			} else if (key === RELOAD_KB && !disallowReloadKeybinding) {
-				ipcRenderer.send('vscode:reloadWindow');
+				ipcRenderer.send("vscode:reloadWindow");
 			}
 		};
 
-		window.addEventListener('keydown', listener);
+		window.addEventListener("keydown", listener);
 
 		return function () {
 			if (listener) {
-				window.removeEventListener('keydown', listener);
+				window.removeEventListener("keydown", listener);
 				listener = undefined;
 			}
 		};
@@ -392,35 +506,44 @@
 		globalThis._VSCODE_NLS_MESSAGES = configuration.nls.messages;
 		globalThis._VSCODE_NLS_LANGUAGE = configuration.nls.language;
 
-		let language = configuration.nls.language || 'en';
-		if (language === 'zh-tw') {
-			language = 'zh-Hant';
-		} else if (language === 'zh-cn') {
-			language = 'zh-Hans';
+		let language = configuration.nls.language || "en";
+		if (language === "zh-tw") {
+			language = "zh-Hant";
+		} else if (language === "zh-cn") {
+			language = "zh-Hans";
 		}
 
-		window.document.documentElement.setAttribute('lang', language);
+		window.document.documentElement.setAttribute("lang", language);
 	}
 
-	function onUnexpectedError(error: string | Error, showDevtoolsOnError: boolean): void {
+	function onUnexpectedError(
+		error: string | Error,
+		showDevtoolsOnError: boolean,
+	): void {
 		if (showDevtoolsOnError) {
 			const ipcRenderer = preloadGlobals.ipcRenderer;
-			ipcRenderer.send('vscode:openDevTools');
+			ipcRenderer.send("vscode:openDevTools");
 		}
 
 		console.error(`[uncaught exception]: ${error}`);
 
-		if (error && typeof error !== 'string' && error.stack) {
+		if (error && typeof error !== "string" && error.stack) {
 			console.error(error.stack);
 		}
 	}
 
-	function fileUriFromPath(path: string, config: { isWindows?: boolean; scheme?: string; fallbackAuthority?: string }): string {
-
+	function fileUriFromPath(
+		path: string,
+		config: {
+			isWindows?: boolean;
+			scheme?: string;
+			fallbackAuthority?: string;
+		},
+	): string {
 		// Since we are building a URI, we normalize any backslash
 		// to slashes and we ensure that the path begins with a '/'.
-		let pathName = path.replace(/\\/g, '/');
-		if (pathName.length > 0 && pathName.charAt(0) !== '/') {
+		let pathName = path.replace(/\\/g, "/");
+		if (pathName.length > 0 && pathName.charAt(0) !== "/") {
 			pathName = `/${pathName}`;
 		}
 
@@ -429,105 +552,316 @@
 		// Windows: in order to support UNC paths (which start with '//')
 		// that have their own authority, we do not use the provided authority
 		// but rather preserve it.
-		if (config.isWindows && pathName.startsWith('//')) {
-			uri = encodeURI(`${config.scheme || 'file'}:${pathName}`);
+		if (config.isWindows && pathName.startsWith("//")) {
+			uri = encodeURI(`${config.scheme || "file"}:${pathName}`);
 		}
 
 		// Otherwise we optionally add the provided authority if specified
 		else {
-			uri = encodeURI(`${config.scheme || 'file'}://${config.fallbackAuthority || ''}${pathName}`);
+			uri = encodeURI(
+				`${config.scheme || "file"}://${config.fallbackAuthority || ""}${pathName}`,
+			);
 		}
 
-		return uri.replace(/#/g, '%23');
+		return uri.replace(/#/g, "%23");
 	}
 
-	function setupCSSImportMaps<T extends ISandboxConfiguration>(configuration: T, baseUrl: URL) {
-
+	function setupCSSImportMaps<T extends ISandboxConfiguration>(
+		configuration: T,
+		baseUrl: URL,
+	) {
 		// DEV ---------------------------------------------------------------------------------------
 		// DEV: This is for development and enables loading CSS via import-statements via import-maps.
 		// DEV: For each CSS modules that we have we defined an entry in the import map that maps to
 		// DEV: a blob URL that loads the CSS via a dynamic @import-rule.
 		// DEV ---------------------------------------------------------------------------------------
 
-		if (Array.isArray(configuration.cssModules) && configuration.cssModules.length > 0) {
-			performance.mark('code/willAddCssLoader');
+		const importMap: { imports: Record<string, string> } = { imports: {} };
+
+		if (
+			Array.isArray(configuration.cssModules) &&
+			configuration.cssModules.length > 0
+		) {
+			performance.mark("code/willAddCssLoader");
 
 			globalThis._VSCODE_CSS_LOAD = function (url) {
-				const link = document.createElement('link');
-				link.setAttribute('rel', 'stylesheet');
-				link.setAttribute('type', 'text/css');
-				link.setAttribute('href', url);
+				const link = document.createElement("link");
+				link.setAttribute("rel", "stylesheet");
+				link.setAttribute("type", "text/css");
+				link.setAttribute("href", url);
 
 				window.document.head.appendChild(link);
 			};
 
-			const importMap: { imports: Record<string, string> } = { imports: {} };
 			for (const cssModule of configuration.cssModules) {
 				const cssUrl = new URL(cssModule, baseUrl).href;
 				const jsSrc = `globalThis._VSCODE_CSS_LOAD('${cssUrl}');\n`;
-				const blob = new Blob([jsSrc], { type: 'application/javascript' });
+				const blob = new Blob([jsSrc], { type: "application/javascript" });
 				importMap.imports[cssUrl] = URL.createObjectURL(blob);
 			}
 
-			const ttp = window.trustedTypes?.createPolicy('vscode-bootstrapImportMap', { createScript(value) { return value; }, });
-			const importMapSrc = JSON.stringify(importMap, undefined, 2);
-			const importMapScript = document.createElement('script');
-			importMapScript.type = 'importmap';
-			importMapScript.setAttribute('nonce', '0c6a828f1297');
-			// @ts-expect-error
-			importMapScript.textContent = ttp?.createScript(importMapSrc) ?? importMapSrc;
-			window.document.head.appendChild(importMapScript);
+			performance.mark("code/didAddCssLoader");
+		}
 
-			performance.mark('code/didAddCssLoader');
+		// Add import maps for React bundle modules to fix vscode-file:// protocol relative import issues
+		// These modules are imported by React bundle chunks using absolute paths (vs/workbench/...) that need import maps
+		const reactBundleModules = [
+			"vs/workbench/contrib/cortexide/browser/actionIDs.js",
+			"vs/workbench/contrib/cortexide/browser/cortexideSettingsPane.js",
+			"vs/workbench/contrib/cortexide/browser/terminalToolService.js",
+			"vs/workbench/contrib/cortexide/common/cortexideSettingsTypes.js",
+			"vs/workbench/contrib/cortexide/common/cortexideSettingsService.js",
+			"vs/workbench/contrib/cortexide/common/sendLLMMessageService.js",
+			"vs/workbench/contrib/cortexide/common/refreshModelService.js",
+			"vs/workbench/contrib/cortexide/common/metricsService.js",
+			"vs/workbench/contrib/cortexide/common/cortexideModelService.js",
+			"vs/workbench/contrib/cortexide/common/mcpService.js",
+			"vs/workbench/contrib/cortexide/common/storageKeys.js",
+			"vs/workbench/contrib/cortexide/common/secretDetectionService.js",
+			"vs/workbench/contrib/cortexide/common/helpers/languageHelpers.js",
+			"vs/workbench/contrib/cortexide/common/helpers/util.js",
+			"vs/workbench/contrib/cortexide/common/helpers/extractCodeFromResult.js",
+			"vs/workbench/contrib/cortexide/common/sendLLMMessageTypes.js",
+			"vs/workbench/contrib/cortexide/common/modelCapabilities.js",
+			"vs/workbench/contrib/cortexide/common/toolsServiceTypes.js",
+			"vs/workbench/contrib/cortexide/common/prompt/prompts.js",
+			"vs/workbench/contrib/cortexide/common/mcpServiceTypes.js",
+			"vs/workbench/contrib/cortexide/common/pdfService.js",
+			"vs/workbench/contrib/cortexide/common/helpers/systemInfo.js",
+		];
+
+		// Also add common VS Code modules that might be imported
+		const commonVSCodeModules = [
+			"vs/base/common/uri.js",
+			"vs/base/common/path.js",
+			"vs/base/common/severity.js",
+			"vs/base/common/lifecycle.js",
+			"vs/base/common/errorMessage.js",
+			"vs/base/browser/ui/inputbox/inputBox.js",
+			"vs/base/browser/ui/selectBox/selectBox.js",
+			"vs/base/browser/ui/toggle/toggle.js",
+			"vs/base/common/network.js",
+			"vs/platform/theme/browser/defaultStyles.js",
+			"vs/platform/theme/common/colorUtils.js",
+			"vs/platform/theme/common/colorRegistry.js",
+			"vs/platform/theme/common/theme.js",
+			"vs/platform/storage/common/storage.js",
+			"vs/editor/common/editorCommon.js",
+			"vs/editor/browser/widget/codeEditor/codeEditorWidget.js",
+			"vs/editor/browser/widget/diffEditor/diffEditorWidget.js",
+		];
+
+		// React bundle chunk files don't need to be in import maps because they use relative imports
+		// (e.g., '../chunk-XXX.js'). The import map is only needed for absolute paths.
+		// Chunk names are generated dynamically by tsup, so hardcoding them would cause mismatches.
+		const reactChunkModules: string[] = [];
+
+		const additionalReactDeps = [
+			"vs/editor/browser/services/codeEditorService.js",
+			"vs/editor/browser/widget/diffEditor/diffEditorWidget.js",
+			"vs/editor/browser/widget/codeEditor/codeEditorWidget.js",
+			"vs/editor/common/editorCommon.js",
+			"vs/editor/common/languages/language.js",
+			"vs/editor/common/languages/languageConfigurationRegistry.js",
+			"vs/editor/common/services/languageFeatures.js",
+			"vs/editor/common/services/model.js",
+			"vs/platform/accessibility/common/accessibility.js",
+			"vs/platform/clipboard/common/clipboardService.js",
+			"vs/platform/commands/common/commands.js",
+			"vs/platform/configuration/common/configuration.js",
+			"vs/platform/contextkey/common/contextkey.js",
+			"vs/platform/contextview/browser/contextView.js",
+			"vs/platform/environment/common/environment.js",
+			"vs/platform/extensionManagement/common/extensionManagement.js",
+			"vs/platform/files/common/files.js",
+			"vs/platform/hover/browser/hover.js",
+			"vs/platform/instantiation/common/instantiation.js",
+			"vs/platform/keybinding/common/keybinding.js",
+			"vs/platform/native/common/native.js",
+			"vs/platform/notification/common/notification.js",
+			"vs/platform/workspace/common/workspace.js",
+			"vs/platform/theme/common/themeService.js",
+			"vs/workbench/services/languageDetection/common/languageDetectionWorkerService.js",
+			"vs/workbench/services/search/common/search.js",
+			"vs/workbench/contrib/cortexide/browser/common/cortexideSettingsTypes.js",
+			"vs/workbench/contrib/cortexide/browser/extensionTransferService.js",
+			"vs/workbench/contrib/cortexide/browser/terminalToolService.js",
+			"vs/workbench/contrib/cortexide/chatThreadService.js",
+			"vs/workbench/contrib/cortexide/common/cortexideModelService.js",
+			"vs/workbench/contrib/cortexide/common/cortexideSettingsService.js",
+			"vs/workbench/contrib/cortexide/common/helpers/extractCodeFromResult.js",
+			"vs/workbench/contrib/cortexide/common/helpers/languageHelpers.js",
+			"vs/workbench/contrib/cortexide/common/helpers/systemInfo.js",
+			"vs/workbench/contrib/cortexide/common/helpers/util.js",
+			"vs/workbench/contrib/cortexide/common/mcpService.js",
+			"vs/workbench/contrib/cortexide/common/mcpServiceTypes.js",
+			"vs/workbench/contrib/cortexide/common/metricsService.js",
+			"vs/workbench/contrib/cortexide/common/modelCapabilities.js",
+			"vs/workbench/contrib/cortexide/common/pdfService.js",
+			"vs/workbench/contrib/cortexide/common/prompt/prompts.js",
+			"vs/workbench/contrib/cortexide/common/refreshModelService.js",
+			"vs/workbench/contrib/cortexide/common/secretDetectionService.js",
+			"vs/workbench/contrib/cortexide/common/sendLLMMessageService.js",
+			"vs/workbench/contrib/cortexide/common/sendLLMMessageTypes.js",
+			"vs/workbench/contrib/cortexide/common/storageKeys.js",
+			"vs/workbench/contrib/cortexide/common/toolsServiceTypes.js",
+			"vs/workbench/contrib/cortexide/convertToLLMMessageService.js",
+			"vs/workbench/contrib/cortexide/cortexideCommandBarService.js",
+			"vs/workbench/contrib/cortexide/editCodeServiceInterface.js",
+			"vs/workbench/contrib/cortexide/repoIndexerService.js",
+			"vs/workbench/contrib/cortexide/toolsService.js",
+			"vs/workbench/contrib/files/browser/files.js",
+			"vs/workbench/services/path/common/pathService.js",
+			"vs/workbench/contrib/terminal/browser/terminal.js",
+		];
+
+		for (const module of [
+			...reactBundleModules,
+			...commonVSCodeModules,
+			...reactChunkModules,
+			...additionalReactDeps,
+		]) {
+			const moduleUrl = new URL(module, baseUrl).href;
+			importMap.imports[module] = moduleUrl;
+		}
+
+		// Provide aliases for modules that might be referenced without the /browser/ segment
+		const browserModuleAliases: Array<[string, string]> = [
+			[
+				"vs/workbench/contrib/cortexide/actionIDs.js",
+				"vs/workbench/contrib/cortexide/browser/actionIDs.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/cortexideSettingsPane.js",
+				"vs/workbench/contrib/cortexide/browser/cortexideSettingsPane.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/terminalToolService.js",
+				"vs/workbench/contrib/cortexide/browser/terminalToolService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/chatThreadService.js",
+				"vs/workbench/contrib/cortexide/browser/chatThreadService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/convertToLLMMessageService.js",
+				"vs/workbench/contrib/cortexide/browser/convertToLLMMessageService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/cortexideCommandBarService.js",
+				"vs/workbench/contrib/cortexide/browser/cortexideCommandBarService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/editCodeServiceInterface.js",
+				"vs/workbench/contrib/cortexide/browser/editCodeServiceInterface.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/repoIndexerService.js",
+				"vs/workbench/contrib/cortexide/browser/repoIndexerService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/toolsService.js",
+				"vs/workbench/contrib/cortexide/browser/toolsService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/extensionTransferService.js",
+				"vs/workbench/contrib/cortexide/browser/extensionTransferService.js",
+			],
+			[
+				"vs/workbench/contrib/cortexide/toolsService.js",
+				"vs/workbench/contrib/cortexide/browser/toolsService.js",
+			],
+			// Aliases for old paths that might still be in bundled code
+			[
+				"vs/services/languageDetection/common/languageDetectionWorkerService.js",
+				"vs/workbench/services/languageDetection/common/languageDetectionWorkerService.js",
+			],
+			[
+				"vs/services/search/common/search.js",
+				"vs/workbench/services/search/common/search.js",
+			],
+			[
+				"vs/workbench/terminal/browser/terminal.js",
+				"vs/workbench/contrib/terminal/browser/terminal.js",
+			],
+		];
+		for (const [alias, target] of browserModuleAliases) {
+			importMap.imports[alias] = new URL(target, baseUrl).href;
+		}
+
+		if (Object.keys(importMap.imports).length > 0) {
+			const ttp = window.trustedTypes?.createPolicy(
+				"vscode-bootstrapImportMap",
+				{
+					createScript(value) {
+						return value;
+					},
+				},
+			);
+			const importMapSrc = JSON.stringify(importMap, undefined, 2);
+			const importMapScript = document.createElement("script");
+			importMapScript.type = "importmap";
+			importMapScript.setAttribute("nonce", "0c6a828f1297");
+			// @ts-expect-error
+			importMapScript.textContent =
+				ttp?.createScript(importMapSrc) ?? importMapSrc;
+			window.document.head.appendChild(importMapScript);
 		}
 	}
 
 	//#endregion
 
-	const { result, configuration } = await load<IDesktopMain, INativeWindowConfiguration>('vs/workbench/workbench.desktop.main',
-		{
-			configureDeveloperSettings: function (windowConfig) {
-				return {
-					// disable automated devtools opening on error when running extension tests
-					// as this can lead to nondeterministic test execution (devtools steals focus)
-					forceDisableShowDevtoolsOnError: typeof windowConfig.extensionTestsPath === 'string' || windowConfig['enable-smoke-test-driver'] === true,
-					// enable devtools keybindings in extension development window
-					forceEnableDeveloperKeybindings: Array.isArray(windowConfig.extensionDevelopmentPath) && windowConfig.extensionDevelopmentPath.length > 0,
-					removeDeveloperKeybindingsAfterLoad: true
-				};
-			},
-			beforeImport: function (windowConfig) {
+	const { result, configuration } = await load<
+		IDesktopMain,
+		INativeWindowConfiguration
+	>("vs/workbench/workbench.desktop.main", {
+		configureDeveloperSettings: function (windowConfig) {
+			return {
+				// disable automated devtools opening on error when running extension tests
+				// as this can lead to nondeterministic test execution (devtools steals focus)
+				forceDisableShowDevtoolsOnError:
+					typeof windowConfig.extensionTestsPath === "string" ||
+					windowConfig["enable-smoke-test-driver"] === true,
+				// enable devtools keybindings in extension development window
+				forceEnableDeveloperKeybindings:
+					Array.isArray(windowConfig.extensionDevelopmentPath) &&
+					windowConfig.extensionDevelopmentPath.length > 0,
+				removeDeveloperKeybindingsAfterLoad: true,
+			};
+		},
+		beforeImport: function (windowConfig) {
+			// Show our splash as early as possible
+			showSplash(windowConfig);
 
-				// Show our splash as early as possible
-				showSplash(windowConfig);
+			// Code windows have a `vscodeWindowId` property to identify them
+			Object.defineProperty(window, "vscodeWindowId", {
+				get: () => windowConfig.windowId,
+			});
 
-				// Code windows have a `vscodeWindowId` property to identify them
-				Object.defineProperty(window, 'vscodeWindowId', {
-					get: () => windowConfig.windowId
-				});
-
-				// It looks like browsers only lazily enable
-				// the <canvas> element when needed. Since we
-				// leverage canvas elements in our code in many
-				// locations, we try to help the browser to
-				// initialize canvas when it is idle, right
-				// before we wait for the scripts to be loaded.
-				window.requestIdleCallback(() => {
-					const canvas = document.createElement('canvas');
-					const context = canvas.getContext('2d');
+			// It looks like browsers only lazily enable
+			// the <canvas> element when needed. Since we
+			// leverage canvas elements in our code in many
+			// locations, we try to help the browser to
+			// initialize canvas when it is idle, right
+			// before we wait for the scripts to be loaded.
+			window.requestIdleCallback(
+				() => {
+					const canvas = document.createElement("canvas");
+					const context = canvas.getContext("2d");
 					context?.clearRect(0, 0, canvas.width, canvas.height);
 					canvas.remove();
-				}, { timeout: 50 });
+				},
+				{ timeout: 50 },
+			);
 
-				// Track import() perf
-				performance.mark('code/willLoadWorkbenchMain');
-			}
-		}
-	);
+			// Track import() perf
+			performance.mark("code/willLoadWorkbenchMain");
+		},
+	});
 
 	// Mark start of workbench
-	performance.mark('code/didLoadWorkbenchMain');
+	performance.mark("code/didLoadWorkbenchMain");
 
 	// Load workbench
 	result.main(configuration);
-}());
+})();

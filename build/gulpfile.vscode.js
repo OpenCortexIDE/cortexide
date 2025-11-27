@@ -100,7 +100,10 @@ const vscodeResourceIncludes = [
 	'out-build/vs/editor/common/languages/highlights/*.scm',
 
 	// Tree Sitter injection queries
-	'out-build/vs/editor/common/languages/injections/*.scm'
+	'out-build/vs/editor/common/languages/injections/*.scm',
+
+	// React components (Cortexide)
+	'out-build/vs/workbench/contrib/cortexide/browser/react/out/**'
 ];
 
 const vscodeResources = [
@@ -122,6 +125,36 @@ const bootstrapEntryPoints = [
 	'out-build/bootstrap-fork.js'
 ];
 
+/**
+ * Task to verify React build files exist after bundling
+ */
+const verifyReactFilesAfterBundleTask = task.define('verify-react-files-after-bundle', () => {
+	const fs = require('fs');
+	const path = require('path');
+	const reactOutPath = path.join(__dirname, '../out-vscode/vs/workbench/contrib/cortexide/browser/react/out');
+	
+	if (!fs.existsSync(reactOutPath)) {
+		// allow-any-unicode-next-line
+		console.error(`❌ React build output directory does not exist: ${reactOutPath}`);
+		console.error('React files were not copied during bundling. This will cause a blank screen!');
+		throw new Error(`React build output directory does not exist: ${reactOutPath}`);
+	}
+	
+	const files = fs.readdirSync(reactOutPath);
+	const jsFiles = files.filter(f => f.endsWith('.js'));
+	
+	if (jsFiles.length === 0) {
+		// allow-any-unicode-next-line
+		console.error(`❌ No React build files found in ${reactOutPath}`);
+		console.error('React files were not copied during bundling. This will cause a blank screen!');
+		throw new Error(`No React build files found in ${reactOutPath}. Expected at least one .js file.`);
+	}
+	
+	// allow-any-unicode-next-line
+	console.log(`✅ Verified ${jsFiles.length} React build files exist in out-vscode/ after bundling`);
+	return Promise.resolve();
+});
+
 const bundleVSCodeTask = task.define('bundle-vscode', task.series(
 	util.rimraf('out-vscode'),
 	// Optimize: bundles source files automatically based on
@@ -141,15 +174,48 @@ const bundleVSCodeTask = task.define('bundle-vscode', task.series(
 				skipTSBoilerplateRemoval: entryPoint => entryPoint === 'vs/code/electron-browser/workbench/workbench'
 			}
 		}
-	)
+	),
+	verifyReactFilesAfterBundleTask // Verify React files are present after bundling
 ));
 gulp.task(bundleVSCodeTask);
 
 const sourceMappingURLBase = `https://main.vscode-cdn.net/sourcemaps/${commit}`;
+
+/**
+ * Task to verify React build files exist after minification
+ */
+const verifyReactFilesAfterMinifyTask = task.define('verify-react-files-after-minify', () => {
+	const fs = require('fs');
+	const path = require('path');
+	const reactOutPath = path.join(__dirname, '../out-vscode-min/vs/workbench/contrib/cortexide/browser/react/out');
+	
+	if (!fs.existsSync(reactOutPath)) {
+		// allow-any-unicode-next-line
+		console.error(`❌ React build output directory does not exist: ${reactOutPath}`);
+		console.error('This will cause a blank screen in the packaged app!');
+		throw new Error(`React build output directory does not exist: ${reactOutPath}`);
+	}
+	
+	const files = fs.readdirSync(reactOutPath);
+	const jsFiles = files.filter(f => f.endsWith('.js'));
+	
+	if (jsFiles.length === 0) {
+		// allow-any-unicode-next-line
+		console.error(`❌ No React build files found in ${reactOutPath}`);
+		console.error('This will cause a blank screen in the packaged app!');
+		throw new Error(`No React build files found in ${reactOutPath}. Expected at least one .js file.`);
+	}
+	
+	// allow-any-unicode-next-line
+	console.log(`✅ Verified ${jsFiles.length} React build files exist in out-vscode-min/`);
+	return Promise.resolve();
+});
+
 const minifyVSCodeTask = task.define('minify-vscode', task.series(
 	bundleVSCodeTask,
 	util.rimraf('out-vscode-min'),
-	optimize.minifyTask('out-vscode', `${sourceMappingURLBase}/core`)
+	optimize.minifyTask('out-vscode', `${sourceMappingURLBase}/core`),
+	verifyReactFilesAfterMinifyTask // Verify React files are present after minification
 ));
 gulp.task(minifyVSCodeTask);
 

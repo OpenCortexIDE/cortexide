@@ -32,7 +32,13 @@ type VoidCommandBarModule = typeof import('./react/out/void-editor-widgets-tsx/i
 let mountVoidCommandBarPromise: Promise<VoidCommandBarModule['mountVoidCommandBar']> | undefined;
 function getMountVoidCommandBar() {
 	if (!mountVoidCommandBarPromise) {
-		mountVoidCommandBarPromise = import('./react/out/void-editor-widgets-tsx/index.js').then(m => m.mountVoidCommandBar);
+		mountVoidCommandBarPromise = import('./react/out/void-editor-widgets-tsx/index.js')
+			.then(m => m.mountVoidCommandBar)
+			.catch(error => {
+				console.error('[CortexideCommandBar] Failed to load React component:', error);
+				// Return a no-op function that matches the expected signature
+				return (_rootElement: any, _accessor: any, _props: any) => undefined;
+			});
 	}
 	return mountVoidCommandBarPromise;
 }
@@ -541,17 +547,48 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 		this._domNode = root;
 		editor.addOverlayWidget(this);
 
-		this.instantiationService.invokeFunction(async accessor => {
-			const uri = editor.getModel()?.uri || null
+		/**
+		 * CRITICAL: Service accessor lifecycle issue
+		 *
+		 * The accessor from invokeFunction is only valid during SYNCHRONOUS execution of the function.
+		 * If we use await inside invokeFunction, the accessor becomes invalid after the await.
+		 *
+		 * Solution: Do NOT call _registerServices here. Instead, let mountVoidCommandBar handle
+		 * service registration when it's called with a fresh accessor from its own invokeFunction.
+		 *
+		 * The error "Illegal state: service accessor is only valid during the invocation of its target method"
+		 * occurs when trying to use an accessor after the synchronous execution completes.
+		 */
+		// Do NOT register services here - the accessor will be invalid after await
+		// Instead, get the mount function first, then call invokeFunction with a fresh accessor
+		(async () => {
 			const mountVoidCommandBar = await getMountVoidCommandBar();
-			const res = mountVoidCommandBar(root, accessor, { uri, editor } satisfies CortexideCommandBarProps)
-			if (!res) return
-			this._register(toDisposable(() => res.dispose?.()))
-			this._register(editor.onWillChangeModel((model) => {
-				const uri = model.newModelUrl
-				res.rerender({ uri, editor } satisfies CortexideCommandBarProps)
-			}))
-		})
+			if (!mountVoidCommandBar) {
+				console.error('[CortexideCommandBar] mountVoidCommandBar is undefined');
+				return;
+			}
+			const uri = editor.getModel()?.uri || null
+
+			// Get a fresh accessor for mountVoidCommandBar - this accessor will be valid
+			// during the synchronous execution of this function
+			this.instantiationService.invokeFunction(accessor => {
+				try {
+					// mountVoidCommandBar will call _registerServices internally with this fresh accessor
+					const res = mountVoidCommandBar(root, accessor, { uri, editor } satisfies CortexideCommandBarProps)
+					if (!res) return
+					this._register(toDisposable(() => res.dispose?.()))
+					this._register(editor.onWillChangeModel((model) => {
+						const uri = model.newModelUrl
+						res.rerender({ uri, editor } satisfies CortexideCommandBarProps)
+					}))
+				} catch (error) {
+					console.error('[CortexideCommandBar] Failed to mount React command bar:', error);
+					// Command bar failure is non-critical, just log the error
+				}
+			})
+		})().catch(err => {
+			console.error('Error mounting void command bar:', err);
+		});
 	}
 
 

@@ -138,8 +138,19 @@ export function initializeModelRegistry(): void {
 
 	// Local Code Models - from Ollama/vLLM
 	// These are registered dynamically when models are detected
-	// Common ones:
+	// Common ones (updated Nov 2025):
 	const commonCodeModels = [
+		// Latest models (2025)
+		{ name: 'qwen2.5-coder:32b', ctx: 32_000 }, // Strong coding capabilities
+		{ name: 'qwen2.5-coder:7b', ctx: 32_000 }, // Lightweight coding
+		{ name: 'deepseek-r1:32b', ctx: 128_000 }, // Top reasoning model
+		{ name: 'deepseek-r1:1.5b', ctx: 128_000 }, // Lightweight reasoning
+		{ name: 'llama3.3:70b', ctx: 128_000 }, // Latest Llama
+		{ name: 'llama3.1:70b', ctx: 128_000 }, // Large Llama
+		{ name: 'llama3.1:8b', ctx: 128_000 }, // Fast Llama
+		{ name: 'codestral:latest', ctx: 131_000 }, // Mistral coding model
+		{ name: 'devstral:latest', ctx: 131_000 }, // Mistral dev model
+		// Legacy names (for backward compatibility)
 		{ name: 'qwen2.5-coder', ctx: 32_000 },
 		{ name: 'deepseek-r1', ctx: 128_000 },
 		{ name: 'llama3.1', ctx: 128_000 },
@@ -160,8 +171,15 @@ export function initializeModelRegistry(): void {
 		});
 	});
 
-	// Local Vision Models
+	// Local Vision Models (updated Nov 2025)
 	const visionModels = [
+		// Latest vision models
+		{ name: 'llava:latest', maxPx: 1_000_000 }, // Latest LLaVA
+		{ name: 'llava:34b', maxPx: 1_000_000 }, // Large LLaVA
+		{ name: 'llava:13b', maxPx: 1_000_000 }, // Medium LLaVA
+		{ name: 'bakllava:latest', maxPx: 1_000_000 }, // Alternative vision model
+		{ name: 'llama3.2-vision:11b', maxPx: 1_000_000 }, // Llama vision model
+		// Legacy names (for backward compatibility)
 		{ name: 'llava', maxPx: 1_000_000 },
 		{ name: 'bakllava', maxPx: 1_000_000 },
 	];

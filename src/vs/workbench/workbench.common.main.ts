@@ -63,6 +63,7 @@ import './services/keybinding/common/keybindingEditing.js';
 import './services/decorations/browser/decorationsService.js';
 import './services/dialogs/common/dialogService.js';
 import './services/progress/browser/progressService.js';
+import './services/progress/browser/editorProgressService.js';
 import './services/editor/browser/codeEditorService.js';
 import './services/preferences/browser/preferencesService.js';
 import './services/configuration/common/jsonEditingService.js';

@@ -60,16 +60,21 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 
 		// Initialize React component
 		this._instantiationService.invokeFunction(accessor => {
-			if (this._reactComponentDisposable) {
-				this._reactComponentDisposable.dispose();
+			try {
+				if (this._reactComponentDisposable) {
+					this._reactComponentDisposable.dispose();
+				}
+				const res = mountVoidSelectionHelper(content, accessor);
+				if (!res) return;
+
+				this._reactComponentDisposable = res;
+				this._rerender = res.rerender;
+
+				this._register(this._reactComponentDisposable);
+			} catch (error) {
+				console.error('[CortexideSelectionHelperWidget] Failed to mount React selection helper:', error);
+				// Selection helper failure is non-critical, just log the error
 			}
-			const res = mountVoidSelectionHelper(content, accessor);
-			if (!res) return;
-
-			this._reactComponentDisposable = res;
-			this._rerender = res.rerender;
-
-			this._register(this._reactComponentDisposable);
 
 
 		});

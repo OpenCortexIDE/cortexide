@@ -66,7 +66,9 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 
 	private onError(err: string): void {
 		this.telemetryService.publicLog2<{ messageHash: string }, UpdateErrorClassification>('update:error', { messageHash: String(hash(String(err))) });
-		this.logService.error('UpdateService error:', err);
+		// Downgrade to trace level to avoid cluttering logs - update check failures are not critical
+		// Common causes: network issues, unsigned app, or no update server configured
+		this.logService.trace('UpdateService: Update check failed (non-critical):', err);
 
 		// only show message when explicitly checking for updates
 		const message = (this.state.type === StateType.CheckingForUpdates && this.state.explicit) ? err : undefined;
@@ -74,13 +76,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	}
 
 	protected buildUpdateFeedUrl(quality: string): string | undefined {
-		let assetID: string;
-		if (!this.productService.darwinUniversalAssetId) {
-			assetID = process.arch === 'x64' ? 'darwin' : 'darwin-arm64';
-		} else {
-			assetID = this.productService.darwinUniversalAssetId;
-		}
-		const url = createUpdateURL(assetID, quality, this.productService);
+		const url = createUpdateURL(this.productService, quality, process.platform, process.arch);
 		try {
 			electron.autoUpdater.setFeedURL({ url });
 		} catch (e) {

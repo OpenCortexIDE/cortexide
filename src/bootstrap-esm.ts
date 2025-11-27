@@ -3,22 +3,23 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from 'node:fs';
-import { register } from 'node:module';
-import { product, pkg } from './bootstrap-meta.js';
-import './bootstrap-node.js';
-import * as performance from './vs/base/common/performance.js';
-import { INLSConfiguration } from './vs/nls.js';
+import * as fs from "node:fs";
+import * as Module from "node:module";
+import { register } from "node:module";
+import { product, pkg } from "./bootstrap-meta.js";
+import "./bootstrap-node.js";
+import * as performance from "./vs/base/common/performance.js";
+import { INLSConfiguration } from "./vs/nls.js";
 
-// Install a hook to module resolution to map 'fs' to 'original-fs'
-if (process.env['ELECTRON_RUN_AS_NODE'] || process.versions['electron']) {
+// Install a hook to module resolution to map "fs" to "original-fs"
+if (process.env["ELECTRON_RUN_AS_NODE"] || process.versions["electron"]) {
 	const jsCode = `
 	export async function resolve(specifier, context, nextResolve) {
-		if (specifier === 'fs') {
+		if (specifier === "fs") {
 			return {
-				format: 'builtin',
+				format: "builtin",
 				shortCircuit: true,
-				url: 'node:original-fs'
+				url: "node:original-fs"
 			};
 		}
 
@@ -26,7 +27,22 @@ if (process.env['ELECTRON_RUN_AS_NODE'] || process.versions['electron']) {
 		// Node.js default resolve if this is the last user-specified loader.
 		return nextResolve(specifier, context);
 	}`;
-	register(`data:text/javascript;base64,${Buffer.from(jsCode).toString('base64')}`, import.meta.url);
+
+	// Try Module.register first (Node.js 20.6+), fallback to named import
+	// @ts-ignore - Module.register may not be available in all Node.js versions
+	if (Module.register) {
+		// @ts-ignore - Module.register compatibility check
+		Module.register(
+			`data:text/javascript;base64,${Buffer.from(jsCode).toString("base64")}`,
+			import.meta.url,
+		);
+	} else {
+		// Fallback for environments where Module.register doesn't exist
+		register(
+			`data:text/javascript;base64,${Buffer.from(jsCode).toString("base64")}`,
+			import.meta.url,
+		);
+	}
 }
 
 // Prepare globals that are needed for running
@@ -36,7 +52,8 @@ globalThis._VSCODE_FILE_ROOT = import.meta.dirname;
 
 //#region NLS helpers
 
-let setupNLSResult: Promise<INLSConfiguration | undefined> | undefined = undefined;
+let setupNLSResult: Promise<INLSConfiguration | undefined> | undefined =
+	undefined;
 
 function setupNLS(): Promise<INLSConfiguration | undefined> {
 	if (!setupNLSResult) {
@@ -47,14 +64,14 @@ function setupNLS(): Promise<INLSConfiguration | undefined> {
 }
 
 async function doSetupNLS(): Promise<INLSConfiguration | undefined> {
-	performance.mark('code/willLoadNls');
+	performance.mark("code/willLoadNls");
 
 	let nlsConfig: INLSConfiguration | undefined = undefined;
 
 	let messagesFile: string | undefined;
-	if (process.env['VSCODE_NLS_CONFIG']) {
+	if (process.env["VSCODE_NLS_CONFIG"]) {
 		try {
-			nlsConfig = JSON.parse(process.env['VSCODE_NLS_CONFIG']);
+			nlsConfig = JSON.parse(process.env["VSCODE_NLS_CONFIG"]);
 			if (nlsConfig?.languagePack?.messagesFile) {
 				messagesFile = nlsConfig.languagePack.messagesFile;
 			} else if (nlsConfig?.defaultMessagesFile) {
@@ -68,37 +85,51 @@ async function doSetupNLS(): Promise<INLSConfiguration | undefined> {
 	}
 
 	if (
-		process.env['VSCODE_DEV'] ||	// no NLS support in dev mode
-		!messagesFile					// no NLS messages file
+		process.env["VSCODE_DEV"] || // no NLS support in dev mode
+		!messagesFile // no NLS messages file
 	) {
 		return undefined;
 	}
 
 	try {
-		globalThis._VSCODE_NLS_MESSAGES = JSON.parse((await fs.promises.readFile(messagesFile)).toString());
+		globalThis._VSCODE_NLS_MESSAGES = JSON.parse(
+			(await fs.promises.readFile(messagesFile)).toString(),
+		);
 	} catch (error) {
 		console.error(`Error reading NLS messages file ${messagesFile}: ${error}`);
 
 		// Mark as corrupt: this will re-create the language pack cache next startup
 		if (nlsConfig?.languagePack?.corruptMarkerFile) {
 			try {
-				await fs.promises.writeFile(nlsConfig.languagePack.corruptMarkerFile, 'corrupted');
+				await fs.promises.writeFile(
+					nlsConfig.languagePack.corruptMarkerFile,
+					"corrupted",
+				);
 			} catch (error) {
 				console.error(`Error writing corrupted NLS marker file: ${error}`);
 			}
 		}
 
 		// Fallback to the default message file to ensure english translation at least
-		if (nlsConfig?.defaultMessagesFile && nlsConfig.defaultMessagesFile !== messagesFile) {
+		if (
+			nlsConfig?.defaultMessagesFile &&
+			nlsConfig.defaultMessagesFile !== messagesFile
+		) {
 			try {
-				globalThis._VSCODE_NLS_MESSAGES = JSON.parse((await fs.promises.readFile(nlsConfig.defaultMessagesFile)).toString());
+				globalThis._VSCODE_NLS_MESSAGES = JSON.parse(
+					(
+						await fs.promises.readFile(nlsConfig.defaultMessagesFile)
+					).toString(),
+				);
 			} catch (error) {
-				console.error(`Error reading default NLS messages file ${nlsConfig.defaultMessagesFile}: ${error}`);
+				console.error(
+					`Error reading default NLS messages file ${nlsConfig.defaultMessagesFile}: ${error}`,
+				);
 			}
 		}
 	}
 
-	performance.mark('code/didLoadNls');
+	performance.mark("code/didLoadNls");
 
 	return nlsConfig;
 }
@@ -106,7 +137,6 @@ async function doSetupNLS(): Promise<INLSConfiguration | undefined> {
 //#endregion
 
 export async function bootstrapESM(): Promise<void> {
-
 	// NLS
 	await setupNLS();
 }

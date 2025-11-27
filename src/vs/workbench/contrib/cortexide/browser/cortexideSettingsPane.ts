@@ -26,6 +26,7 @@ import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextke
 import { mountVoidSettings } from './react/out/void-settings-tsx/index.js'
 import { Codicon } from '../../../../base/common/codicons.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
+import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID, CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from './actionIDs.js';
 
 
 // refer to preferences.contribution.ts keybindings editor
@@ -90,8 +91,16 @@ class CortexideSettingsPane extends EditorPane {
 
 		// Mount React into the scrollable content
 		this.instantiationService.invokeFunction(accessor => {
-			const disposeFn = mountVoidSettings(settingsElt, accessor)?.dispose;
-			this._register(toDisposable(() => disposeFn?.()))
+			try {
+				const result = mountVoidSettings(settingsElt, accessor);
+				if (result?.dispose) {
+					this._register(toDisposable(() => result.dispose()));
+				}
+			} catch (error) {
+				console.error('[CortexideSettingsPane] Failed to mount React settings:', error);
+				// Show error message to user instead of blank screen
+				settingsElt.innerHTML = '<div style="padding: 20px; color: var(--vscode-errorForeground);">Failed to load settings. Please check the console for details.</div>';
+			}
 
 			// setTimeout(() => { // this is a complete hack and I don't really understand how scrollbar works here
 			// 	this._scrollbar?.scanDomNode();
@@ -118,7 +127,6 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 
 
 // register the gear on the top right
-export const CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID = 'workbench.action.toggleCortexideSettings'
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -166,8 +174,6 @@ registerAction2(class extends Action2 {
 })
 
 
-
-export const CORTEXIDE_OPEN_SETTINGS_ACTION_ID = 'workbench.action.openCortexideSettings'
 registerAction2(class extends Action2 {
 	constructor() {
 		super({

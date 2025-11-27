@@ -37,7 +37,7 @@ const notifyUpdate = (res: CortexideCheckUpdateResponse & { message: string }, n
 				class: undefined,
 				run: () => {
 					const { window } = dom.getActiveWindow()
-					window.open('https://voideditor.com/download-beta')
+					window.open('https://github.com/opencortexide/cortexide/releases')
 				}
 			})
 		}
