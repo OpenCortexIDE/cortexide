@@ -1,0 +1,63 @@
+name: Reusable Typecheck
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform to run on'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ${{ inputs.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Restore node_modules cache
+        id: cache-node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: node_modules-typecheck-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node_modules-typecheck-
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Compile build folder
+        working-directory: build
+        run: npm run compile || (npm ci && npm run compile)
+
+      - name: TypeScript Compile Check
+        run: npm run compile-check-ts-native
+
+      - name: Valid Layers Check
+        run: npm run valid-layers-check
+
+      - name: VSCode DTS Compile Check
+        run: npm run vscode-dts-compile-check
+
+      - name: TSEC Compile Check
+        run: npm run tsec-compile-check
+
+      - name: Cache node_modules
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: node_modules-typecheck-${{ hashFiles('package-lock.json') }}
+

@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Skip hooks if SKIP_VERIFY is set (for maintainers)
+if [ "$SKIP_VERIFY" = "1" ]; then
+  echo "⚠️  SKIP_VERIFY=1 set, skipping pre-push hooks"
+  exit 0
+fi
+
+echo "🔍 Running pre-push checks..."
+
+# Typecheck (fast but meaningful)
+echo "📝 Running typecheck..."
+npm run compile-check-ts-native || {
+  echo "❌ Typecheck failed. Please fix TypeScript errors."
+  echo "💡 To bypass (not recommended): SKIP_VERIFY=1 git push ..."
+  exit 1
+}
+
+# Run targeted unit tests based on changed files (if script exists)
+if [ -f "./scripts/test-changed.sh" ]; then
+  echo "🧪 Running tests for changed files..."
+  ./scripts/test-changed.sh || {
+    echo "❌ Tests failed. Please fix failing tests."
+    echo "💡 To bypass (not recommended): SKIP_VERIFY=1 git push ..."
+    exit 1
+  }
+else
+  echo "⚠️  test-changed.sh not found, skipping targeted tests"
+fi
+
+echo "✅ Pre-push checks passed"
+echo "💡 Note: CI will still run full test suite before merge"
+

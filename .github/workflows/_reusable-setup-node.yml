@@ -1,0 +1,111 @@
+name: Reusable Node.js Setup
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: 'Path to .nvmrc file'
+        required: false
+        default: '.nvmrc'
+        type: string
+      cache-key-prefix:
+        description: 'Prefix for cache keys'
+        required: false
+        default: 'node_modules'
+        type: string
+      platform:
+        description: 'Platform (linux, darwin, win32)'
+        required: false
+        default: 'linux'
+        type: string
+      arch:
+        description: 'Architecture (x64, arm64)'
+        required: false
+        default: 'x64'
+        type: string
+
+jobs:
+  setup:
+    name: Setup Node.js and Cache
+    runs-on: ${{ inputs.platform == 'darwin' && 'macos-14' || inputs.platform == 'win32' && 'windows-latest' || 'ubuntu-latest' }}
+    outputs:
+      cache-hit: ${{ steps.cache-node-modules.outputs.cache-hit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+
+      - name: Prepare node_modules cache key
+        id: cache-key
+        shell: bash
+        run: |
+          mkdir -p .build
+          if [ -f "build/azure-pipelines/common/computeNodeModulesCacheKey.js" ]; then
+            node build/azure-pipelines/common/computeNodeModulesCacheKey.js ${{ inputs.platform }} ${{ inputs.arch }} $(node -p process.arch) > .build/packagelockhash
+          else
+            echo "${{ hashFiles('package-lock.json') }}" > .build/packagelockhash
+          fi
+
+      - name: Restore node_modules cache
+        id: cache-node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: .build/node_modules_cache
+          key: "${{ inputs.cache-key-prefix }}-${{ inputs.platform }}-${{ hashFiles('.build/packagelockhash') }}"
+          restore-keys: |
+            ${{ inputs.cache-key-prefix }}-${{ inputs.platform }}-
+
+      - name: Extract node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          if [ "${{ inputs.platform }}" = "win32" ]; then
+            7z.exe x .build/node_modules_cache/cache.7z -aoa || true
+          else
+            tar -xzf .build/node_modules_cache/cache.tgz || true
+          fi
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "${{ inputs.platform }}" = "win32" ]; then
+            # Windows-specific setup if needed
+            npm ci
+          else
+            npm ci
+          fi
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create node_modules archive
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "${{ inputs.platform }}" = "win32" ]; then
+            if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
+              node build/azure-pipelines/common/listNodeModules.js .build/node_modules_list.txt
+              mkdir -p .build/node_modules_cache
+              7z.exe a .build/node_modules_cache/cache.7z -mx3 `@.build/node_modules_list.txt
+            fi
+          else
+            if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
+              node build/azure-pipelines/common/listNodeModules.js .build/node_modules_list.txt
+              mkdir -p .build/node_modules_cache
+              tar -czf .build/node_modules_cache/cache.tgz --files-from .build/node_modules_list.txt
+            fi
+          fi
+
+      - name: Save node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build/node_modules_cache
+          key: "${{ inputs.cache-key-prefix }}-${{ inputs.platform }}-${{ hashFiles('.build/packagelockhash') }}"
+

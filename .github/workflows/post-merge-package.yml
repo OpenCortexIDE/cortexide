@@ -1,0 +1,147 @@
+name: Post-Merge Packaging
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel, let it complete
+
+permissions:
+  contents: write
+
+env:
+  VSCODE_QUALITY: 'oss'
+
+jobs:
+  package-matrix:
+    name: Package (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: win32
+            arch: x64
+            runs-on: windows-latest
+          - os: darwin
+            arch: arm64
+            runs-on: macos-14
+          - os: linux
+            arch: x64
+            runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Prepare node_modules cache key
+        shell: bash
+        run: |
+          mkdir -p .build
+          if [ -f "build/azure-pipelines/common/computeNodeModulesCacheKey.js" ]; then
+            node build/azure-pipelines/common/computeNodeModulesCacheKey.js ${{ matrix.os }} ${{ matrix.arch }} $(node -p process.arch) > .build/packagelockhash
+          else
+            echo "${{ hashFiles('package-lock.json') }}" > .build/packagelockhash
+          fi
+
+      - name: Restore node_modules cache
+        id: cache-node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: .build/node_modules_cache
+          key: "node_modules-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('.build/packagelockhash') }}"
+          restore-keys: |
+            node_modules-${{ matrix.os }}-${{ matrix.arch }}-
+
+      - name: Extract node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "win32" ]; then
+            7z.exe x .build/node_modules_cache/cache.7z -aoa || true
+          else
+            tar -xzf .build/node_modules_cache/cache.tgz || true
+          fi
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        shell: bash
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create node_modules archive
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "win32" ]; then
+            if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
+              node build/azure-pipelines/common/listNodeModules.js .build/node_modules_list.txt
+              mkdir -p .build/node_modules_cache
+              7z.exe a .build/node_modules_cache/cache.7z -mx3 `@.build/node_modules_list.txt
+            fi
+          else
+            if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
+              node build/azure-pipelines/common/listNodeModules.js .build/node_modules_list.txt
+              mkdir -p .build/node_modules_cache
+              tar -czf .build/node_modules_cache/cache.tgz --files-from .build/node_modules_list.txt
+            fi
+          fi
+
+      - name: Build package
+        shell: bash
+        run: |
+          # This is a placeholder - adjust based on actual packaging commands
+          # For VS Code/Electron apps, this typically involves:
+          # 1. Compile the application
+          # 2. Package for the target platform (using electron-builder, gulp, etc.)
+          echo "Building package for ${{ matrix.os }}-${{ matrix.arch }}"
+          # npm run package:${{ matrix.os }}:${{ matrix.arch }} || echo "Packaging command not yet configured"
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          # Generate SHA256 checksums for all artifacts
+          find .build -name "*.zip" -o -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" | while read file; do
+            if [ "${{ matrix.os }}" = "win32" ]; then
+              certutil -hashfile "$file" SHA256 > "$file.sha256" || echo "Checksum generation failed for $file"
+            else
+              shasum -a 256 "$file" > "$file.sha256" || sha256sum "$file" > "$file.sha256"
+            fi
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-${{ matrix.os }}-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            .build/**/*.zip
+            .build/**/*.dmg
+            .build/**/*.exe
+            .build/**/*.AppImage
+            .build/**/*.sha256
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Save node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build/node_modules_cache
+          key: "node_modules-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('.build/packagelockhash') }}"
+

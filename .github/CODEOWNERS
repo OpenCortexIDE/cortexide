@@ -1,4 +1,9 @@
 # GitHub actions required reviewers
+# NOTE: Update these with actual OpenCortexIDE team members
+.github/workflows/** @OpenCortexIDE/maintainers
+.github/workflows/_reusable-*.yml @OpenCortexIDE/maintainers
+.github/workflows/pr.yml @OpenCortexIDE/maintainers
+.github/workflows/post-merge-package.yml @OpenCortexIDE/maintainers
 .github/workflows/monaco-editor.yml @hediet @alexdima @lszomoru @joaomoreno
 .github/workflows/no-package-lock-changes.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
 .github/workflows/no-yarn-lock-changes.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
@@ -7,8 +12,13 @@
 .github/workflows/pr-linux-test.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
 .github/workflows/pr-node-modules.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
 .github/workflows/pr-win32-test.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
-.github/workflows/pr.yml @lszomoru @joaomoreno @TylerLeonhardt @rzhao271
 .github/workflows/telemetry.yml @lramos15 @lszomoru @joaomoreno
+
+# Build and release infrastructure (critical paths)
+build/** @OpenCortexIDE/maintainers
+scripts/** @OpenCortexIDE/maintainers
+.husky/** @OpenCortexIDE/maintainers
+.lintstagedrc.js @OpenCortexIDE/maintainers
 
 # VS Code API
 # Ensure the API team is aware of changes to the vscode-dts file

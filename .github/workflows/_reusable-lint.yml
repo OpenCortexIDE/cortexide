@@ -1,0 +1,51 @@
+name: Reusable Lint Check
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform to run on'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ${{ inputs.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Restore node_modules cache
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: node_modules-lint-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node_modules-lint-
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Run ESLint
+        run: npm run eslint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache node_modules
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: node_modules-lint-${{ hashFiles('package-lock.json') }}
+

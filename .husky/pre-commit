@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Skip hooks if SKIP_VERIFY is set (for maintainers)
+if [ "$SKIP_VERIFY" = "1" ]; then
+  echo "⚠️  SKIP_VERIFY=1 set, skipping pre-commit hooks"
+  exit 0
+fi
+
+# Fast formatting check (staged files only)
+echo "🔍 Running format check on staged files..."
+
+# Check if we have staged files
+if git diff --cached --quiet; then
+  echo "No staged files, skipping format check"
+  exit 0
+fi
+
+# Run eslint on staged files (fast)
+npx lint-staged || {
+  echo "❌ Pre-commit hook failed. Please fix linting errors."
+  echo "💡 To bypass (not recommended): SKIP_VERIFY=1 git commit ..."
+  exit 1
+}
+
+echo "✅ Pre-commit checks passed"
+
