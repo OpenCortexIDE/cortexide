@@ -4870,7 +4870,8 @@ const CommandBarInChat = () => {
 		if (numFilesChanged > 0 && fileDetailsOpenedState !== "user-closed") {
 			setFileDetailsOpenedState("auto-opened");
 		}
-	}, [fileDetailsOpenedState, setFileDetailsOpenedState, numFilesChanged]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [fileDetailsOpenedState, numFilesChanged]); // setFileDetailsOpenedState is stable, no need in deps
 
 	const isFinishedMakingThreadChanges =
 		// there are changed files
@@ -5376,7 +5377,8 @@ export const SidebarChat = () => {
 	// Memoize scrollToBottom callback to prevent unnecessary re-renders
 	const scrollToBottomCallback = useCallback(() => {
 		scrollToBottom(scrollContainerRef);
-	}, [scrollContainerRef]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []); // scrollContainerRef is a ref, stable and doesn't need to be in deps
 
 	const onSubmit = useCallback(
 		async (_forceSubmit?: string) => {
