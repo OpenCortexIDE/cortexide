@@ -842,7 +842,7 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 			disabled={!isEnabled}
 
-			className={`w-full resize-none max-h-[500px] overflow-y-auto ${appearanceClasses} ${className}`}
+			className={`void-focus-ring w-full resize-none max-h-[500px] overflow-y-auto transition-colors ${appearanceClasses} ${className}`}
 			style={{ ...baseStyle, ...style }}
 
 			onInput={useCallback((event: React.FormEvent<HTMLTextAreaElement>) => {
@@ -893,7 +893,7 @@ export const VoidInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		{isMenuOpen && (
 			<div
 				ref={refs.setFloating}
-				className="z-[100] border-void-border-3 bg-void-bg-2-alt border rounded shadow-lg flex flex-col overflow-hidden"
+				className="z-[100] border-void-border-3 bg-void-bg-2-alt border rounded-lg shadow-lg flex flex-col overflow-hidden"
 				style={{
 					position: strategy,
 					top: y ?? 0,
@@ -1009,9 +1009,10 @@ export const VoidSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 			onChange={handleChange}
 			placeholder={placeholder}
 			disabled={disabled}
-			className={`w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1
-				${compact ? 'py-1 px-2' : 'py-2 px-4 '}
-				rounded
+			className={`void-focus-ring w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1
+				${compact ? 'py-1 px-2' : 'py-2 px-4'}
+				rounded-md
+				transition-colors
 				${disabled ? 'opacity-50 cursor-not-allowed' : ''}
 				${className}`}
 			style={{
@@ -1475,7 +1476,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 			<button
 				type='button'
 				ref={refs.setReference}
-				className="flex items-center h-4 bg-transparent whitespace-nowrap hover:brightness-90 w-full"
+				className="void-focus-ring flex items-center h-4 bg-transparent whitespace-nowrap hover:brightness-90 w-full transition-opacity"
 				onClick={() => setIsOpen(!isOpen)}
 			>
 				<span className={`truncate ${arrowTouchesText ? 'mr-1' : ''}`}>
@@ -1500,7 +1501,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 			{isOpen && (
 				<div
 					ref={refs.setFloating}
-					className="z-[10000] bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
+					className="z-[10000] bg-void-bg-1 border-void-border-3 border rounded-lg shadow-lg"
 					style={{
 						position: strategy,
 						top: y ?? 0,
@@ -1800,10 +1801,11 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 }
 
 
-export const VoidButtonBgDarken = ({ children, disabled, onClick, className }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string }) => {
+export const VoidButtonBgDarken = ({ children, disabled, onClick, className, style }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string; style?: React.CSSProperties }) => {
 	return <button disabled={disabled}
-		className={`px-3 py-1 bg-black/10 dark:bg-white/10 rounded-sm overflow-hidden whitespace-nowrap flex items-center justify-center ${className || ''}`}
+		className={`void-focus-ring px-3 py-1 bg-black/10 dark:bg-white/10 rounded-md overflow-hidden whitespace-nowrap flex items-center justify-center transition-opacity ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:opacity-80'} ${className || ''}`}
 		onClick={onClick}
+		style={style}
 	>{children}</button>
 }
 

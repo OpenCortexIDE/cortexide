@@ -21,6 +21,8 @@
 	outline: none !important;
 }
 
+/* Allow rounded corners - removed global override */
+
 .inherit-bg-all-restyle > * {
 	background-color: inherit !important;
 }
@@ -73,10 +75,10 @@
 }
 
 /* rounded corners utilities */
-.void-rounded-sm { border-radius: var(--void-radius-sm); }
-.void-rounded-md { border-radius: var(--void-radius-md); }
-.void-rounded-lg { border-radius: var(--void-radius-lg); }
-.void-rounded-xl { border-radius: var(--void-radius-xl); }
+.void-rounded-sm { border-radius: 4px; }
+.void-rounded-md { border-radius: 6px; }
+.void-rounded-lg { border-radius: 8px; }
+.void-rounded-xl { border-radius: 12px; }
 
 /* Code Review Decorations */
 .monaco-editor .code-review-error {

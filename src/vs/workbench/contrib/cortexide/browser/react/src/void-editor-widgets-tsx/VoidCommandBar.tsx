@@ -38,11 +38,14 @@ export const VoidCommandBarMain = ({ uri, editor }: CortexideCommandBarProps) =>
 export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string, onClick: () => void, className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
 		className={`
+			void-focus-ring
 			px-2 py-0.5
 			flex items-center gap-1
-			text-white text-[11px] text-nowrap
+			text-[11px] text-nowrap
 			h-full rounded-none
 			cursor-pointer
+			transition-opacity
+			hover:opacity-90
 			${className}
 		`}
 		style={{
@@ -61,11 +64,14 @@ export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: {
 export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string, onClick: () => void, className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
 		className={`
+			void-focus-ring
 			px-2 py-0.5
 			flex items-center gap-1
-			text-white text-[11px] text-nowrap
+			text-[11px] text-nowrap
 			h-full rounded-none
 			cursor-pointer
+			transition-opacity
+			hover:opacity-90
 			${className}
 		`}
 		style={{
@@ -196,14 +202,14 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 	if (currFileIdx === null) {
 		return (
 			<div className="pointer-events-auto">
-				<div className="flex bg-void-bg-2 shadow-md border border-void-border-2 [&>*:first-child]:pl-3 [&>*:last-child]:pr-3 [&>*]:border-r [&>*]:border-void-border-2 [&>*:last-child]:border-r-0">
+				<div className="flex bg-void-bg-2 shadow-md border border-void-border-2 rounded-md [&>*:first-child]:pl-3 [&>*:last-child]:pr-3 [&>*]:border-r [&>*]:border-void-border-2 [&>*:last-child]:border-r-0">
 					<div className="flex items-center px-3">
 						<span className="text-xs whitespace-nowrap">
 							{`${sortedCommandBarURIs.length} file${sortedCommandBarURIs.length === 1 ? '' : 's'} changed`}
 						</span>
 					</div>
 					<button
-						className="text-xs whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:opacity-90 h-full px-3"
+						className="void-focus-ring text-xs whitespace-nowrap cursor-pointer flex items-center justify-center gap-1 bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:opacity-90 h-full px-3 transition-opacity"
 						onClick={() => commandBarService.goToURIIdx(nextURIIdx)}
 						onKeyDown={(e) => {
 							if (e.key === 'Enter' || e.key === ' ') {
@@ -226,7 +232,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 			{/* Accept All / Reject All buttons that appear when the vertical ellipsis is clicked */}
 			{showAcceptRejectAllButtons && showAcceptRejectAll && (
 				<div className="flex justify-end mb-1">
-					<div className="inline-flex bg-void-bg-2 rounded shadow-md border border-void-border-2 overflow-hidden">
+					<div className="inline-flex bg-void-bg-2 rounded-md shadow-md border border-void-border-2 overflow-hidden">
 						<div className="flex items-center [&>*]:border-r [&>*]:border-void-border-2 [&>*:last-child]:border-r-0">
 							<AcceptAllButtonWrapper
 								// text={`Accept All${acceptAllKeybindLabel ? ` ${acceptAllKeybindLabel}` : ''}`}
@@ -249,12 +255,12 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 				</div>
 			)}
 
-			<div className="flex items-center bg-void-bg-2 rounded shadow-md border border-void-border-2 [&>*:first-child]:pl-3 [&>*:last-child]:pr-3 [&>*]:px-3 [&>*]:border-r [&>*]:border-void-border-2 [&>*:last-child]:border-r-0">
+			<div className="flex items-center bg-void-bg-2 rounded-md shadow-md border border-void-border-2 [&>*:first-child]:pl-3 [&>*:last-child]:pr-3 [&>*]:px-3 [&>*]:border-r [&>*]:border-void-border-2 [&>*:last-child]:border-r-0">
 
 				{/* Diff Navigation Group */}
 				<div className="flex items-center py-0.5">
 					<button
-						className="cursor-pointer"
+						className="void-focus-ring cursor-pointer transition-opacity"
 						disabled={upDownDisabled}
 						onClick={() => commandBarService.goToDiffIdx(prevDiffIdx)}
 						onKeyDown={(e) => {
@@ -279,7 +285,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 
 					</span>
 					<button
-						className="cursor-pointer"
+						className="void-focus-ring cursor-pointer transition-opacity"
 						disabled={upDownDisabled}
 						onClick={() => commandBarService.goToDiffIdx(nextDiffIdx)}
 						onKeyDown={(e) => {
@@ -301,7 +307,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 				{/* File Navigation Group */}
 				<div className="flex items-center py-0.5">
 					<button
-						className="cursor-pointer"
+						className="void-focus-ring cursor-pointer transition-opacity"
 						disabled={leftRightDisabled}
 						onClick={() => commandBarService.goToURIIdx(prevURIIdx)}
 						onKeyDown={(e) => {
@@ -323,7 +329,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 						}
 					</span>
 					<button
-						className="cursor-pointer"
+						className="void-focus-ring cursor-pointer transition-opacity"
 						disabled={leftRightDisabled}
 						onClick={() => commandBarService.goToURIIdx(nextURIIdx)}
 						onKeyDown={(e) => {
@@ -364,14 +370,15 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 				)}
 				{/* Triple colon menu button */}
 				{showAcceptRejectAll && <div className='!px-0 !py-0 self-stretch flex justify-center items-center'>
-					<div
-						className="cursor-pointer px-1 self-stretch flex justify-center items-center"
+					<button
+						type="button"
+						className="void-focus-ring cursor-pointer px-1 self-stretch flex justify-center items-center transition-opacity hover:opacity-80"
 						onClick={() => setShowAcceptRejectAllButtons(!showAcceptRejectAllButtons)}
 					>
 						<EllipsisVertical
 							className="size-3"
 						/>
-					</div>
+					</button>
 				</div>}
 			</div>
 		</div>
