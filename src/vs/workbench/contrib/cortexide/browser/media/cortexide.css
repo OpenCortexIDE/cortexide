@@ -49,9 +49,9 @@
 	--cortex-space-xl: 20px;
 	--cortex-space-2xl: 24px;
 
-	/* Radii */
-	--cortex-radius-xs: 3px;
-	--cortex-radius-sm: 4px;
+	/* Radii - subtle rounded corners for modern aesthetic */
+	--cortex-radius-xs: 4px;
+	--cortex-radius-sm: 6px;
 	--cortex-radius-md: 8px;
 	--cortex-radius-lg: 12px;
 
