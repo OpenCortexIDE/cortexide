@@ -5,4 +5,5 @@
 
 import { diffLines, Change } from 'diff';
 
-export { diffLines, Change }
+export { diffLines };
+export type { Change };
