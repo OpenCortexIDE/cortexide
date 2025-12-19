@@ -313,27 +313,6 @@ export const IconLoading = ({
 	showSpinner?: boolean;
 	size?: number;
 }) => {
-	const [dots, setDots] = useState(1);
-
-	useEffect(() => {
-		// Optimized: Use requestAnimationFrame for smoother animation, update every 400ms
-		let frameId: number;
-		let lastUpdate = Date.now();
-
-		const animate = () => {
-			const now = Date.now();
-			if (now - lastUpdate >= 400) {
-				setDots((prev) => (prev >= 3 ? 1 : prev + 1));
-				lastUpdate = now;
-			}
-			frameId = requestAnimationFrame(animate);
-		};
-
-		frameId = requestAnimationFrame(animate);
-		return () => cancelAnimationFrame(frameId);
-	}, []);
-
-	const dotsText = ".".repeat(dots);
 	const tokenText =
 		showTokenCount !== undefined ? ` (${showTokenCount} tokens)` : "";
 
@@ -5859,7 +5838,7 @@ export const SidebarChat = () => {
 			return { primary, secondary: undefined as string | undefined };
 		}
 
-		// Tool phase – surface which tool is running when possible
+		// Tool phase - surface which tool is running when possible
 		if (isRunning === "tool" || toolIsGenerating) {
 			let toolLabel = "Running tools…";
 			if (toolCallSoFar?.name) {
@@ -5871,7 +5850,7 @@ export const SidebarChat = () => {
 			};
 		}
 
-		// LLM phase – distinguish thinking vs. writing
+		// LLM phase - distinguish thinking vs. writing
 		if (isRunning === "LLM") {
 			if (!displayContentSoFar && !reasoningSoFar) {
 				return {

@@ -80,6 +80,33 @@
 .void-rounded-lg { border-radius: 8px; }
 .void-rounded-xl { border-radius: 12px; }
 
+/* Animation utilities - ensure Tailwind animations work even with prefix */
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+
+/* Support both prefixed and unprefixed animation classes */
+.animate-spin,
+.void-animate-spin {
+	animation: spin 1s linear infinite;
+}
+
+.animate-pulse,
+.void-animate-pulse {
+	animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 /* Code Review Decorations */
 .monaco-editor .code-review-error {
 	background-color: rgba(255, 0, 0, 0.1);
@@ -138,6 +165,7 @@
 }
 
 .monaco-editor .error-detection-glyph-error::before {
+	// allow-any-unicode-next-line
 	content: '❌';
 	font-size: 14px;
 	color: var(--vscode-errorForeground);
