@@ -39,5 +39,6 @@ export default defineConfig({
 	treeshake: true,
 	esbuildOptions(options) {
 		options.outbase = 'src2'  // tries copying the folder hierarchy starting at src2
+		// Note: Memory limits are set via Node.js --max-old-space-size flag in build.js
 	}
 })
