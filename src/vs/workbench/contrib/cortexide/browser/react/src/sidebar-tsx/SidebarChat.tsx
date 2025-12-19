@@ -86,7 +86,6 @@ import {
 	Text,
 	Image as ImageIcon,
 	FileText,
-	Plus,
 } from "lucide-react";
 import {
 	ChatMessage,
