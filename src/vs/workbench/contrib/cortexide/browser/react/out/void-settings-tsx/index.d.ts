@@ -3,7 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { diffLines, Change } from 'diff';
+import { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';
 
-export { diffLines };
-export type { Change };
+export interface MountResult {
+	rerender: (props?: any) => void;
+	dispose: () => void;
+}
+
+export function mountVoidSettings(rootElement: HTMLElement, accessor: ServicesAccessor, props?: any): MountResult | undefined;
+

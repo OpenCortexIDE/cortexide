@@ -106,10 +106,13 @@ if (isWatch) {
 		'npx scope-tailwind ./src -o src2/ -s void-scope -c styles.css -p "void-"'
 	]);
 
-	const tsupWatcher = spawn('npx', [
-		'tsup',
+	const tsupWatcher = spawn('node', [
+		'--max-old-space-size=4096',
+		'./node_modules/.bin/tsup',
 		'--watch'
-	]);
+	], {
+		cwd: __dirname
+	});
 
 	scopeTailwindWatcher.stdout.on('data', (data) => {
 		console.log(`[scope-tailwind] ${data}`);
@@ -147,8 +150,9 @@ if (isWatch) {
 	// Run scope-tailwind once
 	execSync('npx scope-tailwind ./src -o src2/ -s void-scope -c styles.css -p "void-"', { stdio: 'inherit' });
 
-	// Run tsup once
-	execSync('npx tsup', { stdio: 'inherit' });
+	// Run tsup once with increased memory limit
+	// tsup uses esbuild which can be memory-intensive with large bundles
+	execSync('node --max-old-space-size=4096 ./node_modules/.bin/tsup', { stdio: 'inherit' });
 
 	console.log('✅ Build complete!');
 }

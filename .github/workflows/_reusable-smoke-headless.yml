@@ -1,0 +1,68 @@
+name: Reusable Headless Smoke Test
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform to run on'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+
+jobs:
+  smoke-headless:
+    name: Headless Smoke Test
+    runs-on: ${{ inputs.platform }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Restore node_modules cache
+        id: cache-node-modules
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: node_modules-smoke-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node_modules-smoke-
+
+      - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Transpile client and extensions
+        run: npm run gulp transpile-client-esbuild transpile-extensions
+
+      - name: Download Electron
+        run: npm run electron
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compile smoke tests
+        working-directory: test/smoke
+        run: npm run compile
+
+      - name: Compile extensions for smoke tests
+        run: npm run gulp compile-extension-media
+
+      - name: Run headless smoke test
+        run: npm run smoketest-no-compile -- --headless --quick || npm run smoketest-no-compile -- --web --headless --quick
+        continue-on-error: false
+
+      - name: Cache node_modules
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: node_modules-smoke-${{ hashFiles('package-lock.json') }}
+
