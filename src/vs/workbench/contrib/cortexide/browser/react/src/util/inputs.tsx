@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
 import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
@@ -1497,8 +1498,8 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 				</svg>
 			</button>
 
-			{/* Dropdown Menu */}
-			{isOpen && (
+			{/* Dropdown Menu - Use portal to render to document.body to avoid stacking context issues on Linux */}
+			{isOpen && typeof document !== 'undefined' && createPortal(
 				<div
 					ref={refs.setFloating}
 					className="z-[10000] bg-void-bg-1 border-void-border-3 border rounded-lg shadow-lg"
@@ -1555,7 +1556,8 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 						})}
 					</div>
 
-				</div>
+				</div>,
+				document.body
 			)}
 		</div>
 	);

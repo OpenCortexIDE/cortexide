@@ -18,7 +18,7 @@ import { Emitter, Event } from '../../../common/event.js';
 import { KeyCode, KeyMod, ScanCode, ScanCodeUtils } from '../../../common/keyCodes.js';
 import { ResolvedKeybinding } from '../../../common/keybindings.js';
 import { Disposable, DisposableStore, dispose, IDisposable } from '../../../common/lifecycle.js';
-import { isMacintosh, isWindows } from '../../../common/platform.js';
+import { isLinux, isMacintosh, isWindows } from '../../../common/platform.js';
 import * as strings from '../../../common/strings.js';
 import './menubar.css';
 import * as nls from '../../../../nls.js';
@@ -1082,9 +1082,10 @@ export class MenuBar extends Disposable {
 		menuHolder.style.opacity = '1';
 		menuHolder.style.pointerEvents = 'auto';
 
-		// On Windows, append dropdown to document.body to avoid stacking context issues
+		// On Windows and Linux, append dropdown to document.body to avoid stacking context issues
 		// where the dropdown renders behind the workbench content
-		if (isWindows) {
+		// Linux experiences the same stacking context issues as Windows
+		if (isWindows || isLinux) {
 			const window = DOM.getWindow(this.container);
 			window.document.body.appendChild(menuHolder);
 		} else {
