@@ -128,13 +128,14 @@ jobs:
         shell: bash
         run: |
           echo "Building package for ${{ matrix.os }}-${{ matrix.arch }}"
-          # Note: Actual packaging commands should be added here based on your build system
+          # TODO: Implement actual packaging commands based on your build system
           # Common options:
           # - npm run gulp package-${{ matrix.os }}-${{ matrix.arch }}
           # - npm run electron-builder -- --${{ matrix.os }} --${{ matrix.arch }}
           # For now, this step compiles but doesn't create distributable packages
-          # Uncomment and configure the appropriate packaging command when ready
-          echo "Package build step - configure actual packaging command as needed"
+          # See build/gulpfile.vscode.js for packaging task examples
+          echo "⚠️  Package build step is a placeholder - actual packaging not yet implemented"
+          echo "📝 To implement: Add packaging commands based on build/gulpfile.vscode.js packageTask()"
         env:
           VSCODE_ARCH: ${{ matrix.arch }}
           npm_config_arch: ${{ matrix.arch }}

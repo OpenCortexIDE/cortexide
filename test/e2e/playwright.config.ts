@@ -30,7 +30,7 @@ export default defineConfig({
 	],
 
 	webServer: {
-		command: 'npm run web',
+		command: './scripts/code-web.sh --port 9888 --browserType none',
 		url: 'http://localhost:9888',
 		reuseExistingServer: !process.env.CI,
 		timeout: 120 * 1000,
