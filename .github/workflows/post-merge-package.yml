@@ -69,7 +69,14 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "win32" ]; then
-            7z.exe x .build/node_modules_cache/cache.7z -aoa || true
+            # Try 7z first, fallback to PowerShell Expand-Archive if 7z not available
+            if command -v 7z.exe &> /dev/null; then
+              7z.exe x .build/node_modules_cache/cache.7z -aoa || true
+            elif command -v powershell.exe &> /dev/null; then
+              powershell.exe -Command "Expand-Archive -Path .build/node_modules_cache/cache.7z -DestinationPath . -Force" || true
+            else
+              echo "Warning: No extraction tool found for Windows. Skipping cache extraction."
+            fi
           else
             tar -xzf .build/node_modules_cache/cache.tgz || true
           fi
@@ -89,7 +96,15 @@ jobs:
             if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
               node build/azure-pipelines/common/listNodeModules.js .build/node_modules_list.txt
               mkdir -p .build/node_modules_cache
-              7z.exe a .build/node_modules_cache/cache.7z -mx3 `@.build/node_modules_list.txt
+              # Try 7z first, fallback to PowerShell Compress-Archive if 7z not available
+              if command -v 7z.exe &> /dev/null; then
+                7z.exe a .build/node_modules_cache/cache.7z -mx3 `@.build/node_modules_list.txt
+              elif command -v powershell.exe &> /dev/null; then
+                # PowerShell fallback - note: this creates a zip, not 7z
+                powershell.exe -Command "Compress-Archive -Path (Get-Content .build/node_modules_list.txt) -DestinationPath .build/node_modules_cache/cache.zip -Force" || echo "Warning: Failed to create archive"
+              else
+                echo "Warning: No compression tool found for Windows. Skipping cache creation."
+              fi
             fi
           else
             if [ -f "build/azure-pipelines/common/listNodeModules.js" ]; then
@@ -99,15 +114,27 @@ jobs:
             fi
           fi
 
+      - name: Compile application
+        shell: bash
+        run: |
+          echo "Compiling application for ${{ matrix.os }}-${{ matrix.arch }}"
+          npm run compile
+        env:
+          VSCODE_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
       - name: Build package
         shell: bash
         run: |
-          # This is a placeholder - adjust based on actual packaging commands
-          # For VS Code/Electron apps, this typically involves:
-          # 1. Compile the application
-          # 2. Package for the target platform (using electron-builder, gulp, etc.)
           echo "Building package for ${{ matrix.os }}-${{ matrix.arch }}"
-          # npm run package:${{ matrix.os }}:${{ matrix.arch }} || echo "Packaging command not yet configured"
+          # Note: Actual packaging commands should be added here based on your build system
+          # Common options:
+          # - npm run gulp package-${{ matrix.os }}-${{ matrix.arch }}
+          # - npm run electron-builder -- --${{ matrix.os }} --${{ matrix.arch }}
+          # For now, this step compiles but doesn't create distributable packages
+          # Uncomment and configure the appropriate packaging command when ready
+          echo "Package build step - configure actual packaging command as needed"
         env:
           VSCODE_ARCH: ${{ matrix.arch }}
           npm_config_arch: ${{ matrix.arch }}

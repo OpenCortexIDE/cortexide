@@ -23,6 +23,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Restore node_modules cache
+        id: cache-node-modules
         uses: actions/cache/restore@v4
         with:
           path: node_modules

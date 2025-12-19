@@ -313,12 +313,8 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
-
       - name: Cache Playwright browsers
+        id: cache-playwright
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -326,15 +322,28 @@ jobs:
           restore-keys: |
             playwright-browsers-${{ runner.os }}-
 
+      - name: Install Playwright browsers
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
+
       - name: Transpile client and extensions
         run: npm run gulp transpile-client-esbuild transpile-extensions
 
       - name: Run E2E tests
         working-directory: test/e2e
-        run: npx playwright test || echo "E2E tests skipped - test suite may need adjustment"
+        run: npx playwright test
         continue-on-error: true
         env:
           CI: true
+
+      - name: Check E2E test results
+        if: failure()
+        run: |
+          echo "::warning::E2E tests failed. This is non-blocking but should be investigated."
+          echo "Test results are available in the uploaded artifacts."
+          exit 0
 
       - name: Upload test results
         if: always()

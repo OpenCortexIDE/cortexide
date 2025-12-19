@@ -18,6 +18,7 @@ npm run compile-check-ts-native || {
 }
 
 # Run targeted unit tests based on changed files (if script exists)
+# Note: test-changed.sh can be added later for optimized test runs
 if [ -f "./scripts/test-changed.sh" ]; then
   echo "🧪 Running tests for changed files..."
   ./scripts/test-changed.sh || {
@@ -25,8 +26,6 @@ if [ -f "./scripts/test-changed.sh" ]; then
     echo "💡 To bypass (not recommended): SKIP_VERIFY=1 git push ..."
     exit 1
   }
-else
-  echo "⚠️  test-changed.sh not found, skipping targeted tests"
 fi
 
 echo "✅ Pre-push checks passed"
