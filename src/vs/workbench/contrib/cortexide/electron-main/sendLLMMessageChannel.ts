@@ -15,6 +15,9 @@ import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMess
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
 
+// Maximum time (ms) before a request is automatically aborted to prevent zombie requests
+const REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
 export class LLMMessageChannel implements IServerChannel {
 
 	// sendLLMMessage
@@ -24,8 +27,9 @@ export class LLMMessageChannel implements IServerChannel {
 		onError: new Emitter<EventLLMMessageOnErrorParams>(),
 	}
 
-	// aborters for above
-	private readonly _infoOfRunningRequest: Record<string, { waitForSend: Promise<void> | undefined, abortRef: AbortRef }> = {}
+	// allow-any-unicode-next-line
+	// aborters for above — also tracks the timeout handle to allow cleanup
+	private readonly _infoOfRunningRequest: Record<string, { waitForSend: Promise<void> | undefined, abortRef: AbortRef, timeoutHandle: ReturnType<typeof setTimeout> }> = {}
 
 
 	// list
@@ -67,25 +71,28 @@ export class LLMMessageChannel implements IServerChannel {
 
 	// browser uses this to call (see this.channel.call() in llmMessageService.ts for all usages)
 	async call(_: unknown, command: string, params: any): Promise<any> {
-		try {
-			if (command === 'sendLLMMessage') {
-				this._callSendLLMMessage(params)
-			}
-			else if (command === 'abort') {
-				await this._callAbort(params)
-			}
-			else if (command === 'ollamaList') {
-				this._callOllamaList(params)
-			}
-			else if (command === 'openAICompatibleList') {
-				this._callOpenAICompatibleList(params)
-			}
-			else {
-				throw new Error(`CortexIDE sendLLM: command "${command}" not recognized.`)
-			}
+		if (command === 'sendLLMMessage') {
+			this._callSendLLMMessage(params)
 		}
-		catch (e) {
-			console.log('llmMessageChannel: Call Error:', e)
+		else if (command === 'abort') {
+			await this._callAbort(params)
+		}
+		else if (command === 'ollamaList') {
+			this._callOllamaList(params)
+		}
+		else if (command === 'openAICompatibleList') {
+			this._callOpenAICompatibleList(params)
+		}
+		else {
+			throw new Error(`CortexIDE sendLLM: command "${command}" not recognized.`)
+		}
+	}
+
+	private _cleanupRequest(requestId: string) {
+		const info = this._infoOfRunningRequest[requestId];
+		if (info) {
+			clearTimeout(info.timeoutHandle);
+			delete this._infoOfRunningRequest[requestId];
 		}
 	}
 
@@ -93,8 +100,23 @@ export class LLMMessageChannel implements IServerChannel {
 	private _callSendLLMMessage(params: MainSendLLMMessageParams) {
 		const { requestId } = params;
 
-		if (!(requestId in this._infoOfRunningRequest))
-			this._infoOfRunningRequest[requestId] = { waitForSend: undefined, abortRef: { current: null } }
+		// If there's already a running request with this ID, abort it first (shouldn't happen normally)
+		if (requestId in this._infoOfRunningRequest) {
+			this._infoOfRunningRequest[requestId].abortRef.current?.();
+			this._cleanupRequest(requestId);
+		}
+
+		// Register the request entry first so the timeout closure can reference it
+		const abortRef: AbortRef = { current: null };
+		const timeoutHandle = setTimeout(() => {
+			const info = this._infoOfRunningRequest[requestId];
+			if (!info) return;
+			info.abortRef.current?.();
+			this.llmMessageEmitters.onError.fire({ requestId, message: 'Request timed out after 5 minutes', fullError: null });
+			this._cleanupRequest(requestId);
+		}, REQUEST_TIMEOUT_MS);
+
+		this._infoOfRunningRequest[requestId] = { waitForSend: undefined, abortRef, timeoutHandle };
 
 		const mainThreadParams: SendLLMMessageParams = {
 			...params,
@@ -103,15 +125,16 @@ export class LLMMessageChannel implements IServerChannel {
 			},
 			onFinalMessage: (p) => {
 				this.llmMessageEmitters.onFinalMessage.fire({ requestId, ...p });
+				this._cleanupRequest(requestId);
 			},
 			onError: (p) => {
-				console.log('sendLLM: firing err');
 				this.llmMessageEmitters.onError.fire({ requestId, ...p });
+				this._cleanupRequest(requestId);
 			},
-			abortRef: this._infoOfRunningRequest[requestId].abortRef,
-		}
+			abortRef,
+		};
 		const p = sendLLMMessage(mainThreadParams, this.metricsService);
-		this._infoOfRunningRequest[requestId].waitForSend = p
+		this._infoOfRunningRequest[requestId].waitForSend = p;
 	}
 
 	private async _callAbort(params: MainLLMMessageAbortParams) {
@@ -120,7 +143,7 @@ export class LLMMessageChannel implements IServerChannel {
 		const { waitForSend, abortRef } = this._infoOfRunningRequest[requestId]
 		await waitForSend // wait for the send to finish so we know abortRef was set
 		abortRef?.current?.()
-		delete this._infoOfRunningRequest[requestId]
+		this._cleanupRequest(requestId);
 	}
 
 

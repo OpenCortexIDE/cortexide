@@ -231,7 +231,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 							<AcceptAllButtonWrapper
 								// text={`Accept All${acceptAllKeybindLabel ? ` ${acceptAllKeybindLabel}` : ''}`}
 								text={`Accept All`}
-								data-tooltip-id='void-tooltip'
+								data-tooltip-id='cortex-tooltip'
 								data-tooltip-content={acceptAllKeybindLabel}
 								data-tooltip-delay-show={500}
 								onClick={onAcceptAll}
@@ -239,7 +239,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 							<RejectAllButtonWrapper
 								// text={`Reject All${rejectAllKeybindLabel ? ` ${rejectAllKeybindLabel}` : ''}`}
 								text={`Reject All`}
-								data-tooltip-id='void-tooltip'
+								data-tooltip-id='cortex-tooltip'
 								data-tooltip-content={rejectAllKeybindLabel}
 								data-tooltip-delay-show={500}
 								onClick={onRejectAll}
@@ -263,7 +263,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 								commandBarService.goToDiffIdx(prevDiffIdx);
 							}
 						}}
-						data-tooltip-id="void-tooltip"
+						data-tooltip-id="cortex-tooltip"
 						data-tooltip-content={`${upKeybindLabel ? `${upKeybindLabel}` : ''}`}
 						data-tooltip-delay-show={500}
 					>
@@ -288,7 +288,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 								commandBarService.goToDiffIdx(nextDiffIdx);
 							}
 						}}
-						data-tooltip-id="void-tooltip"
+						data-tooltip-id="cortex-tooltip"
 						data-tooltip-content={`${downKeybindLabel ? `${downKeybindLabel}` : ''}`}
 						data-tooltip-delay-show={500}
 					>
@@ -310,7 +310,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 								commandBarService.goToURIIdx(prevURIIdx);
 							}
 						}}
-						data-tooltip-id="void-tooltip"
+						data-tooltip-id="cortex-tooltip"
 						data-tooltip-content={`${leftKeybindLabel ? `${leftKeybindLabel}` : ''}`}
 						data-tooltip-delay-show={500}
 					>
@@ -332,7 +332,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 								commandBarService.goToURIIdx(nextURIIdx);
 							}
 						}}
-						data-tooltip-id="void-tooltip"
+						data-tooltip-id="cortex-tooltip"
 						data-tooltip-content={`${rightKeybindLabel ? `${rightKeybindLabel}` : ''}`}
 						data-tooltip-delay-show={500}
 					>
@@ -341,13 +341,46 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 				</div>
 
 
+				// allow-any-unicode-next-line
+				{/* Per-hunk Accept/Reject — shown when a specific diff is focused and stream is idle */}
+				{showAcceptRejectAll && isADiffInThisFile && currDiffIdx !== null && (
+					<div className='flex self-stretch gap-0 !px-0 !py-0'>
+						<RejectAllButtonWrapper
+							text={`Reject Hunk`}
+							data-tooltip-id='cortex-tooltip'
+							data-tooltip-content={`Reject this change (hunk ${(currDiffIdx ?? 0) + 1} of ${sortedDiffIds.length})`}
+							data-tooltip-delay-show={300}
+							onClick={() => {
+								const diffid = sortedDiffIds[currDiffIdx]
+								if (diffid !== undefined) {
+									editCodeService.rejectDiff({ diffid: Number(diffid) })
+									metricsService.capture('Reject Hunk', {})
+								}
+							}}
+						/>
+						<AcceptAllButtonWrapper
+							text={`Accept Hunk`}
+							data-tooltip-id='cortex-tooltip'
+							data-tooltip-content={`Accept this change (hunk ${(currDiffIdx ?? 0) + 1} of ${sortedDiffIds.length})`}
+							data-tooltip-delay-show={300}
+							onClick={() => {
+								const diffid = sortedDiffIds[currDiffIdx]
+								if (diffid !== undefined) {
+									editCodeService.acceptDiff({ diffid: Number(diffid) })
+									metricsService.capture('Accept Hunk', {})
+								}
+							}}
+						/>
+					</div>
+				)}
+
 				{/* Accept/Reject buttons - only shown when appropriate */}
 				{showAcceptRejectAll && (
 					<div className='flex self-stretch gap-0 !px-0 !py-0'>
 						<AcceptAllButtonWrapper
 							// text={`Accept File${acceptFileKeybindLabel ? ` ${acceptFileKeybindLabel}` : ''}`}
 							text={`Accept File`}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-content={acceptFileKeybindLabel}
 							data-tooltip-delay-show={500}
 							onClick={onAcceptFile}
@@ -355,7 +388,7 @@ export const VoidCommandBar = ({ uri, editor }: CortexideCommandBarProps) => {
 						<RejectAllButtonWrapper
 							// text={`Reject File${rejectFileKeybindLabel ? ` ${rejectFileKeybindLabel}` : ''}`}
 							text={`Reject File`}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-content={rejectFileKeybindLabel}
 							data-tooltip-delay-show={500}
 							onClick={onRejectFile}

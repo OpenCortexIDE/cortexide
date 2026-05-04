@@ -5,6 +5,7 @@
 
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { isWeb } from '../../../../base/common/platform.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -84,6 +85,15 @@ class MCPService extends Disposable implements IMCPService {
 		@ICortexideSettingsService private readonly cortexideSettingsService: ICortexideSettingsService,
 	) {
 		super();
+
+		// allow-any-unicode-next-line
+		// MCP requires the Electron main process — not available in the web build
+		if (isWeb) {
+			this.channel = null as any;
+			this.logWeb('MCPService');
+			return;
+		}
+
 		this.channel = this.mainProcessService.getChannel('void-channel-mcp')
 
 
@@ -99,7 +109,13 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 
+	private logWeb(serviceName: string) {
+		// allow-any-unicode-next-line
+		console.info(`[${serviceName}] Running in web mode — Electron IPC unavailable, feature disabled.`);
+	}
+
 	private async _initialize() {
+		if (isWeb) return; // no IPC channel in web mode
 		try {
 			await this.cortexideSettingsService.waitForInitState;
 
@@ -154,6 +170,8 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 
+	private _isRefreshing = false;
+
 	private async _addMCPConfigFileWatcher(): Promise<void> {
 		const mcpConfigUri = await this._getMCPConfigFilePath();
 		this._register(
@@ -162,6 +180,7 @@ class MCPService extends Disposable implements IMCPService {
 
 		this._register(this.fileService.onDidFilesChange(async e => {
 			if (!e.contains(mcpConfigUri)) return
+			if (this._isRefreshing) return; // skip if a refresh is already in-flight
 			await this._refreshMCPServers();
 		}));
 	}
@@ -260,41 +279,47 @@ class MCPService extends Disposable implements IMCPService {
 
 	// Handle server state changes
 	private async _refreshMCPServers(): Promise<void> {
+		if (this._isRefreshing) return;
+		this._isRefreshing = true;
 
-		this._setHasError(undefined)
+		try {
+			await this._setHasError(undefined)
 
-		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return }
-		if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
+			const newConfigFileJSON = await this._parseMCPConfigFile();
+			if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return }
+			if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
 
 
-		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)
-		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers)
+			const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)
+			const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers)
 
-		const addedServerNames = newConfigFileNames.filter(serverName => !oldConfigFileNames.includes(serverName)); // in new and not in old
-		const removedServerNames = oldConfigFileNames.filter(serverName => !newConfigFileNames.includes(serverName)); // in old and not in new
+			const addedServerNames = newConfigFileNames.filter(serverName => !oldConfigFileNames.includes(serverName)); // in new and not in old
+			const removedServerNames = oldConfigFileNames.filter(serverName => !newConfigFileNames.includes(serverName)); // in old and not in new
 
-		// set isOn to any new servers in the config
-		const addedUserStateOfName: MCPUserStateOfName = {}
-		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true } }
-		await this.cortexideSettingsService.addMCPUserStateOfNames(addedUserStateOfName);
+			// set isOn to any new servers in the config
+			const addedUserStateOfName: MCPUserStateOfName = {}
+			for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true } }
+			await this.cortexideSettingsService.addMCPUserStateOfNames(addedUserStateOfName);
 
-		// delete isOn for any servers that no longer show up in the config
-		await this.cortexideSettingsService.removeMCPUserStateOfNames(removedServerNames);
+			// delete isOn for any servers that no longer show up in the config
+			await this.cortexideSettingsService.removeMCPUserStateOfNames(removedServerNames);
 
-		// set all servers to loading
-		for (const serverName in newConfigFileJSON.mcpServers) {
-			this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+			// set all servers to loading
+			for (const serverName in newConfigFileJSON.mcpServers) {
+				this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+			}
+			const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName))
+
+			await this.channel.call('refreshMCPServers', {
+				mcpConfigFileJSON: newConfigFileJSON,
+				addedServerNames,
+				removedServerNames,
+				updatedServerNames,
+				userStateOfName: this.cortexideSettingsService.state.mcpUserStateOfName,
+			}).catch((e: unknown) => this._setHasError(`Failed to refresh MCP servers: ${e instanceof Error ? e.message : String(e)}`));
+		} finally {
+			this._isRefreshing = false;
 		}
-		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName))
-
-		this.channel.call('refreshMCPServers', {
-			mcpConfigFileJSON: newConfigFileJSON,
-			addedServerNames,
-			removedServerNames,
-			updatedServerNames,
-			userStateOfName: this.cortexideSettingsService.state.mcpUserStateOfName,
-		})
 	}
 
 	stringifyResult(result: RawMCPToolCall): string {
@@ -315,19 +340,33 @@ class MCPService extends Disposable implements IMCPService {
 
 	// toggle MCP server and update isOn in void settings
 	public async toggleServerIsOn(serverName: string, isOn: boolean): Promise<void> {
-		this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+		await this._setMCPServerState(serverName, { status: 'loading', tools: [] })
 
 		await this.cortexideSettingsService.setMCPServerState(serverName, { isOn });
-		this.channel.call('toggleMCPServer', { serverName, isOn })
+		await this.channel.call('toggleMCPServer', { serverName, isOn })
+			.catch((e: unknown) => this._setMCPServerState(serverName, {
+				status: 'error',
+				error: `Toggle failed: ${e instanceof Error ? e.message : String(e)}`,
+				tools: [],
+			}));
 	}
 
 
 	public async callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }> {
-		const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
-		if (result.event === 'error') {
-			throw new Error(`Error: ${result.text}`)
+		try {
+			const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
+			// Surface error results inline so the chat thread can render them without crashing
+			return { result };
+		} catch (e) {
+			const errorText = e instanceof Error ? e.message : String(e);
+			const errorResult: RawMCPToolCall = {
+				event: 'error',
+				text: `Tool call failed: ${errorText}`,
+				toolName: toolData.toolName,
+				serverName: toolData.serverName,
+			};
+			return { result: errorResult };
 		}
-		return { result };
 	}
 
 	// public getMCPToolFns(): MCPToolResultType {

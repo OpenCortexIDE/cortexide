@@ -24,8 +24,11 @@ product.overrides.json
 .vscode-test
 
 # CortexIDE added these:
+# Project rules are local by default; teams can opt-in via !.cortexide/rules/my-rule.md
+.cortexide/rules/*.local.md
 .tmp/
 .tmp2/
 .tool-versions
 src/vs/workbench/contrib/cortexide/browser/react/out/**
 src/vs/workbench/contrib/cortexide/browser/react/src2/**
+CLAUDE.md

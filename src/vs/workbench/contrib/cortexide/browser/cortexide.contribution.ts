@@ -117,6 +117,13 @@ import('../common/secretDetectionConfiguration.js').catch(() => { });
 // refreshModel
 import '../common/refreshModelService.js'
 
+// project rules (.cortexide/rules/*.md)
+import '../common/cortexideRulesService.js'
+
+// allow-any-unicode-next-line
+// i18n — multi-language support
+import '../common/i18n/i18nService.js'
+
 // metrics
 import '../common/metricsService.js'
 
@@ -131,6 +138,10 @@ import '../common/modelWarmupService.js'
 
 // ollama installer service (main-process proxy) - lazy load (only needed when Ollama is accessed)
 import('../common/ollamaInstallerService.js').catch(() => { });
+
+// allow-any-unicode-next-line
+// local setup service — guided local model wizard
+import '../common/localSetupService.js'
 
 // repo indexer
 import './repoIndexerService.js'

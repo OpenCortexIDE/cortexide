@@ -14,13 +14,13 @@ import { URI } from '../../../../../../../base/common/uri.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
-import { ModelDropdown, } from '../void-settings-tsx/ModelDropdown.js';
+import { ModelDropdown, } from '../settings/ModelDropdown.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
 import { CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
-import { WarningBox } from '../void-settings-tsx/WarningBox.js';
+import { WarningBox } from '../settings/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
@@ -31,12 +31,13 @@ import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg
 import { builtinToolNames, isABuiltinToolName, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
 import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
 import ErrorBoundary from './ErrorBoundary.js';
-import { ToolApprovalTypeSwitch } from '../void-settings-tsx/Settings.js';
+import { ToolApprovalTypeSwitch } from '../settings/Settings.js';
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
+import { useTranslation } from '../util/useTranslation.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
 import { ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
@@ -327,6 +328,7 @@ const detailOfChatMode = {
 
 const ChatModeDropdown = ({ className }: { className: string }) => {
 	const accessor = useAccessor()
+	const { t } = useTranslation()
 
 	const cortexideSettingsService = accessor.get('ICortexideSettingsService')
 	const settingsState = useSettingsState()
@@ -337,13 +339,20 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 		cortexideSettingsService.setGlobalSetting('chatMode', newVal)
 	}, [cortexideSettingsService])
 
+	const getModeDisplayName = (val: ChatMode) => {
+		if (val === 'normal') return t('chat.mode.chat')
+		if (val === 'agent') return t('chat.mode.agent')
+		if (val === 'gather') return t('chat.mode.gather')
+		return nameOfChatMode[val]
+	}
+
 	return <VoidCustomDropdownBox
 		className={className}
 		options={options}
 		selectedOption={settingsState.globalSettings.chatMode}
 		onChangeOption={onChangeOption}
-		getOptionDisplayName={(val) => nameOfChatMode[val]}
-		getOptionDropdownName={(val) => nameOfChatMode[val]}
+		getOptionDisplayName={getModeDisplayName}
+		getOptionDropdownName={getModeDisplayName}
 		getOptionDropdownDetail={(val) => detailOfChatMode[val]}
 		getOptionsEqual={(a, b) => a === b}
 	/>
@@ -421,7 +430,9 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 	const pdfInputRef = React.useRef<HTMLInputElement>(null);
 	const containerRef = React.useRef<HTMLDivElement>(null);
 
-		// Handle paste
+		// allow-any-unicode-next-line
+		// Handle paste — listens on container (bubbles from textarea) AND document level
+	// (document listener catches Ctrl+V when the sidebar panel is focused but textarea isn't)
 	React.useEffect(() => {
 		const handlePaste = (e: ClipboardEvent) => {
 			const items = Array.from(e.clipboardData?.items || []);
@@ -431,14 +442,10 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 			for (const item of items) {
 				if (item.type.startsWith('image/')) {
 					const file = item.getAsFile();
-					if (file) {
-						imageFiles.push(file);
-					}
+					if (file) imageFiles.push(file);
 				} else if (item.type === 'application/pdf') {
 					const file = item.getAsFile();
-					if (file) {
-						pdfFiles.push(file);
-					}
+					if (file) pdfFiles.push(file);
 				}
 			}
 
@@ -452,14 +459,43 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 			}
 		};
 
+		// Primary: attach to container so it catches events bubbling from the textarea
 		const container = containerRef.current || divRef?.current;
 		if (container) {
 			container.addEventListener('paste', handlePaste);
-			return () => {
-				container.removeEventListener('paste', handlePaste);
-			};
 		}
-	}, [divRef, onImagePaste]);
+
+		// Fallback: document-level listener catches paste when chat area is visible but
+		// the textarea isn't focused (e.g. user focuses sidebar panel then Ctrl+V)
+		const handleDocumentPaste = (e: ClipboardEvent) => {
+			// Only intercept if the target is not already inside our container
+			// and our container is mounted in the DOM
+			const cont = containerRef.current || divRef?.current;
+			if (!cont) return;
+			if (cont.contains(e.target as Node)) return; // already handled by container listener
+			// Only fire if the paste comes from a non-input element (avoid stealing from other inputs)
+			const target = e.target as HTMLElement;
+			const tag = target?.tagName?.toLowerCase();
+			if (tag === 'input' || tag === 'textarea') return;
+
+			const items = Array.from(e.clipboardData?.items || []);
+			const imageFiles = items
+				.filter(i => i.type.startsWith('image/'))
+				.map(i => i.getAsFile())
+				.filter((f): f is File => f !== null);
+
+			if (imageFiles.length > 0 && onImagePaste) {
+				e.preventDefault();
+				onImagePaste(imageFiles);
+			}
+		};
+		document.addEventListener('paste', handleDocumentPaste);
+
+		return () => {
+			if (container) container.removeEventListener('paste', handlePaste);
+			document.removeEventListener('paste', handleDocumentPaste);
+		};
+	}, [divRef, onImagePaste, onPDFDrop]);
 
 	// Throttle drag over events to prevent jank
 	const lastDragOverTimeRef = React.useRef<number>(0);
@@ -692,7 +728,7 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 		`}
 		disabled={disabled}
 		aria-label="Send message"
-		// data-tooltip-id='void-tooltip'
+		// data-tooltip-id='cortex-tooltip'
 		// data-tooltip-content={'Send'}
 		// data-tooltip-place='left'
 		{...props}
@@ -934,7 +970,7 @@ export const SelectedFiles = (
 				>
 					{/* tooltip for file path */}
 					<span className="truncate overflow-hidden text-ellipsis"
-						data-tooltip-id='void-tooltip'
+						data-tooltip-id='cortex-tooltip'
 						data-tooltip-content={getRelative(selection.uri, accessor)}
 						data-tooltip-place='top'
 						data-tooltip-delay-show={3000}
@@ -1080,7 +1116,7 @@ const ToolHeaderWrapper = ({
 		`}
 		onClick={desc1OnClick}
 		{...desc1Info ? {
-			'data-tooltip-id': 'void-tooltip',
+			'data-tooltip-id': 'cortex-tooltip',
 			'data-tooltip-content': desc1Info,
 			'data-tooltip-place': 'top',
 			'data-tooltip-delay-show': 1000,
@@ -1125,7 +1161,7 @@ const ToolHeaderWrapper = ({
 						{info && <CircleEllipsis
 							className='ml-2 text-void-fg-4 opacity-60 flex-shrink-0'
 							size={14}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-content={info}
 							data-tooltip-place='top-end'
 						/>}
@@ -1133,14 +1169,14 @@ const ToolHeaderWrapper = ({
 						{isError && <AlertTriangle
 							className='text-void-warning opacity-90 flex-shrink-0'
 							size={14}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-content={'Error running tool'}
 							data-tooltip-place='top'
 						/>}
 						{isRejected && <Ban
 							className='text-void-fg-4 opacity-90 flex-shrink-0'
 							size={14}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-content={'Canceled'}
 							data-tooltip-place='top'
 						/>}
@@ -1504,7 +1540,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 
 		<div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1"
-		// data-tooltip-id='void-tooltip'
+		// data-tooltip-id='cortex-tooltip'
 		// data-tooltip-content='Edit message'
 		// data-tooltip-place='left'
 		>
@@ -3011,7 +3047,7 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 				})
 			}}
 			{...isDisabled ? {
-				'data-tooltip-id': 'void-tooltip',
+				'data-tooltip-id': 'cortex-tooltip',
 				'data-tooltip-content': `Disabled ${isRunning ? 'when running' : 'because another thread is running'}`,
 				'data-tooltip-place': 'top',
 			} : {}}
@@ -3685,7 +3721,7 @@ const CommandBarInChat = () => {
 	// 	<IconShell1
 	// 		Icon={CopyIcon}
 	// 		onClick={copyChatToClipboard}
-	// 		data-tooltip-id='void-tooltip'
+	// 		data-tooltip-id='cortex-tooltip'
 	// 		data-tooltip-place='top'
 	// 		data-tooltip-content='Copy chat JSON'
 	// 	/>
@@ -3765,7 +3801,7 @@ const CommandBarInChat = () => {
 					});
 				});
 			}}
-			data-tooltip-id='void-tooltip'
+			data-tooltip-id='cortex-tooltip'
 			data-tooltip-place='top'
 			data-tooltip-content='Reject all'
 		/>
@@ -3784,7 +3820,7 @@ const CommandBarInChat = () => {
 					});
 				});
 			}}
-			data-tooltip-id='void-tooltip'
+			data-tooltip-id='cortex-tooltip'
 			data-tooltip-place='top'
 			data-tooltip-content='Accept all'
 		/>
@@ -3832,14 +3868,14 @@ const CommandBarInChat = () => {
 			>
 				{/* <JumpToFileButton
 					uri={uri}
-					data-tooltip-id='void-tooltip'
+					data-tooltip-id='cortex-tooltip'
 					data-tooltip-place='top'
 					data-tooltip-content='Go to file'
 				/> */}
 				<IconShell1 // RejectAllButtonWrapper
 					Icon={X}
 					onClick={() => { editCodeService.acceptOrRejectAllDiffAreas({ uri, removeCtrlKs: true, behavior: "reject", _addToHistory: true, }); }}
-					data-tooltip-id='void-tooltip'
+					data-tooltip-id='cortex-tooltip'
 					data-tooltip-place='top'
 					data-tooltip-content='Reject file'
 
@@ -3847,7 +3883,7 @@ const CommandBarInChat = () => {
 				<IconShell1 // AcceptAllButtonWrapper
 					Icon={Check}
 					onClick={() => { editCodeService.acceptOrRejectAllDiffAreas({ uri, removeCtrlKs: true, behavior: "accept", _addToHistory: true, }); }}
-					data-tooltip-id='void-tooltip'
+					data-tooltip-id='cortex-tooltip'
 					data-tooltip-place='top'
 					data-tooltip-content='Accept file'
 				/>
@@ -3975,6 +4011,7 @@ export const SidebarChat = () => {
 	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 	const textAreaFnsRef = useRef<TextAreaFns | null>(null)
 
+	const { t } = useTranslation()
 	const accessor = useAccessor()
 	const commandService = accessor.get('ICommandService')
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -4131,9 +4168,50 @@ export const SidebarChat = () => {
 		// use subscribed state - currentThread.id is already from subscribed state
 		const threadId = currentThread.id
 
-
 		// send message to LLM
 		const userMessage = _forceSubmit || textAreaRef.current?.value || ''
+
+		// allow-any-unicode-next-line
+		// ── Slash commands ────────────────────────────────────────────────────────
+		// Intercept /command messages before sending to LLM.
+		const trimmed = userMessage.trim()
+		if (trimmed.startsWith('/')) {
+			const [cmd, ...rest] = trimmed.slice(1).split(/\s+/)
+			const notificationService = accessor.get('INotificationService')
+			const clearInput = () => {
+				if (textAreaFnsRef.current) textAreaFnsRef.current.setValue('')
+				textAreaRef.current?.focus()
+			}
+			switch (cmd.toLowerCase()) {
+				case 'clear':
+				case 'new':
+					clearInput()
+					await chatThreadsService.openNewThread()
+					await chatThreadsService.focusCurrentChat()
+					return
+				case 'settings':
+					clearInput()
+					commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID)
+					return
+				case 'model':
+					clearInput()
+					commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID)
+					return
+				case 'help':
+					clearInput()
+					notificationService.info(
+						// allow-any-unicode-next-line
+						'Slash commands: /clear — new thread | /settings — open settings | /model — change model | /help — this message'
+					)
+					return
+				default:
+					// allow-any-unicode-next-line
+					// Unknown command — let it fall through as normal text
+					break
+			}
+		}
+		// allow-any-unicode-next-line
+		// ─────────────────────────────────────────────────────────────────────────
 
 			// Resolve @references in the input into staging selections before sending
 			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection
@@ -4880,12 +4958,12 @@ export const SidebarChat = () => {
 
 		{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
 			<ErrorBoundary>
-				<div className='pt-6 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Previous Threads</div>
+				<div className='pt-6 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>{t('chat.previousThreads')}</div>
 				<PastThreadsList />
 			</ErrorBoundary>
 			:
 			<ErrorBoundary>
-				<div className='pt-6 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Suggestions</div>
+				<div className='pt-6 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>{t('chat.suggestions')}</div>
 				{initiallySuggestedPromptsHTML}
 			</ErrorBoundary>
 		}

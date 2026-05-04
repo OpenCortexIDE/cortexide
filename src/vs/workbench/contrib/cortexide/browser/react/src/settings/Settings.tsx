@@ -24,6 +24,10 @@ import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js'
+import { useTranslation } from '../util/useTranslation.js'
+import { useRulesState } from '../util/services.js'
+import { ProjectRule } from '../../../../common/cortexideRulesService.js'
+import { VSBuffer } from '../../../../../../../base/common/buffer.js'
 
 type Tab =
 	| 'models'
@@ -521,9 +525,9 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 
 
 			const detailAboutModel = type === 'autodetected' ?
-				<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content='Detected locally' />
+				<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='cortex-tooltip' data-tooltip-place='right' data-tooltip-content='Detected locally' />
 				: type === 'custom' ?
-					<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='void-tooltip' data-tooltip-place='right' data-tooltip-content='Custom model' />
+					<Asterisk size={14} className="inline-block align-text-top brightness-115 stroke-[2] text-[#0e70c0]" data-tooltip-id='cortex-tooltip' data-tooltip-place='right' data-tooltip-content='Custom model' />
 					: undefined
 
 			const hasOverrides = !!settingsState.overridesOfModel?.[providerName]?.[modelName]
@@ -546,7 +550,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 						<div className="w-5 flex items-center justify-center">
 							<button
 								onClick={() => { setOpenSettingsModel({ modelName, providerName, type }) }}
-								data-tooltip-id='void-tooltip'
+								data-tooltip-id='cortex-tooltip'
 								data-tooltip-place='right'
 								data-tooltip-content='Advanced Settings'
 								className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
@@ -567,7 +571,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 						disabled={disabled}
 						size='sm'
 
-						data-tooltip-id='void-tooltip'
+						data-tooltip-id='cortex-tooltip'
 						data-tooltip-place='right'
 						data-tooltip-content={tooltipName}
 					/>
@@ -576,7 +580,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 					<div className={`w-5 flex items-center justify-center`}>
 						{type === 'default' || type === 'autodetected' ? null : <button
 							onClick={() => { settingsStateService.deleteModel(providerName, modelName); }}
-							data-tooltip-id='void-tooltip'
+							data-tooltip-id='cortex-tooltip'
 							data-tooltip-place='right'
 							data-tooltip-content='Delete'
 							className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
@@ -861,6 +865,85 @@ export const AIInstructionsBox = () => {
 			cortexideSettingsService.setGlobalSetting('aiInstructions', newText)
 		}}
 	/>
+}
+
+const ProjectRulesSection = () => {
+	const accessor = useAccessor()
+	const rules = useRulesState()
+	const commandService = accessor.get('ICommandService')
+	const fileService = accessor.get('IFileService')
+	const workspaceService = accessor.get('IWorkspaceContextService')
+	const notificationService = accessor.get('INotificationService')
+	const { t } = useTranslation()
+
+	const openRulesDir = useCallback(async () => {
+		const folders = workspaceService.getWorkspace().folders
+		if (!folders.length) {
+			notificationService.warn('No workspace folder open.')
+			return
+		}
+		const rulesDirUri = folders[0].uri.with({ path: folders[0].uri.path + '/.cortexide/rules' })
+		// Reveal in explorer; create the dir first if it doesn't exist
+		try { await fileService.createFolder(rulesDirUri) } catch { /* already exists */ }
+		commandService.executeCommand('revealInExplorer', rulesDirUri)
+	}, [accessor, commandService, fileService, workspaceService, notificationService])
+
+	const createRuleFile = useCallback(async () => {
+		const folders = workspaceService.getWorkspace().folders
+		if (!folders.length) {
+			notificationService.warn('No workspace folder open.')
+			return
+		}
+		const rulesDirUri = folders[0].uri.with({ path: folders[0].uri.path + '/.cortexide/rules' })
+		try { await fileService.createFolder(rulesDirUri) } catch { /* already exists */ }
+		const newRuleUri = rulesDirUri.with({ path: rulesDirUri.path + `/rule-${Date.now()}.md` })
+		const template = `<!-- scope: **/* -->\n# New Rule\n\nDescribe the rule here.\n`
+		await fileService.writeFile(newRuleUri, VSBuffer.fromString(template))
+		commandService.executeCommand('vscode.open', newRuleUri)
+	}, [accessor, commandService, fileService, workspaceService, notificationService])
+
+	return (
+		<div>
+			<h2 className='text-3xl mb-2'>{t('rules.title')}</h2>
+			<h4 className='text-void-fg-3 mb-4 text-sm'>
+				{t('rules.description')}
+			</h4>
+			<div className='flex gap-2 mb-4'>
+				<VoidButtonBgDarken className='px-4 py-1' onClick={openRulesDir}>
+					{t('rules.openRulesDir')}
+				</VoidButtonBgDarken>
+				<VoidButtonBgDarken className='px-4 py-1' onClick={createRuleFile}>
+					{t('rules.createRule')}
+				</VoidButtonBgDarken>
+			</div>
+			{rules.length === 0 ? (
+				<p className='text-void-fg-3 text-sm'>{t('rules.noRules')}</p>
+			) : (
+				<div className='flex flex-col gap-2'>
+					{rules.map((rule: ProjectRule) => (
+						<div
+							key={rule.uri.toString()}
+							className='p-3 rounded border border-void-border-2 bg-void-bg-2 cursor-pointer hover:bg-void-bg-2-alt transition-colors'
+							onClick={() => commandService.executeCommand('vscode.open', rule.uri)}
+							title='Click to open rule file'
+						>
+							<div className='flex items-center justify-between'>
+								<span className='text-void-fg-1 text-sm font-medium'>{rule.title}</span>
+								{rule.scope && (
+									<span className='text-void-fg-3 text-xs font-mono bg-void-bg-3 px-1.5 py-0.5 rounded'>{rule.scope}</span>
+								)}
+							</div>
+							{rule.content.trim() && (
+								<p className='text-void-fg-3 text-xs mt-1 line-clamp-2'>
+									{rule.content.trim().replace(/^#+\s*/m, '').split('\n')[0]}
+								</p>
+							)}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	)
 }
 
 const FastApplyMethodDropdown = () => {
@@ -1467,7 +1550,7 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 									key={tool.name}
 									className="px-2 py-0.5 bg-void-bg-2 text-void-fg-3 rounded-sm text-xs"
 
-									data-tooltip-id='void-tooltip'
+									data-tooltip-id='cortex-tooltip'
 									data-tooltip-content={tool.description || ''}
 									data-tooltip-class-name='void-max-w-[300px]'
 								>
@@ -1530,18 +1613,19 @@ const MCPServersList = () => {
 
 export const Settings = () => {
 	const isDark = useIsDark()
+	const { t } = useTranslation()
 	// --- sidebar nav ---
 	const [selectedSection, setSelectedSection] =
 		useState<Tab>('models');
 
 	const navItems: { tab: Tab; label: string }[] = [
-		{ tab: 'models', label: 'Models' },
-		{ tab: 'localProviders', label: 'Local Providers' },
-		{ tab: 'providers', label: 'Main Providers' },
-		{ tab: 'featureOptions', label: 'Feature Options' },
-		{ tab: 'general', label: 'General' },
-		{ tab: 'mcp', label: 'MCP' },
-		{ tab: 'all', label: 'All Settings' },
+		{ tab: 'models', label: t('settings.models') },
+		{ tab: 'localProviders', label: t('settings.localProviders') },
+		{ tab: 'providers', label: t('settings.mainProviders') },
+		{ tab: 'featureOptions', label: t('settings.featureOptions') },
+		{ tab: 'general', label: t('settings.general') },
+		{ tab: 'mcp', label: t('settings.mcpShort') },
+		{ tab: 'all', label: t('settings.allSettings') },
 	];
 	const shouldShowTab = (tab: Tab) => selectedSection === 'all' || selectedSection === tab;
 	const accessor = useAccessor()
@@ -1734,7 +1818,7 @@ export const Settings = () => {
 													</span>
 													<span
 														className='hover:brightness-110'
-														data-tooltip-id='void-tooltip'
+														data-tooltip-id='cortex-tooltip'
 														data-tooltip-content='We recommend using the largest qwen2.5-coder model you can with Ollama (try qwen2.5-coder:3b).'
 														data-tooltip-class-name='void-max-w-[20px]'
 													>
@@ -2072,7 +2156,8 @@ export const Settings = () => {
 									<h4 className={`text-void-fg-3 mb-4`}>
 										<ChatMarkdownRender inPTag={true} string={`
 System instructions to include with all AI requests.
-Alternatively, place a \`.voidrules\` file in the root of your workspace.
+// allow-any-unicode-next-line
+For project-scoped rules, use \`.cortexide/rules/*.md\` files — see Project Rules below.
 								`} chatMessageLocation={undefined} />
 									</h4>
 									<ErrorBoundary>
@@ -2103,6 +2188,13 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 							</div>
 
 
+
+							{/* Project Rules section */}
+							<div className={shouldShowTab('general') ? `max-w-[600px] mt-6` : 'hidden'}>
+								<ErrorBoundary>
+									<ProjectRulesSection />
+								</ErrorBoundary>
+							</div>
 
 							{/* MCP section */}
 							<div className={shouldShowTab('mcp') ? `` : 'hidden'}>

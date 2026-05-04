@@ -56,6 +56,10 @@ import { IStorageService, StorageScope } from '../../../../../../../platform/sto
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
 import { IRepoIndexerService } from '../../../repoIndexerService.js'
 import { ISecretDetectionService } from '../../../../common/secretDetectionService.js'
+import { ILocalSetupService } from '../../../../common/localSetupService.js'
+import { IOllamaInstallerService } from '../../../../common/ollamaInstallerService.js'
+import { ICortexideI18nService, SupportedLocale } from '../../../../common/i18n/i18nService.js'
+import { ICortexideRulesService, ProjectRule } from '../../../../common/cortexideRulesService.js'
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -85,6 +89,12 @@ const commandBarURIStateListeners: Set<(uri: URI) => void> = new Set();
 const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 
 const mcpListeners: Set<() => void> = new Set()
+
+let localeState: SupportedLocale = 'en'
+const localeStateListeners: Set<(s: SupportedLocale) => void> = new Set()
+
+let rulesState: ProjectRule[] = []
+const rulesStateListeners: Set<(s: ProjectRule[]) => void> = new Set()
 
 
 // must call this before you can use any of the hooks below
@@ -184,6 +194,23 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		})
 	)
 
+	const i18nService = accessor.get(ICortexideI18nService)
+	localeState = i18nService.locale
+	disposables.push(
+		i18nService.onDidChangeLocale((newLocale) => {
+			localeState = newLocale
+			localeStateListeners.forEach(l => l(localeState))
+		})
+	)
+
+	const rulesService = accessor.get(ICortexideRulesService)
+	rulesState = rulesService.rules
+	disposables.push(
+		rulesService.onDidChangeRules((newRules) => {
+			rulesState = newRules
+			rulesStateListeners.forEach(l => l(rulesState))
+		})
+	)
 
 	return disposables
 }
@@ -243,6 +270,12 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			ISecretDetectionService: accessor.get(ISecretDetectionService),
 
 			IStorageService: accessor.get(IStorageService),
+
+			ILocalSetupService: accessor.get(ILocalSetupService),
+			OllamaInstallerService: accessor.get(IOllamaInstallerService),
+
+			ICortexideI18nService: accessor.get(ICortexideI18nService),
+			ICortexideRulesService: accessor.get(ICortexideRulesService),
 
 		} as const
 		return reactAccessor
@@ -422,6 +455,26 @@ export const useMCPServiceState = () => {
 }
 
 
+
+export const useLocale = () => {
+	const [s, ss] = useState(localeState)
+	useEffect(() => {
+		ss(localeState)
+		localeStateListeners.add(ss)
+		return () => { localeStateListeners.delete(ss) }
+	}, [ss])
+	return s
+}
+
+export const useRulesState = () => {
+	const [s, ss] = useState<ProjectRule[]>(rulesState)
+	useEffect(() => {
+		ss(rulesState)
+		rulesStateListeners.add(ss)
+		return () => { rulesStateListeners.delete(ss) }
+	}, [ss])
+	return s
+}
 
 export const useIsOptedOut = () => {
 	const accessor = useAccessor()

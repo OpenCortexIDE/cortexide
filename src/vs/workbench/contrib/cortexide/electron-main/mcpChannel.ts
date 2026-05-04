@@ -85,27 +85,22 @@ export class MCPChannel implements IServerChannel {
 
 	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
 	async call(_: unknown, command: string, params: any): Promise<any> {
-		try {
-			if (command === 'refreshMCPServers') {
-				await this._refreshMCPServers(params)
-			}
-			else if (command === 'closeAllMCPServers') {
-				await this._closeAllMCPServers()
-			}
-			else if (command === 'toggleMCPServer') {
-				await this._toggleMCPServer(params.serverName, params.isOn)
-			}
-			else if (command === 'callTool') {
-				const p: MCPToolCallParams = params
-				const response = await this._safeCallTool(p.serverName, p.toolName, p.params)
-				return response
-			}
-			else {
-				throw new Error(`CortexIDE: command "${command}" not recognized.`)
-			}
+		if (command === 'refreshMCPServers') {
+			await this._refreshMCPServers(params)
 		}
-		catch (e) {
-			console.error('mcp channel: Call Error:', e)
+		else if (command === 'closeAllMCPServers') {
+			await this._closeAllMCPServers()
+		}
+		else if (command === 'toggleMCPServer') {
+			await this._toggleMCPServer(params.serverName, params.isOn)
+		}
+		else if (command === 'callTool') {
+			const p: MCPToolCallParams = params
+			const response = await this._safeCallTool(p.serverName, p.toolName, p.params)
+			return response
+		}
+		else {
+			throw new Error(`CortexIDE: command "${command}" not recognized.`)
 		}
 	}
 
@@ -246,14 +241,15 @@ export class MCPChannel implements IServerChannel {
 				}
 			}
 		} else if (server.command) {
-			// console.log('ENV DATA: ', server.env)
+			// User-provided env vars take precedence over system env so custom PATHs work on all platforms
+			const mergedEnv = Object.fromEntries(
+				Object.entries({ ...process.env, ...server.env })
+					.filter((entry): entry is [string, string] => entry[1] !== undefined)
+			);
 			transport = new StdioClientTransport({
 				command: server.command,
 				args: server.args,
-				env: {
-					...server.env,
-					...process.env
-				} as Record<string, string>,
+				env: mergedEnv,
 			});
 
 			await client.connect(transport)
@@ -289,6 +285,7 @@ export class MCPChannel implements IServerChannel {
 			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn)
 			return c
 		} catch (err) {
+			// allow-any-unicode-next-line
 			console.error(`❌ Failed to connect to server "${serverName}":`, err);
 			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
 			const c: MCPServerError = { status: 'error', error: err + '', command: fullCommand, };
@@ -321,21 +318,35 @@ export class MCPChannel implements IServerChannel {
 		const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 		// Handle turning on the server
 		if (isOn) {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn);
-			this.mcpEmitters.serverEvent.onUpdate.fire({
-				response: {
-					name: serverName,
-					newServer: clientInfo.mcpServer,
-					prevServer: prevServer,
-				}
-			});
+			try {
+				const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn);
+				this.infoOfClientId[serverName] = clientInfo;
+				this.mcpEmitters.serverEvent.onUpdate.fire({
+					response: {
+						name: serverName,
+						newServer: clientInfo.mcpServer,
+						prevServer: prevServer,
+					}
+				});
+			} catch (err) {
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				console.error(`Failed to toggle on MCP server "${serverName}":`, err);
+				const fullCommand = this.infoOfClientId[serverName]?.mcpServerEntryJSON?.command || '';
+				this.mcpEmitters.serverEvent.onUpdate.fire({
+					response: {
+						name: serverName,
+						newServer: { status: 'error', error: errorMessage, command: fullCommand },
+						prevServer: prevServer,
+					}
+				});
+			}
 		}
 		// Handle turning off the server
 		else {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			this._closeClient(serverName);
-			delete this.infoOfClientId[serverName]._client;
+			await this._closeClient(serverName);
+			if (this.infoOfClientId[serverName]) {
+				delete (this.infoOfClientId[serverName] as any)._client;
+			}
 
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {
@@ -343,8 +354,7 @@ export class MCPChannel implements IServerChannel {
 					newServer: {
 						status: 'offline',
 						tools: [],
-						command: '',
-						// Explicitly set error to undefined to reset the error state
+						command: prevServer?.command || '',
 						error: undefined,
 					},
 					prevServer: prevServer,
@@ -442,6 +452,7 @@ export class MCPChannel implements IServerChannel {
 				errorMessage = JSON.stringify(err, null, 2);
 			}
 
+			// allow-any-unicode-next-line
 			const fullErrorMessage = `❌ Failed to call tool "${toolName}" on server "${serverName}": ${errorMessage}`;
 			const errorResponse: MCPToolErrorResponse = {
 				event: 'error',

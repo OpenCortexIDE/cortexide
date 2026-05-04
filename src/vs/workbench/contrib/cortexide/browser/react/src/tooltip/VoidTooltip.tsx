@@ -11,8 +11,8 @@ import { useIsDark } from '../util/services.js';
 /**
  * Creates a configured global tooltip component with consistent styling
  * To use:
- * 1. Mount a Tooltip with some id eg id='void-tooltip'
- * 2. Add data-tooltip-id="void-tooltip" and data-tooltip-content="Your tooltip text" to any element
+ * 1. Mount a Tooltip with some id eg id='cortex-tooltip'
+ * 2. Add data-tooltip-id="cortex-tooltip" and data-tooltip-content="Your tooltip text" to any element
  */
 export const VoidTooltip = () => {
 
@@ -45,7 +45,7 @@ export const VoidTooltip = () => {
 		<>
 			<style>
 				{`
-				#void-tooltip, #void-tooltip-orange, #void-tooltip-green, #void-tooltip-ollama-settings, #void-tooltip-provider-info {
+				#cortex-tooltip, #cortex-tooltip-orange, #cortex-tooltip-green, #cortex-tooltip-ollama-settings, #cortex-tooltip-provider-info {
 					font-size: 12px;
 					padding: 0px 8px;
 					border-radius: 6px;
@@ -54,22 +54,22 @@ export const VoidTooltip = () => {
 					word-wrap: break-word;
 				}
 
-				#void-tooltip {
+				#cortex-tooltip {
 					background-color: var(--vscode-editor-background);
 					color: var(--vscode-input-foreground);
 				}
 
-				#void-tooltip-orange {
+				#cortex-tooltip-orange {
 					background-color: #F6762A;
 					color: white;
 				}
 
-				#void-tooltip-green {
+				#cortex-tooltip-green {
 					background-color: #228B22;
 					color: white;
 				}
 
-				#void-tooltip-ollama-settings, #void-tooltip-provider-info {
+				#cortex-tooltip-ollama-settings, #cortex-tooltip-provider-info {
 					background-color: var(--vscode-editor-background);
 					color: var(--vscode-input-foreground);
 				}
@@ -82,26 +82,26 @@ export const VoidTooltip = () => {
 
 
 			<Tooltip
-				id="void-tooltip"
+				id="cortex-tooltip"
 				// border='1px solid var(--vscode-editorGroup-border)'
 				border='1px solid rgba(100,100,100,.2)'
 				opacity={1}
 				delayShow={50}
 			/>
 			<Tooltip
-				id="void-tooltip-orange"
+				id="cortex-tooltip-orange"
 				border='1px solid rgba(200,200,200,.3)'
 				opacity={1}
 				delayShow={50}
 			/>
 			<Tooltip
-				id="void-tooltip-green"
+				id="cortex-tooltip-green"
 				border='1px solid rgba(200,200,200,.3)'
 				opacity={1}
 				delayShow={50}
 			/>
 			<Tooltip
-				id="void-tooltip-ollama-settings"
+				id="cortex-tooltip-ollama-settings"
 				border='1px solid rgba(100,100,100,.2)'
 				opacity={1}
 				openEvents={{ mouseover: true, click: true, focus: true }}
@@ -127,7 +127,7 @@ export const VoidTooltip = () => {
 			</Tooltip>
 
 			<Tooltip
-				id="void-tooltip-provider-info"
+				id="cortex-tooltip-provider-info"
 				border='1px solid rgba(100,100,100,.2)'
 				opacity={1}
 				delayShow={50}

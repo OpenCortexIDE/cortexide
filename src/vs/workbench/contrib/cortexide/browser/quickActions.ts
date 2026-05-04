@@ -14,6 +14,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
+import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 // removed unused IQuickInputService import
 import { localize2 } from '../../../../nls.js';
 import { CORTEXIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
@@ -21,6 +22,7 @@ import { roundRangeToLines } from './sidebarActions.js';
 import { IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 
 type QuickActionTask = 'explainCode' | 'refactorCode' | 'addTests' | 'fixTests' | 'writeDocstring' | 'optimizeCode' | 'debugCode'
+type FileActionTask = 'explainFile' | 'summarizeChanges' | 'fixLintErrors' | 'askAboutSelection'
 
 const makeUserPayload = ({ task, path, language, startLine, endLine, extra }: { task: QuickActionTask, path: string, language: string, startLine: number, endLine: number, extra?: Record<string, unknown> }) => {
     const instruction = typeof extra?.instruction === 'string' ? `\n\nInstruction: ${extra?.instruction}` : ''
@@ -103,6 +105,103 @@ async function addSelectionChip(services: { editorService: ICodeEditorService, c
         language: model.getLanguageId(),
         range: [selectionRange.startLineNumber, selectionRange.endLineNumber],
         state: { wasAddedAsCurrentFile: false },
+    })
+}
+
+async function gatherFileContext(services: { editorService: ICodeEditorService, workspace: IWorkspaceContextService, markerService?: IMarkerService }): Promise<{
+    ok: boolean;
+    error?: string;
+    fileContext?: { fullText: string; path: string; language: string; lineCount: number; diagnostics?: string };
+}> {
+    const editor = services.editorService.getActiveCodeEditor()
+    if (!editor) return { ok: false, error: 'Please open a file.' }
+    const model = editor.getModel()
+    if (!model) return { ok: false, error: 'No file is open.' }
+
+    if (!services.workspace.isInsideWorkspace(model.uri)) {
+        return { ok: false, error: 'Quick Actions only work on files within the workspace.' }
+    }
+
+    const fullText = model.getValue(EndOfLinePreference.LF)
+    const language = model.getLanguageId()
+    const lineCount = model.getLineCount()
+    const path = model.uri.fsPath
+
+    // Gather diagnostics if marker service provided
+    let diagnostics: string | undefined
+    if (services.markerService) {
+        const markers = services.markerService.read({ resource: model.uri })
+            .filter(m => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+            .slice(0, 30) // cap at 30 to avoid huge prompts
+        if (markers.length > 0) {
+            diagnostics = markers.map(m => {
+                const sev = m.severity === MarkerSeverity.Error ? 'error' : 'warning'
+                return `  [${sev}] line ${m.startLineNumber}: ${m.message} (${m.source ?? 'unknown'})`
+            }).join('\n')
+        }
+    }
+
+    return { ok: true, fileContext: { fullText, path, language, lineCount, diagnostics } }
+}
+
+function registerFileAction({ id, title, kb, task, menuGroup, promptMaker }: {
+    id: string;
+    title: any;
+    kb?: number;
+    task: FileActionTask;
+    menuGroup?: string;
+    promptMaker: (ctx: { path: string; language: string; fullText: string; lineCount: number; diagnostics?: string }) => string;
+}) {
+    registerAction2(class extends Action2 {
+        constructor() {
+            super({
+                id,
+                f1: true,
+                title,
+                keybinding: kb ? {
+                    primary: kb,
+                    when: ContextKeyExpr.deserialize('editorFocus && !terminalFocus'),
+                    weight: KeybindingWeight.ExternalExtension,
+                } : undefined,
+                menu: menuGroup ? {
+                    id: MenuId.EditorContext,
+                    group: menuGroup,
+                    order: 20,
+                    when: ContextKeyExpr.deserialize('editorTextFocus && !terminalFocus'),
+                } : undefined,
+            })
+        }
+        async run(accessor: ServicesAccessor): Promise<void> {
+            const notificationService = accessor.get(INotificationService)
+            const chatThreadsService = accessor.get(IChatThreadService)
+            const statusbarService = accessor.get(IStatusbarService)
+            const viewsService = accessor.get(IViewsService)
+            const editorService = accessor.get(ICodeEditorService)
+            const workspace = accessor.get(IWorkspaceContextService)
+            const markerService = accessor.get(IMarkerService)
+
+            const ctx = await gatherFileContext({ editorService, workspace, markerService })
+            if (!ctx.ok || !ctx.fileContext) {
+                if (ctx.error) notificationService.warn(ctx.error)
+                return
+            }
+
+            await openChatIfNeeded(viewsService)
+
+            const { path, language, fullText, lineCount, diagnostics } = ctx.fileContext
+            const userMessage = promptMaker({ path, language, fullText, lineCount, diagnostics })
+
+            const text = `$(sync~spin) CortexIDE working…`
+            const entry = statusbarService.addEntry({ name: 'CortexIDE', text, ariaLabel: 'CortexIDE working', tooltip: title }, `void.fileAction.${task}`, StatusbarAlignment.LEFT)
+
+            try {
+                const threadId = chatThreadsService.state.currentThreadId
+                const displayContent = `${task} ${path.split('/').pop()}`
+                await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, threadId, noPlan: true, displayContent })
+            } finally {
+                entry.dispose()
+            }
+        }
     })
 }
 
@@ -272,6 +371,68 @@ registerQuickAction({
     promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
         task: 'debugCode', path, language, startLine, endLine, extra: { instruction: 'Identify potential bugs or logic errors and suggest fixes.' }
     })
+})
+
+// --- File-level actions (no selection required) ---
+
+// allow-any-unicode-next-line
+// Ask About Selection — generic open-ended question about the current selection
+registerFileAction({
+    id: 'void.askAboutSelection',
+    title: localize2('voidAskAboutSelection', 'CortexIDE: Ask About Selection'),
+    task: 'askAboutSelection',
+    menuGroup: 'navigation',
+    promptMaker: ({ path, language }) =>
+        `**Ask About Selection**\n\nFile: ${path}\nLanguage: ${language}\n\nDescribe or ask a question about the selected code. What would you like to know?\n\nReply format: Plain language. No XML/HTML tags or JSON wrappers.`
+})
+
+// allow-any-unicode-next-line
+// Explain This File — whole-file explanation, no selection needed
+registerFileAction({
+    id: 'void.explainFile',
+    title: localize2('voidExplainFile', 'CortexIDE: Explain This File'),
+    task: 'explainFile',
+    menuGroup: 'navigation',
+    promptMaker: ({ path, language, fullText, lineCount }) => {
+        // Trim very large files to avoid context overflow (keep first 400 lines)
+        const MAX_LINES = 400
+        const lines = fullText.split('\n')
+        const trimmed = lines.length > MAX_LINES ? lines.slice(0, MAX_LINES).join('\n') + `\n... (${lineCount - MAX_LINES} more lines)` : fullText
+        return `**Explain This File**\n\nFile: ${path}\nLanguage: ${language}\nLines: ${lineCount}\n\nExplain the purpose, architecture, and key components of this file. Highlight the most important functions/classes.\n\nReply format: Structured plain-text explanation. No XML/HTML tags or JSON wrappers.\n\n\`\`\`${language}\n${trimmed}\n\`\`\``
+    }
+})
+
+// allow-any-unicode-next-line
+// Fix Lint Errors — passes diagnostics from the marker service into the prompt
+registerFileAction({
+    id: 'void.fixLintErrors',
+    title: localize2('voidFixLintErrors', 'CortexIDE: Fix Lint Errors'),
+    task: 'fixLintErrors',
+    menuGroup: 'navigation',
+    promptMaker: ({ path, language, fullText, diagnostics }) => {
+        if (!diagnostics) {
+            return `**Fix Lint Errors**\n\nFile: ${path}\nLanguage: ${language}\n\nNo errors or warnings detected in this file. The code looks clean!`
+        }
+        const MAX_LINES = 300
+        const lines = fullText.split('\n')
+        const trimmed = lines.length > MAX_LINES ? lines.slice(0, MAX_LINES).join('\n') + '\n...' : fullText
+        return `**Fix Lint Errors**\n\nFile: ${path}\nLanguage: ${language}\n\nDiagnostics:\n${diagnostics}\n\nFix the errors and warnings listed above. Return only the corrected code as a fenced code block, or an explanation of what to change if the fix is non-trivial.\n\nReply format: Fenced code block or plain-text instructions. No XML/HTML tags or JSON wrappers.\n\n\`\`\`${language}\n${trimmed}\n\`\`\``
+    }
+})
+
+// allow-any-unicode-next-line
+// Summarize Changes — summarizes what the current file does (its role in the project)
+registerFileAction({
+    id: 'void.summarizeChanges',
+    title: localize2('voidSummarizeChanges', 'CortexIDE: Summarize Changes'),
+    task: 'summarizeChanges',
+    menuGroup: 'navigation',
+    promptMaker: ({ path, language, fullText, lineCount }) => {
+        const MAX_LINES = 350
+        const lines = fullText.split('\n')
+        const trimmed = lines.length > MAX_LINES ? lines.slice(0, MAX_LINES).join('\n') + `\n... (${lineCount - MAX_LINES} more lines)` : fullText
+        return `**Summarize Changes**\n\nFile: ${path}\nLanguage: ${language}\nLines: ${lineCount}\n\nProvide a concise summary of what this file does, its exported API, and any side effects. Format as: 1) One-sentence summary, 2) Key exports, 3) Dependencies.\n\nReply format: Structured plain-text. No XML/HTML tags or JSON wrappers.\n\n\`\`\`${language}\n${trimmed}\n\`\`\``
+    }
 })
 
 

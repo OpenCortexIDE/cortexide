@@ -164,6 +164,7 @@ type ChatThreads = {
 export type ThreadsState = {
 	allThreads: ChatThreads;
 	currentThreadId: string; // intended for internal use only
+	openTabs: string[]; // ordered list of thread IDs currently shown as tabs
 }
 
 export type IsRunningType =
@@ -263,6 +264,14 @@ export interface IChatThreadService {
 	getCurrentThread(): ThreadType;
 	openNewThread(): void;
 	switchToThread(threadId: string): void;
+
+	// tab management (tabs are a persistent ordered subset of threads shown in the tab bar)
+	switchToTab(threadId: string): void;
+	closeTab(threadId: string): void;
+
+	// allow-any-unicode-next-line
+	// branch a conversation at a specific message — creates a new thread with messages[0..messageIdx]
+	branchFromMessage(threadId: string, messageIdx: number): void;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -399,7 +408,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super()
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {}
 
@@ -409,6 +418,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this.state = {
 			allThreads: allThreads,
 			currentThreadId: null as unknown as string, // gets set in startNewThread()
+			openTabs: [], // populated by openNewThread()
 		}
 
 		// always be in a thread
@@ -444,11 +454,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 
 	dangerousSetState = (newState: ThreadsState) => {
-		this.state = newState
+		// Normalize: if imported state has no openTabs (e.g. old export), derive from allThreads
+		this.state = {
+			...newState,
+			openTabs: newState.openTabs ?? Object.keys(newState.allThreads ?? {}),
+		}
 		this._onDidChangeCurrentThread.fire()
 	}
 	resetState = () => {
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // see constructor
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // see constructor
 		this.openNewThread()
 		this._onDidChangeCurrentThread.fire()
 	}
@@ -5290,44 +5304,95 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setState({ currentThreadId: threadId })
 	}
 
+	// Tab management: tabs are an ordered subset of threads visible in the tab bar.
+	// switchToTab adds the thread to openTabs if not already present, then switches.
+	switchToTab(threadId: string) {
+		const openTabs = this.state.openTabs.includes(threadId)
+			? this.state.openTabs
+			: [...this.state.openTabs, threadId]
+		this._setState({ currentThreadId: threadId, openTabs })
+	}
+
+	// closeTab removes the thread from openTabs. If it was the active tab, switch to
+	// allow-any-unicode-next-line
+	// the nearest remaining tab. Does NOT delete the thread — it stays in history.
+	closeTab(threadId: string) {
+		const { openTabs, currentThreadId } = this.state
+		const newTabs = openTabs.filter(id => id !== threadId)
+
+		if (newTabs.length === 0) {
+			// allow-any-unicode-next-line
+			// All tabs closed — open a fresh thread (which will add itself to openTabs)
+			this._setState({ openTabs: newTabs })
+			this.openNewThread()
+			return
+		}
+
+		let newCurrentId = currentThreadId
+		if (currentThreadId === threadId) {
+			// Switch to the tab to the left, or the first remaining if nothing to the left
+			const closedIdx = openTabs.indexOf(threadId)
+			newCurrentId = newTabs[Math.max(0, closedIdx - 1)]
+		}
+
+		this._setState({ openTabs: newTabs, currentThreadId: newCurrentId })
+	}
 
 	openNewThread() {
-		// if a thread with 0 messages already exists, switch to it
-		const { allThreads: currentThreads } = this.state
-		for (const threadId in currentThreads) {
-			if (currentThreads[threadId]!.messages.length === 0) {
-				// switch to the existing empty thread and exit
-				this.switchToThread(threadId)
+		// if a thread with 0 messages already exists in openTabs, switch to it
+		const { allThreads: currentThreads, openTabs } = this.state
+		for (const threadId of openTabs) {
+			if (currentThreads[threadId]?.messages.length === 0) {
+				this._setState({ currentThreadId: threadId })
 				return
 			}
 		}
 		// otherwise, start a new thread
 		const newThread = newThreadObject()
 
-		// update state
+		// allow-any-unicode-next-line
+		// update state — add the new thread to openTabs
 		const newThreads: ChatThreads = {
 			...currentThreads,
 			[newThread.id]: newThread
 		}
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+		this._setState({
+			allThreads: newThreads,
+			currentThreadId: newThread.id,
+			openTabs: [...openTabs, newThread.id],
+		})
 	}
 
 
 	deleteThread(threadId: string): void {
-		const { allThreads: currentThreads } = this.state
+		const { allThreads: currentThreads, openTabs, currentThreadId } = this.state
 
 		// delete the thread
 		const newThreads = { ...currentThreads };
 		delete newThreads[threadId];
 
+		// also remove from openTabs and fix currentThreadId if needed
+		const newTabs = openTabs.filter(id => id !== threadId)
+		let newCurrentId = currentThreadId
+		if (currentThreadId === threadId) {
+			// Prefer an adjacent tab; fall back to any remaining thread; fall back to a new one
+			const closedIdx = openTabs.indexOf(threadId)
+			newCurrentId = newTabs[Math.max(0, closedIdx - 1)] ?? Object.keys(newThreads)[0] ?? ''
+		}
+
 		// store the updated threads
 		this._storeAllThreads(newThreads);
-		this._setState({ ...this.state, allThreads: newThreads })
+		this._setState({ allThreads: newThreads, openTabs: newTabs, currentThreadId: newCurrentId })
+
+		// if nothing remains, open a fresh thread
+		if (Object.keys(newThreads).length === 0) {
+			this.openNewThread()
+		}
 	}
 
 	duplicateThread(threadId: string) {
-		const { allThreads: currentThreads } = this.state
+		const { allThreads: currentThreads, openTabs } = this.state
 		const threadToDuplicate = currentThreads[threadId]
 		if (!threadToDuplicate) return
 		const newThread = {
@@ -5338,10 +5403,46 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...currentThreads,
 			[newThread.id]: newThread,
 		}
+		// Insert the duplicate right after the source tab, or append if not in tabs
+		const sourceTabIdx = openTabs.indexOf(threadId)
+		const newTabs = sourceTabIdx !== -1
+			? [...openTabs.slice(0, sourceTabIdx + 1), newThread.id, ...openTabs.slice(sourceTabIdx + 1)]
+			: [...openTabs, newThread.id]
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads })
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabs: newTabs })
 	}
 
+
+	// Creates a new thread containing messages[0..messageIdx] (inclusive) from the source thread,
+	// then opens it as a tab. The original thread is left intact.
+	branchFromMessage(threadId: string, messageIdx: number) {
+		const { allThreads: currentThreads, openTabs } = this.state
+		const sourceThread = currentThreads[threadId]
+		if (!sourceThread) return
+
+		const branchedMessages = deepClone(sourceThread.messages.slice(0, messageIdx + 1))
+		const newThread: ThreadType = {
+			...deepClone(sourceThread),
+			id: generateUuid(),
+			messages: branchedMessages,
+			lastModified: Date.now(),
+			state: {
+				...deepClone(sourceThread.state),
+				mountedInfo: undefined, // don't carry over mount info
+			},
+		}
+
+		const newThreads: ChatThreads = { ...currentThreads, [newThread.id]: newThread }
+
+		// Insert the branch right after the source tab if it's open, else append
+		const sourceTabIdx = openTabs.indexOf(threadId)
+		const newTabs = sourceTabIdx !== -1
+			? [...openTabs.slice(0, sourceTabIdx + 1), newThread.id, ...openTabs.slice(sourceTabIdx + 1)]
+			: [...openTabs, newThread.id]
+
+		this._storeAllThreads(newThreads)
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabs: newTabs })
+	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
 		// Invalidate plan cache when plan messages are added

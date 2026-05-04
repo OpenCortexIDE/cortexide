@@ -31,7 +31,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 const allLinebreakSymbols = ['\r\n', '\n'];
 const _ln = isWindows ? allLinebreakSymbols[0] : allLinebreakSymbols[1];
 
-// The extension this was called from is here - https://github.com/voideditor/void/blob/autocomplete/extensions/void/src/extension/extension.ts
+// Original autocomplete extension reference: https://github.com/OpenCortexIDE/cortexide
 
 
 /*

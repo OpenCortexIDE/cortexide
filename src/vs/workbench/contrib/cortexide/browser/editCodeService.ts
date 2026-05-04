@@ -301,7 +301,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 	public processRawKeybindingText(keybindingStr: string): string {
 		return keybindingStr
+			// allow-any-unicode-next-line
 			.replace(/Enter/g, '↵') // ⏎
+			// allow-any-unicode-next-line
 			.replace(/Backspace/g, '⌫');
 	}
 
@@ -320,7 +322,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	// 				run: () => { this._commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID) }
 	// 			}]
 	// 		},
-	// 		source: details ? `(Hold ${isMacintosh ? 'Option' : 'Alt'} to hover) - ${details}\n\nIf this persists, feel free to [report](https://github.com/voideditor/void/issues/new) it.` : undefined
+	// 		source: details ? `(Hold ${isMacintosh ? 'Option' : 'Alt'} to hover) - ${details}\n\nIf this persists, feel free to [report](https://github.com/OpenCortexIDE/cortexide/issues/new) it.` : undefined
 	// 	})
 	// }
 

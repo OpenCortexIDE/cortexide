@@ -33,8 +33,11 @@ This function finds `globalDesiredPath` given `localDesiredPath` and `currentPat
 Diagram:
 
 ...basePath/
+// allow-any-unicode-next-line
 └── void/
+	// allow-any-unicode-next-line
 	├── ...currentPath/ (defined globally)
+	// allow-any-unicode-next-line
 	└── ...localDesiredPath/ (defined locally)
 
 */
@@ -56,25 +59,48 @@ function findDesiredPathFromLocalPath(localDesiredPath, currentPath) {
 	return globalDesiredPath;
 }
 
-// hack to refresh styles automatically
-function saveStylesFile() {
-	setTimeout(() => {
-		try {
-			const pathToCssFile = findDesiredPathFromLocalPath('./src/vs/workbench/contrib/cortexide/browser/react/src2/styles.css', __dirname);
+// Watch for styles.css to be written by scope-tailwind, then re-touch it so tsup picks it up.
+// allow-any-unicode-next-line
+// Using fs.watch instead of a hardcoded timeout — fires deterministically when the file changes.
+function watchAndResaveStylesFile() {
+	const pathToCssFile = findDesiredPathFromLocalPath(
+		'./src/vs/workbench/contrib/cortexide/browser/react/src2/styles.css',
+		__dirname
+	);
 
-			if (pathToCssFile === undefined) {
-				console.error('[scope-tailwind] Error finding styles.css');
-				return;
+	if (pathToCssFile === undefined) {
+		console.error('[scope-tailwind] Error finding styles.css for watch-resave');
+		return;
+	}
+
+	// One-shot watcher: fires when scope-tailwind finishes writing, then closes itself.
+	let watcher;
+	const onChanged = () => {
+		watcher?.close();
+		// Short debounce to let the OS flush any buffered writes
+		setTimeout(() => {
+			try {
+				const content = fs.readFileSync(pathToCssFile, 'utf8');
+				fs.writeFileSync(pathToCssFile, content, 'utf8');
+				console.log('[scope-tailwind] Force-saved styles.css');
+			} catch (err) {
+				console.error('[scope-tailwind] Error saving styles.css:', err);
 			}
+		}, 150);
+	};
 
-			// Or re-write with the same content:
-			const content = fs.readFileSync(pathToCssFile, 'utf8');
-			fs.writeFileSync(pathToCssFile, content, 'utf8');
-			console.log('[scope-tailwind] Force-saved styles.css');
-		} catch (err) {
-			console.error('[scope-tailwind] Error saving styles.css:', err);
-		}
-	}, 6000);
+	try {
+		watcher = fs.watch(pathToCssFile, { persistent: false }, onChanged);
+		watcher.on('error', () => {
+			watcher?.close();
+			// allow-any-unicode-next-line
+			console.error('[scope-tailwind] Watch error on styles.css — falling back to 2s timeout');
+			setTimeout(onChanged, 2000);
+		});
+	} catch {
+		// styles.css may not exist yet on first run; fall back to a short timeout
+		setTimeout(onChanged, 2000);
+	}
 }
 
 const args = process.argv.slice(2);
@@ -85,13 +111,16 @@ if (isWatch) {
 	// Check if src2/ exists; if not, do an initial scope-tailwind build
 	if (!fs.existsSync('src2')) {
 		try {
+			// allow-any-unicode-next-line
 			console.log('🔨 Running initial scope-tailwind build to create src2 folder...');
 			execSync(
 				'npx scope-tailwind ./src -o src2/ -s void-scope -c styles.css -p "void-"',
 				{ stdio: 'inherit' }
 			);
+			// allow-any-unicode-next-line
 			console.log('✅ src2/ created successfully.');
 		} catch (err) {
+			// allow-any-unicode-next-line
 			console.error('❌ Error running initial scope-tailwind build:', err);
 			process.exit(1);
 		}
@@ -113,9 +142,9 @@ if (isWatch) {
 
 	scopeTailwindWatcher.stdout.on('data', (data) => {
 		console.log(`[scope-tailwind] ${data}`);
-		// If the output mentions "styles.css", trigger the save:
+		// When scope-tailwind announces a styles.css write, set up a one-shot watcher to re-touch it
 		if (data.toString().includes('styles.css')) {
-			saveStylesFile();
+			watchAndResaveStylesFile();
 		}
 	});
 
@@ -139,9 +168,11 @@ if (isWatch) {
 		process.exit();
 	});
 
+	// allow-any-unicode-next-line
 	console.log('🔄 Watchers started! Press Ctrl+C to stop both watchers.');
 } else {
 	// Build mode
+	// allow-any-unicode-next-line
 	console.log('📦 Building...');
 
 	// Run scope-tailwind once
@@ -150,5 +181,6 @@ if (isWatch) {
 	// Run tsup once
 	execSync('npx tsup', { stdio: 'inherit' });
 
+	// allow-any-unicode-next-line
 	console.log('✅ Build complete!');
 }
