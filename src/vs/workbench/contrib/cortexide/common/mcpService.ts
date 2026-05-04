@@ -347,7 +347,6 @@ class MCPService extends Disposable implements IMCPService {
 			.catch((e: unknown) => this._setMCPServerState(serverName, {
 				status: 'error',
 				error: `Toggle failed: ${e instanceof Error ? e.message : String(e)}`,
-				tools: [],
 			}));
 	}
 

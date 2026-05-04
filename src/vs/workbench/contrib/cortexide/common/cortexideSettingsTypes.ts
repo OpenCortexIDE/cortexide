@@ -369,6 +369,12 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.pollinations),
 		_didFillInProviderSettings: undefined,
 	},
+	moonshot: {
+		...defaultCustomSettings,
+		...defaultProviderSettings.moonshot,
+		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.moonshot),
+		_didFillInProviderSettings: undefined,
+	},
 }
 
 

@@ -26,7 +26,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { IFileService, FileChangeType } from '../../../../platform/files/common/files.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 
@@ -130,15 +130,12 @@ class CortexideRulesService extends Disposable implements ICortexideRulesService
 
 		// Watch for changes inside the rules directory
 		try {
-			const watcher = this._register(
+			this._register(
 				this.fileService.watch(rulesDirUri)
 			);
 			this._register(
 				this.fileService.onDidFilesChange(async e => {
-					const affectsRulesDir = e.changes.some(c =>
-						c.resource.path.includes(`/${RULES_DIR}/`)
-					);
-					if (affectsRulesDir) {
+					if (e.affects(rulesDirUri)) {
 						await this._loadAll(rulesDirUri);
 					}
 				})

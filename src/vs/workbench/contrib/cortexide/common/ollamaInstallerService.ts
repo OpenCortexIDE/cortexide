@@ -8,7 +8,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
-import { MODEL_PACKS, ModelPackKey } from '../electron-main/ollamaInstallerChannel.js';
+import { MODEL_PACKS, ModelPackKey } from './ollamaModelPacks.js';
 
 export { MODEL_PACKS, ModelPackKey };
 

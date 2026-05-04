@@ -252,7 +252,7 @@ export const EN_TRANSLATIONS = {
 // allow-any-unicode-next-line
 // Partial translations — missing keys fall back to EN_TRANSLATIONS at runtime.
 
-const ZH_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const ZH_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': '欢迎使用 CortexIDE',
 	// allow-any-unicode-next-line
@@ -303,7 +303,7 @@ const ZH_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.copied': '已复制！',
 };
 
-const ES_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const ES_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	'onboarding.title': 'Bienvenido a CortexIDE',
 	// allow-any-unicode-next-line
 	'onboarding.subtitle': 'IDE de IA de código abierto — funciona 100% sin conexión',
@@ -329,7 +329,7 @@ const ES_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'Hecho',
 };
 
-const FR_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const FR_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	'onboarding.title': 'Bienvenue dans CortexIDE',
 	// allow-any-unicode-next-line
 	'onboarding.subtitle': 'IDE IA open source — fonctionne 100% hors ligne',
@@ -358,7 +358,7 @@ const FR_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'Terminé',
 };
 
-const DE_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const DE_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	'onboarding.title': 'Willkommen bei CortexIDE',
 	// allow-any-unicode-next-line
 	'onboarding.subtitle': 'Open-Source KI-IDE — funktioniert 100% offline',
@@ -384,7 +384,7 @@ const DE_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'Fertig',
 };
 
-const JA_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const JA_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': 'CortexIDE へようこそ',
 	// allow-any-unicode-next-line
@@ -425,7 +425,7 @@ const JA_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': '完了',
 };
 
-const KO_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const KO_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': 'CortexIDE에 오신 것을 환영합니다',
 	// allow-any-unicode-next-line
@@ -466,7 +466,7 @@ const KO_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': '완료',
 };
 
-const PT_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const PT_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	'onboarding.title': 'Bem-vindo ao CortexIDE',
 	// allow-any-unicode-next-line
 	'onboarding.subtitle': 'IDE de IA de código aberto — funciona 100% offline',
@@ -492,7 +492,7 @@ const PT_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'Concluído',
 };
 
-const AR_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const AR_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': 'مرحبًا بك في CortexIDE',
 	// allow-any-unicode-next-line
@@ -525,7 +525,7 @@ const AR_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'تم',
 };
 
-const RU_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const RU_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': 'Добро пожаловать в CortexIDE',
 	// allow-any-unicode-next-line
@@ -558,7 +558,7 @@ const RU_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'Готово',
 };
 
-const HI_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
+const HI_TRANSLATIONS: Partial<Record<TranslationKey, string>> = {
 	// allow-any-unicode-next-line
 	'onboarding.title': 'CortexIDE में आपका स्वागत है',
 	// allow-any-unicode-next-line
@@ -591,7 +591,7 @@ const HI_TRANSLATIONS: Partial<typeof EN_TRANSLATIONS> = {
 	'common.done': 'हो गया',
 };
 
-const LOCALE_BUNDLES: Record<SupportedLocale, Partial<typeof EN_TRANSLATIONS>> = {
+const LOCALE_BUNDLES: Record<SupportedLocale, Partial<Record<TranslationKey, string>>> = {
 	en: EN_TRANSLATIONS,
 	zh: ZH_TRANSLATIONS,
 	es: ES_TRANSLATIONS,

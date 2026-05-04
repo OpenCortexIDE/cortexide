@@ -5425,7 +5425,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...deepClone(sourceThread),
 			id: generateUuid(),
 			messages: branchedMessages,
-			lastModified: Date.now(),
+			lastModified: new Date().toISOString(),
 			state: {
 				...deepClone(sourceThread.state),
 				mountedInfo: undefined, // don't carry over mount info
