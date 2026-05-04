@@ -55,7 +55,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 const CHAT_RETRIES = 3
 const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
-const MAX_AGENT_LOOP_ITERATIONS = 20 // Maximum iterations to prevent infinite loops
+const MAX_AGENT_LOOP_ITERATIONS = 100 // Hard cap; most tasks complete well under 30 iterations
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
 
@@ -424,9 +424,28 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// always be in a thread
 		this.openNewThread()
 
-
-		// keep track of user-modified files
-
+		// Invalidate file read cache when files are changed externally (e.g. user edits file
+		// while agent is running, or a build tool writes to disk). Without this the agent
+		// reads stale content from cache after the file has changed.
+		this._register(this._fileService.onDidFilesChange(e => {
+			for (const [threadId, threadCache] of this._fileReadCache.entries()) {
+				const lruList = this._fileReadCacheLRU.get(threadId)
+				const keysToDelete: string[] = []
+				for (const cacheKey of threadCache.keys()) {
+					const cachedPath = cacheKey.split('|')[0]
+					if (e.affects(URI.file(cachedPath))) {
+						keysToDelete.push(cacheKey)
+					}
+				}
+				for (const key of keysToDelete) {
+					threadCache.delete(key)
+					if (lruList) {
+						const idx = lruList.indexOf(key)
+						if (idx >= 0) lruList.splice(idx, 1)
+					}
+				}
+			}
+		}))
 	}
 
 	// If true for a thread, suppress plan generation once for the next user message

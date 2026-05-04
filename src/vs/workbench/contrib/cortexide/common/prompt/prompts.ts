@@ -27,7 +27,8 @@ export const MAX_CHILDREN_URIs_PAGE = 500
 
 // terminal tool info
 export const MAX_TERMINAL_CHARS = 100_000
-export const MAX_TERMINAL_INACTIVE_TIME = 8 // seconds
+// allow-any-unicode-next-line
+export const MAX_TERMINAL_INACTIVE_TIME = 60 // seconds — enough for npm install, cargo build, etc.
 export const MAX_TERMINAL_BG_COMMAND_TIME = 5
 
 
@@ -577,11 +578,12 @@ ${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'age
 </system_info>`)
 
 
-	// Truncate directoryStr if too long (optimize for token budget)
-	// Further reduced for better TTFS - directory info can be fetched via tools if needed
-	const MAX_DIRSTR_LENGTH = mode === 'agent' ? 10_000 : 8_000; // More aggressive truncation for normal mode
+	// allow-any-unicode-next-line
+	// Truncate directoryStr if too long. Agent mode gets more context — it needs to plan across files.
+	const MAX_DIRSTR_LENGTH = mode === 'agent' ? 20_000 : 8_000;
 	const truncatedDirStr = directoryStr.length > MAX_DIRSTR_LENGTH
-		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated - use tools to explore more)'
+		// allow-any-unicode-next-line
+		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated — use get_dir_tree or ls_dir to explore further)'
 		: directoryStr;
 
 	const fsInfo = (`Here is an overview of the user's file system:
@@ -606,15 +608,16 @@ ${truncatedDirStr}
 	// Mode-specific instructions
 	if (mode === 'agent') {
 		// allow-any-unicode-next-line
-		details.push('You are an autonomous coding agent. ALWAYS use tools — never answer from memory alone.')
-		details.push('EXPLORE BEFORE ACTING: For any codebase question or task, use search_for_files/search_pathnames_only → read_file to understand the code first. Never guess file contents or structure.')
-		details.push('EDIT WORKFLOW: read_file → edit_file (SEARCH/REPLACE) → read_file again to verify the change is correct → report result. Never skip the verify step.')
-		details.push('CREATING FILES: Use create_file_or_folder to create an empty file, then rewrite_file to write its contents. For existing files, always use edit_file with SEARCH/REPLACE blocks.')
-		details.push('MULTI-FILE TASKS: Before changing 3+ files, output a numbered plan of every file you will touch and what you will do to each. Wait for the user to confirm unless they said "just do it" or similar.')
-		details.push('TERMINAL: Prefer run_command for build/test/install steps. Always read the output before continuing. If a command fails, diagnose the error before retrying.')
-		details.push('ERROR RECOVERY: If a tool fails, read the error carefully. Fix the root cause. Do NOT retry the exact same call. Do NOT silently continue past errors.')
-		details.push('COMPLETENESS: Do not stop after one step when the task requires several. Continue using tools until the task is fully done. Then summarise what you did and what changed.')
-		details.push('NEVER truncate file content mid-edit. Write complete, compilable code for every file you touch.')
+		details.push('Use tools for every action. Never describe what you would do — just do it. Never answer from memory alone.')
+		details.push('Explore before editing: search to locate files, read them in full, understand context. Never assume file contents or structure.')
+		// allow-any-unicode-next-line
+		details.push('Edit workflow: read_file -> edit_file (SEARCH/REPLACE with exact matching text) -> read_file again to verify -> report. Never skip verification.')
+		details.push('Creating files: create_file_or_folder first, then rewrite_file with full content. Never use edit_file on a file that does not exist yet.')
+		details.push('Terminal: use run_command for builds, tests, and installs. Read all output before continuing. Diagnose failures before retrying. For long-running servers, use open_persistent_terminal.')
+		// allow-any-unicode-next-line
+		details.push('On failure: read the error message carefully, diagnose the root cause, then fix it. Never retry an identical failing call. Never swallow errors silently — surface them.')
+		// allow-any-unicode-next-line
+		details.push('Keep going: do not stop after one step when the task needs several. Use tools until the task is fully and verifiably complete. Write complete, compilable code — never truncate.')
 	} else if (mode === 'gather') {
 		details.push('GATHER mode: Use tools to search and read. One tool call at a time. Do not edit files.')
 	} else {

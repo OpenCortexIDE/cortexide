@@ -821,65 +821,15 @@ export class ToolsService implements IToolsService {
 					throw new Error(`File does not exist: ${uri.fsPath}`)
 				}
 
-				const content = model.getValue(EndOfLinePreference.LF)
-				const issues: Array<{ severity: 'error' | 'warning' | 'info', message: string, line: number, column: number, suggestion?: string }> = []
+				const fileContent = model.getValue(EndOfLinePreference.LF)
+				const ext = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const language = ext || 'plaintext'
 
-				// Get lint errors
-				await timeout(1000)
+				// Give lint errors time to settle after any recent edits
+				await timeout(800)
 				const { lintErrors } = this._getLintErrors(uri)
-				if (lintErrors) {
-					for (const error of lintErrors) {
-						issues.push({
-							severity: error.code?.startsWith('E') ? 'error' : 'warning',
-							message: error.message,
-							line: error.startLineNumber,
-							column: 1,
-							suggestion: `Fix: ${error.message}`,
-						})
-					}
-				}
 
-				// Basic code quality checks
-				const lines = content.split('\n')
-				for (let i = 0; i < lines.length; i++) {
-					const line = lines[i]
-					const lineNum = i + 1
-
-					// Check for long lines
-					if (line.length > 120) {
-						issues.push({
-							severity: 'info',
-							message: `Line ${lineNum} is too long (${line.length} characters). Consider breaking it into multiple lines.`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Break long lines into multiple lines for better readability.',
-						})
-					}
-
-					// Check for TODO/FIXME comments
-					if (line.match(/TODO|FIXME|XXX|HACK/i)) {
-						issues.push({
-							severity: 'info',
-							message: `Line ${lineNum} contains a TODO/FIXME comment: ${line.trim().substring(0, 50)}`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Address the TODO/FIXME comment or remove it if no longer needed.',
-						})
-					}
-
-					// Check for console.log (common in production code)
-					if (line.includes('console.log') && !uri.fsPath.includes('test') && !uri.fsPath.includes('spec')) {
-						issues.push({
-							severity: 'warning',
-							message: `Line ${lineNum} contains console.log. Consider removing debug statements in production code.`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Remove console.log or use a proper logging framework.',
-						})
-					}
-				}
-
-				return { result: { issues } }
+				return { result: { fileContent, language, lintErrors: lintErrors ?? null } }
 			},
 
 			generate_tests: async ({ uri, functionName, testFramework }) => {
@@ -889,41 +839,48 @@ export class ToolsService implements IToolsService {
 					throw new Error(`File does not exist: ${uri.fsPath}`)
 				}
 
-				const fileExtension = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const fileContent = model.getValue(EndOfLinePreference.LF)
+				const ext = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const language = ext || 'plaintext'
 
-				// Detect test framework from file extension and project structure
+				// Detect test framework: caller hint > package.json > file extension default
 				let detectedFramework = testFramework
 				if (!detectedFramework) {
-					if (fileExtension === 'ts' || fileExtension === 'js') {
-						detectedFramework = 'jest' // Default for JS/TS
-					} else if (fileExtension === 'py') {
-						detectedFramework = 'pytest'
-					} else if (fileExtension === 'java') {
-						detectedFramework = 'junit'
-					} else {
-						detectedFramework = 'generic'
+					// Try to read package.json from workspace root for JS/TS projects
+					try {
+						const workspace = workspaceContextService.getWorkspace()
+						if (workspace.folders.length > 0) {
+							const pkgUri = joinPath(workspace.folders[0].uri, 'package.json')
+							const pkgContent = await fileService.readFile(pkgUri)
+							const pkg = JSON.parse(pkgContent.value.toString())
+							const devDeps = { ...pkg.dependencies, ...pkg.devDependencies }
+							if (devDeps['vitest']) detectedFramework = 'vitest'
+							else if (devDeps['jest'] || devDeps['@jest/core']) detectedFramework = 'jest'
+							else if (devDeps['mocha']) detectedFramework = 'mocha'
+							else if (devDeps['jasmine']) detectedFramework = 'jasmine'
+						}
+					// allow-any-unicode-next-line
+					} catch { /* no package.json or parse error — fall through */ }
+
+					if (!detectedFramework) {
+						if (ext === 'py') detectedFramework = 'pytest'
+						else if (ext === 'java' || ext === 'kt') detectedFramework = 'JUnit'
+						else if (ext === 'go') detectedFramework = 'testing (Go standard library)'
+						else if (ext === 'rs') detectedFramework = 'Rust built-in #[test]'
+						else detectedFramework = 'jest'
 					}
 				}
 
-				// For now, return a placeholder test structure
-				// In a real implementation, this would use an LLM to generate actual tests
-				const testFileName = uri.fsPath.replace(/\.(ts|js|py|java)$/, '.test.$1')
-				const testFileUri = URI.file(testFileName)
-
-				let testCode = ''
-				if (functionName) {
-					testCode = `// Generated test for function: ${functionName}\n`
-					testCode += `// Framework: ${detectedFramework}\n\n`
-					testCode += `// TODO: Implement actual test cases for ${functionName}\n`
-					testCode += `// This is a placeholder - implement real test logic\n`
-				} else {
-					testCode = `// Generated tests for file: ${uri.fsPath}\n`
-					testCode += `// Framework: ${detectedFramework}\n\n`
-					testCode += `// TODO: Implement test cases for all exported functions/classes\n`
-					testCode += `// This is a placeholder - implement real test logic\n`
+				// Derive a sensible test file path
+				const insertBeforeExt = (path: string, insertion: string) => {
+					const lastDot = path.lastIndexOf('.')
+					return lastDot >= 0
+						? `${path.slice(0, lastDot)}${insertion}.${path.slice(lastDot + 1)}`
+						: `${path}${insertion}`
 				}
+				const suggestedTestFilePath = insertBeforeExt(uri.fsPath, '.test')
 
-				return { result: { testCode, testFileUri } }
+				return { result: { fileContent, language, testFramework: detectedFramework, suggestedTestFilePath } }
 			},
 
 			rename_symbol: async ({ uri, line, column, newName }) => {
@@ -1598,27 +1555,22 @@ export class ToolsService implements IToolsService {
 				).join('\n')}`
 			},
 			automated_code_review: (params, result) => {
-				if (result.issues.length === 0) {
-					return `No issues found in ${params.uri.fsPath}. Code looks good!`
-				}
-				const bySeverity = { error: [] as typeof result.issues, warning: [] as typeof result.issues, info: [] as typeof result.issues }
-				for (const issue of result.issues) {
-					bySeverity[issue.severity].push(issue)
-				}
-				let output = `Code review for ${params.uri.fsPath}:\n\n`
-				if (bySeverity.error.length > 0) {
-					output += `Errors (${bySeverity.error.length}):\n${bySeverity.error.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}\n\n`
-				}
-				if (bySeverity.warning.length > 0) {
-					output += `Warnings (${bySeverity.warning.length}):\n${bySeverity.warning.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}\n\n`
-				}
-				if (bySeverity.info.length > 0) {
-					output += `Info (${bySeverity.info.length}):\n${bySeverity.info.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}`
-				}
-				return output
+				const lintSection = result.lintErrors && result.lintErrors.length > 0
+					? `Lint errors:\n${stringifyLintErrors(result.lintErrors)}\n\n`
+					: 'No lint errors detected.\n\n'
+				const MAX_REVIEW_FILE_CHARS = 40_000
+				const content = result.fileContent.length > MAX_REVIEW_FILE_CHARS
+					? result.fileContent.slice(0, MAX_REVIEW_FILE_CHARS) + '\n... (truncated)'
+					: result.fileContent
+				return `File: ${params.uri.fsPath} (${result.language})\n\n${lintSection}File content:\n\`\`\`${result.language}\n${content}\n\`\`\`\n\nReview the code above. Identify bugs, security issues, performance problems, anti-patterns, and concrete improvement opportunities. Reference exact line numbers.`
 			},
 			generate_tests: (params, result) => {
-				return `Generated test file: ${result.testFileUri.fsPath}\n\nTest code:\n\`\`\`\n${result.testCode}\n\`\`\``
+				const targetFn = params.functionName ? ` for \`${params.functionName}\`` : ''
+				const MAX_TEST_FILE_CHARS = 40_000
+				const content = result.fileContent.length > MAX_TEST_FILE_CHARS
+					? result.fileContent.slice(0, MAX_TEST_FILE_CHARS) + '\n... (truncated)'
+					: result.fileContent
+				return `File to test: ${params.uri.fsPath} (${result.language})\nTest framework: ${result.testFramework}\nWrite tests to: ${result.suggestedTestFilePath}\n\nSource code${targetFn}:\n\`\`\`${result.language}\n${content}\n\`\`\`\n\nGenerate comprehensive ${result.testFramework} tests for the above${targetFn}. Cover happy path, edge cases, and error conditions. Then use create_file_or_folder and rewrite_file to write the test file to ${result.suggestedTestFilePath}.`
 			},
 			rename_symbol: (params, result) => {
 				if (result.changes.length === 0) {

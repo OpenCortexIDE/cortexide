@@ -93,8 +93,8 @@ export type BuiltinToolResultType = {
 	'go_to_definition': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
 	'find_references': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
 	'search_symbols': { symbols: Array<{ name: string, kind: string, uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
-	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info', message: string, line: number, column: number, suggestion?: string }> },
-	'generate_tests': { testCode: string, testFileUri: URI },
+	'automated_code_review': { fileContent: string, language: string, lintErrors: LintErrorItem[] | null },
+	'generate_tests': { fileContent: string, language: string, testFramework: string, suggestedTestFilePath: string },
 	'rename_symbol': { changes: Array<{ uri: URI, oldText: string, newText: string, line: number, column: number }> },
 	'extract_function': { newFunctionCode: string, replacementCode: string, insertLine: number },
 	// ---
