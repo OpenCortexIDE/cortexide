@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
 import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
@@ -1335,6 +1336,8 @@ export const VoidCheckBox = ({ label, value, onClick, className }: { label: stri
 
 
 
+const DROPDOWN_SEARCH_THRESHOLD = 8;
+
 export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	options,
 	selectedOption,
@@ -1363,47 +1366,29 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	offsetPx?: number;
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
-	const measureRef = useRef<HTMLDivElement>(null);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+	const searchInputRef = useRef<HTMLInputElement>(null);
+	const optionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-	// Replace manual positioning with floating-ui
-	const {
-		x,
-		y,
-		strategy,
-		refs,
-		middlewareData,
-		update
-	} = useFloating({
+	const { x, y, strategy, refs } = useFloating({
 		open: isOpen,
 		onOpenChange: setIsOpen,
 		placement: 'bottom-start',
-
 		middleware: [
 			offset({ mainAxis: gapPx, crossAxis: offsetPx }),
-			flip({
-				boundary: document.body,
-				padding: 8
-			}),
-			shift({
-				boundary: document.body,
-				padding: 8,
-			}),
+			flip({ boundary: document.body, padding: 8 }),
+			shift({ boundary: document.body, padding: 8 }),
 			size({
 				apply({ availableHeight, elements, rects }) {
-					const maxHeight = Math.min(availableHeight)
-
 					Object.assign(elements.floating.style, {
-						maxHeight: `${maxHeight}px`,
-						overflowY: 'auto',
-						// Ensure the width isn't constrained by the parent
-						width: `${Math.max(
-							rects.reference.width,
-							measureRef.current?.offsetWidth ?? 0
-						)}px`
+						maxHeight: `${Math.min(availableHeight - 8, 320)}px`,
+						width: matchInputWidth
+							? `${rects.reference.width}px`
+							: `${Math.max(rects.reference.width, 180)}px`,
 					});
 				},
 				padding: 8,
-				// Use viewport as boundary instead of any parent element
 				boundary: document.body,
 			}),
 		],
@@ -1411,151 +1396,197 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 		strategy: 'fixed',
 	});
 
-	// if the selected option is null, set the selection to the 0th option
-	useEffect(() => {
-		if (options.length === 0) return
-		if (selectedOption !== undefined) return
-		onChangeOption(options[0])
-	}, [selectedOption, onChangeOption, options])
+	const showSearch = options.length > DROPDOWN_SEARCH_THRESHOLD;
+	const filteredOptions = useMemo(() => {
+		if (!searchQuery.trim()) return options;
+		const q = searchQuery.toLowerCase();
+		return options.filter(opt =>
+			getOptionDropdownName(opt).toLowerCase().includes(q) ||
+			(getOptionDropdownDetail?.(opt) ?? '').toLowerCase().includes(q)
+		);
+	}, [options, searchQuery, getOptionDropdownName, getOptionDropdownDetail]);
 
-	// Handle clicks outside
+	// default selection
+	useEffect(() => {
+		if (options.length === 0 || selectedOption !== undefined) return;
+		onChangeOption(options[0]);
+	}, [selectedOption, onChangeOption, options]);
+
+	const close = useCallback(() => {
+		setIsOpen(false);
+		setSearchQuery('');
+		setFocusedIndex(-1);
+	}, []);
+
+	const open = useCallback(() => {
+		setIsOpen(true);
+		setFocusedIndex(-1);
+		setSearchQuery('');
+		requestAnimationFrame(() => searchInputRef.current?.focus());
+	}, []);
+
+	// Click-outside handler
 	useEffect(() => {
 		if (!isOpen) return;
-
-		const handleClickOutside = (event: MouseEvent) => {
-			const target = event.target as Node;
+		const handle = (e: MouseEvent) => {
+			const target = e.target as Node;
+			const ref = refs.reference.current;
 			const floating = refs.floating.current;
-			const reference = refs.reference.current;
-
-			// Check if reference is an HTML element before using contains
-			const isReferenceHTMLElement = reference && 'contains' in reference;
-
-			if (
-				floating &&
-				(!isReferenceHTMLElement || !reference.contains(target)) &&
-				!floating.contains(target)
-			) {
-				setIsOpen(false);
+			const refEl = ref && 'contains' in ref ? ref as HTMLElement : null;
+			if ((!refEl || !refEl.contains(target)) && (!floating || !floating.contains(target))) {
+				close();
 			}
 		};
+		document.addEventListener('mousedown', handle);
+		return () => document.removeEventListener('mousedown', handle);
+	}, [isOpen, refs.reference, refs.floating, close]);
 
-		document.addEventListener('mousedown', handleClickOutside);
-		return () => document.removeEventListener('mousedown', handleClickOutside);
-	}, [isOpen, refs.floating, refs.reference]);
+	const onTriggerKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (!isOpen) open(); else setFocusedIndex(0);
+		} else if (e.key === 'Escape') {
+			close();
+		}
+	};
 
-	if (selectedOption === undefined)
-		return null
+	const onPanelKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			setFocusedIndex(i => {
+				const next = Math.min(i + 1, filteredOptions.length - 1);
+				optionRefs.current[next]?.scrollIntoView({ block: 'nearest' });
+				return next;
+			});
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			setFocusedIndex(i => {
+				const prev = Math.max(i - 1, 0);
+				optionRefs.current[prev]?.scrollIntoView({ block: 'nearest' });
+				return prev;
+			});
+		} else if (e.key === 'Enter') {
+			e.preventDefault();
+			if (focusedIndex >= 0 && focusedIndex < filteredOptions.length) {
+				onChangeOption(filteredOptions[focusedIndex]);
+				close();
+			}
+		}
+	};
 
-	return (
-		<div className={`inline-block relative ${className}`}>
-			{/* Hidden measurement div */}
-			<div
-				ref={measureRef}
-				className="opacity-0 pointer-events-none absolute -left-[999999px] -top-[999999px] flex flex-col"
-				aria-hidden="true"
-			>
-				{options.map((option) => {
+	if (selectedOption === undefined) return null;
+
+	const floatingPanel = isOpen && createPortal(
+		<div
+			ref={refs.setFloating}
+			role="listbox"
+			onKeyDown={onPanelKeyDown}
+			className="z-[99999] rounded shadow-xl overflow-hidden"
+			style={{
+				position: strategy,
+				top: y ?? 0,
+				left: x ?? 0,
+				border: '1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, rgba(128,128,128,0.35)))',
+				background: 'var(--vscode-menu-background, var(--vscode-editorWidget-background))',
+				color: 'var(--vscode-menu-foreground, var(--vscode-editor-foreground))',
+				boxShadow: '0 8px 24px rgba(0,0,0,0.32)',
+			}}
+			onWheel={(e) => e.stopPropagation()}
+		>
+			{showSearch && (
+				<div style={{ padding: '6px 8px', borderBottom: '1px solid var(--vscode-widget-border, rgba(128,128,128,0.2))' }}>
+					<input
+						ref={searchInputRef}
+						type="text"
+						value={searchQuery}
+						onChange={e => { setSearchQuery(e.target.value); setFocusedIndex(0); }}
+						onKeyDown={onPanelKeyDown}
+						placeholder="Search..."
+						className="w-full text-sm outline-none bg-transparent"
+						style={{
+							color: 'var(--vscode-input-foreground)',
+							caretColor: 'var(--vscode-editorCursor-foreground)',
+						}}
+					/>
+				</div>
+			)}
+			<div className="overflow-auto" style={{ maxHeight: '280px' }}>
+				{filteredOptions.length === 0 ? (
+					<div className="px-3 py-2 text-sm opacity-50">No results</div>
+				) : filteredOptions.map((option, idx) => {
+					const isSelected = getOptionsEqual(option, selectedOption);
+					const isFocused = idx === focusedIndex;
 					const optionName = getOptionDropdownName(option);
-					const optionDetail = getOptionDropdownDetail?.(option) || '';
+					const optionDetail = getOptionDropdownDetail?.(option) ?? '';
 
 					return (
-						<div key={optionName + optionDetail} className="flex items-center whitespace-nowrap">
-							<div className="w-4" />
-							<span className="flex justify-between w-full">
-								<span>{optionName}</span>
-								<span>{optionDetail}</span>
-								<span>______</span>
+						<div
+							key={optionName + optionDetail}
+							ref={el => { optionRefs.current[idx] = el; }}
+							role="option"
+							aria-selected={isSelected}
+							className="flex items-center px-2 py-1.5 pr-4 cursor-pointer whitespace-nowrap select-none"
+							style={{
+								background: isSelected
+									? 'var(--vscode-list-activeSelectionBackground)'
+									: isFocused
+										? 'var(--vscode-list-hoverBackground)'
+										: 'transparent',
+								color: isSelected
+									? 'var(--vscode-list-activeSelectionForeground)'
+									: 'inherit',
+								outline: 'none',
+							}}
+							onMouseEnter={() => setFocusedIndex(idx)}
+							onClick={() => { onChangeOption(option); close(); }}
+						>
+							<div className="w-4 flex justify-center flex-shrink-0">
+								{isSelected && (
+									<svg className="size-3" viewBox="0 0 12 12" fill="none">
+										<path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+									</svg>
+								)}
+							</div>
+							<span className="flex justify-between items-center w-full gap-x-2">
+								<span className="text-sm">{optionName}</span>
+								{optionDetail && <span className="text-xs opacity-60 flex-shrink-0">{optionDetail}</span>}
 							</span>
 						</div>
-					)
+					);
 				})}
 			</div>
+		</div>,
+		document.body
+	);
 
-			{/* Select Button */}
+	return (
+		<div className={`inline-block relative ${className ?? ''}`}>
 			<button
-				type='button'
+				type="button"
 				ref={refs.setReference}
-				className="flex items-center h-4 bg-transparent whitespace-nowrap hover:brightness-90 w-full"
-				onClick={() => setIsOpen(!isOpen)}
+				aria-haspopup="listbox"
+				aria-expanded={isOpen}
+				className="flex items-center min-h-5 bg-transparent whitespace-nowrap w-full rounded px-1 gap-1"
+				style={{ transition: 'opacity 0.1s' }}
+				onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
+				onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+				onClick={() => (isOpen ? close() : open())}
+				onKeyDown={onTriggerKeyDown}
 			>
-				<span className={`truncate ${arrowTouchesText ? 'mr-1' : ''}`}>
+				<span className={`truncate text-sm ${arrowTouchesText ? 'mr-0.5' : 'flex-1'}`}>
 					{getOptionDisplayName(selectedOption)}
 				</span>
 				<svg
 					className={`size-3 flex-shrink-0 ${arrowTouchesText ? '' : 'ml-auto'}`}
 					viewBox="0 0 12 12"
 					fill="none"
+					style={{ transition: 'transform 0.15s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
 				>
-					<path
-						d="M2.5 4.5L6 8L9.5 4.5"
-						stroke="currentColor"
-						strokeWidth="1.5"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
+					<path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
 				</svg>
 			</button>
-
-			{/* Dropdown Menu */}
-			{isOpen && (
-				<div
-					ref={refs.setFloating}
-					className="z-[10000] bg-void-bg-1 border-void-border-3 border rounded shadow-lg"
-					style={{
-						position: strategy,
-						top: y ?? 0,
-						left: x ?? 0,
-						width: (matchInputWidth
-							? (refs.reference.current instanceof HTMLElement ? refs.reference.current.offsetWidth : 0)
-							: Math.max(
-								(refs.reference.current instanceof HTMLElement ? refs.reference.current.offsetWidth : 0),
-								(measureRef.current instanceof HTMLElement ? measureRef.current.offsetWidth : 0)
-							))
-					}}
-					onWheel={(e) => e.stopPropagation()}
-				><div className='overflow-auto max-h-80'>
-
-						{options.map((option) => {
-							const thisOptionIsSelected = getOptionsEqual(option, selectedOption);
-							const optionName = getOptionDropdownName(option);
-							const optionDetail = getOptionDropdownDetail?.(option) || '';
-
-							return (
-								<div
-									key={optionName}
-									className={`flex items-center px-2 py-1 pr-4 cursor-pointer whitespace-nowrap
-									transition-all duration-100
-									${thisOptionIsSelected ? 'bg-blue-500 text-white/80' : 'hover:bg-blue-500 hover:text-white/80'}
-								`}
-									onClick={() => {
-										onChangeOption(option);
-										setIsOpen(false);
-									}}
-								>
-									<div className="w-4 flex justify-center flex-shrink-0">
-										{thisOptionIsSelected && (
-											<svg className="size-3" viewBox="0 0 12 12" fill="none">
-												<path
-													d="M10 3L4.5 8.5L2 6"
-													stroke="currentColor"
-													strokeWidth="1.5"
-													strokeLinecap="round"
-													strokeLinejoin="round"
-												/>
-											</svg>
-										)}
-									</div>
-									<span className="flex justify-between items-center w-full gap-x-1">
-										<span>{optionName}</span>
-										<span className='opacity-60'>{optionDetail}</span>
-									</span>
-								</div>
-							);
-						})}
-					</div>
-
-				</div>
-			)}
+			{floatingPanel}
 		</div>
 	);
 };
