@@ -3206,6 +3206,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				return
 			}
 
+			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context window.
+			// We only check this in agent mode (where conversations grow large) and only once per conversation
+			// to avoid spamming. Uses the static context window from getModelCapabilities; falls back to 128k.
+			if (chatMode === 'agent' && promptTokens > 0 && modelSelection.providerName !== 'auto') {
+				try {
+					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
+					const contextWindow = (caps as any).contextWindow ?? 128_000
+					const usagePct = promptTokens / contextWindow
+					const existingMsgs = this.state.allThreads[threadId]?.messages ?? []
+					const alreadyWarned = existingMsgs.some(m => m.role === 'assistant' && m.displayContent?.includes('context window'))
+					if (usagePct >= 0.7 && !alreadyWarned) {
+						const pct = Math.round(usagePct * 100)
+						this._notificationService.warn(
+							`Context is ${pct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
+							`The agent may start losing earlier context. Consider starting a new thread.`
+						)
+					}
+				} catch {
+					// getModelCapabilities import may fail for some providers; ignore
+				}
+			}
+
 			// CRITICAL: Check again after async operation (plan might have been added during prep)
 			// Invalidate cache in case plan was added during message prep, then use fast check
 			this._planCache.delete(threadId)
@@ -3534,7 +3557,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 
 				// Update status to show we're waiting for the model response
-				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Waiting for model response...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
+				const iterLabel = chatMode === 'agent' && nMessagesSent > 1
+					? `Step ${nMessagesSent} — thinking...`
+					: 'Waiting for model response...'
+				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: iterLabel, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
 				const llmRes = await messageIsDonePromise // wait for message to complete
 
 				// if something else started running in the meantime
