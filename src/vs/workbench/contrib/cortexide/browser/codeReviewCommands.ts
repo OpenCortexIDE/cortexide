@@ -15,8 +15,8 @@ import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { IChatService } from '../../../../workbench/contrib/chat/common/chatService.js';
-import { IChatEditingService } from '../../../../workbench/contrib/chat/common/chatEditingService.js';
+import { IChatService } from '../../../../workbench/contrib/chat/common/chatService/chatService.js';
+import { IChatEditingService } from '../../../../workbench/contrib/chat/common/editing/chatEditingService.js';
 import { ChatAgentLocation } from '../../../../workbench/contrib/chat/common/constants.js';
 import { IViewsService } from '../../../../workbench/services/views/common/viewsService.js';
 import { ComposerPanel } from '../../../../workbench/contrib/chat/browser/chatEditing/composerPanel.js';
@@ -96,8 +96,10 @@ registerAction2(class extends Action2 {
 
 					// Show notification with summary
 					if (result.annotations.length === 0) {
+						// allow-any-unicode-next-line
 						notificationService.info(`✅ ${fileName}: No issues found!`);
 					} else {
+						// allow-any-unicode-next-line
 						notificationService.info(`📋 ${fileName}: ${result.summary}`);
 					}
 				} catch (error) {

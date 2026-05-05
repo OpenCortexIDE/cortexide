@@ -146,6 +146,17 @@ import { AgentNetworkFilterService, IAgentNetworkFilterService } from '../../pla
 import { ITerminalSandboxService, NullTerminalSandboxService } from '../../platform/sandbox/common/terminalSandboxService.js';
 import { CrossAppIPCService, ICrossAppIPCService } from '../../platform/crossAppIpc/electron-main/crossAppIpcService.js';
 import ErrorTelemetry from '../../platform/telemetry/electron-main/errorTelemetry.js';
+/* eslint-disable local/code-import-patterns */ // CortexIDE: workbench/contrib imports required to register main-process IPC channels
+import { IMetricsService } from '../../workbench/contrib/cortexide/common/metricsService.js';
+import { ICortexideUpdateService } from '../../workbench/contrib/cortexide/common/cortexideUpdateService.js';
+import { ICortexideSCMService } from '../../workbench/contrib/cortexide/common/cortexideSCMTypes.js';
+import { MetricsMainService } from '../../workbench/contrib/cortexide/electron-main/metricsMainService.js';
+import { CortexideMainUpdateService } from '../../workbench/contrib/cortexide/electron-main/cortexideUpdateMainService.js';
+import { CortexideSCMService } from '../../workbench/contrib/cortexide/electron-main/cortexideSCMMainService.js';
+import { LLMMessageChannel } from '../../workbench/contrib/cortexide/electron-main/sendLLMMessageChannel.js';
+import { OllamaInstallerChannel } from '../../workbench/contrib/cortexide/electron-main/ollamaInstallerChannel.js';
+import { MCPChannel } from '../../workbench/contrib/cortexide/electron-main/mcpChannel.js';
+/* eslint-enable local/code-import-patterns */
 
 /**
  * The main VS Code application. There will only ever be one instance,
@@ -1184,6 +1195,10 @@ export class CodeApplication extends Disposable {
 			services.set(ITelemetryService, NullTelemetryService);
 		}
 
+		services.set(IMetricsService, new SyncDescriptor(MetricsMainService, undefined, false));
+		services.set(ICortexideUpdateService, new SyncDescriptor(CortexideMainUpdateService, undefined, false));
+		services.set(ICortexideSCMService, new SyncDescriptor(CortexideSCMService, undefined, false));
+
 		// Default Extensions Profile Init
 		services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService, undefined, true));
 		services.set(IExtensionsScannerService, new SyncDescriptor(ExtensionsScannerService, undefined, true));
@@ -1367,6 +1382,24 @@ export class CodeApplication extends Disposable {
 		const loggerChannel = new LoggerChannel(accessor.get(ILoggerMainService),);
 		mainProcessElectronServer.registerChannel('logger', loggerChannel);
 		sharedProcessClient.then(client => client.registerChannel('logger', loggerChannel));
+
+		const metricsChannel = ProxyChannel.fromService(accessor.get(IMetricsService), disposables);
+		mainProcessElectronServer.registerChannel('void-channel-metrics', metricsChannel);
+
+		const cortexideUpdateChannel = ProxyChannel.fromService(accessor.get(ICortexideUpdateService), disposables);
+		mainProcessElectronServer.registerChannel('cortexide-channel-update', cortexideUpdateChannel);
+
+		const sendLLMMessageChannel = new LLMMessageChannel(accessor.get(IMetricsService));
+		mainProcessElectronServer.registerChannel('cortexide-channel-llmMessage', sendLLMMessageChannel);
+
+		const cortexideScmChannel = ProxyChannel.fromService(accessor.get(ICortexideSCMService), disposables);
+		mainProcessElectronServer.registerChannel('cortexide-channel-scm', cortexideScmChannel);
+
+		const mcpChannel = new MCPChannel();
+		mainProcessElectronServer.registerChannel('void-channel-mcp', mcpChannel);
+
+		const ollamaInstallerChannel = new OllamaInstallerChannel();
+		mainProcessElectronServer.registerChannel('void-channel-ollamaInstaller', ollamaInstallerChannel);
 
 		// Extension Host Debug Broadcasting
 		const electronExtensionHostDebugBroadcastChannel = new ElectronExtensionHostDebugBroadcastChannel(accessor.get(IWindowsMainService));

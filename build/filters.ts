@@ -209,8 +209,8 @@ export const copyrightFilter = Object.freeze<string[]>([
 	// extensions/copilot has its own code style
 	'!extensions/copilot/**',
 
-	// CortexIDE bundled React output — no copyright headers
-	'!src/vs/workbench/contrib/cortexide/browser/react/out/**',
+	// CortexIDE source files use Apache 2.0 / Glass Devtools copyright, not Microsoft
+	'!src/vs/workbench/contrib/cortexide/**',
 ]);
 
 export const tsFormattingFilter = Object.freeze<string[]>([

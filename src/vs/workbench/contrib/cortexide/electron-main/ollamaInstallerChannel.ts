@@ -7,11 +7,9 @@
  *  Runs in the Electron main process.  Handles:
  *    1. Ollama daemon installation (macOS via Homebrew, Linux via install.sh,
  *       Windows via winget / choco)
- // allow-any-unicode-next-line
- *    2. Model pulling — downloads the chosen model pack via `ollama pull <tag>`
+ *    2. Model pulling - downloads the chosen model pack via `ollama pull <tag>`
  *       after the daemon is confirmed healthy
- // allow-any-unicode-next-line
- *    3. Hardware detection — reports available VRAM so the UI can recommend an
+ *    3. Hardware detection - reports available VRAM so the UI can recommend an
  *       appropriate model pack without user guesswork
  *
  *  Security contract:
@@ -26,7 +24,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { spawn, execFile } from 'node:child_process';
 import { platform } from 'node:os';
 import * as http from 'node:http';
-import { MODEL_PACKS, ModelPackKey } from '../common/ollamaModelPacks.js';
+import { MODEL_PACKS, type ModelPackKey } from '../common/ollamaModelPacks.js';
 
 // allow-any-unicode-next-line
 // Security allowlist — only these tags may be passed to `ollama pull`

@@ -6,7 +6,7 @@
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { autorun, IObservable, IReader } from '../../../../../base/common/observable.js';
 import { localize } from '../../../../../nls.js';
-import { IChatEditingSession, IModifiedFileEntry, ModifiedFileEntryState } from '../../common/chatEditingService.js';
+import { IChatEditingSession, IModifiedFileEntry, ModifiedFileEntryState } from '../../common/editing/chatEditingService.js';
 import { DetailedLineRangeMapping } from '../../../../../editor/common/diff/rangeMapping.js';
 import { ILabelService } from '../../../../../platform/label/common/label.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
@@ -26,6 +26,7 @@ export class ComposerUnifiedDiffView {
 	private readonly _ignoreTrimWhitespace: IObservable<boolean>;
 	// Cache for computed diffs to avoid recomputing for unchanged files
 	// Key: entryId + originalVersion + modifiedVersion + ignoreTrimWhitespace
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private readonly _diffCache = new Map<string, Promise<{ diff: any; originalVersion: number; modifiedVersion: number }>>();
 
 	constructor(
@@ -185,6 +186,7 @@ export class ComposerUnifiedDiffView {
 			if (isModifying) {
 				progressIndicator.classList.add('composer-file-progress-generating');
 				progressIndicator.setAttribute('aria-label', localize('composer.fileGenerating', "Generating changes..."));
+				// allow-any-unicode-next-line
 				progressIndicator.textContent = '⟳';
 			} else if (state === ModifiedFileEntryState.Modified) {
 				progressIndicator.classList.add('composer-file-progress-ready');
@@ -197,6 +199,7 @@ export class ComposerUnifiedDiffView {
 			} else if (state === ModifiedFileEntryState.Rejected) {
 				progressIndicator.classList.add('composer-file-progress-rejected');
 				progressIndicator.setAttribute('aria-label', localize('composer.fileRejected', "Rejected"));
+				// allow-any-unicode-next-line
 				progressIndicator.textContent = '✗';
 			}
 		};
@@ -251,6 +254,7 @@ export class ComposerUnifiedDiffView {
 		}
 
 		// Remove loading indicator
+		// eslint-disable-next-line no-restricted-syntax
 		const loadingIndicator = fileContainer.querySelector('.composer-file-loading');
 		if (loadingIndicator) {
 			loadingIndicator.remove();
@@ -338,6 +342,7 @@ export class ComposerUnifiedDiffView {
 						});
 						// Update individual checkboxes without full re-render
 						diff.changes.forEach((_: DetailedLineRangeMapping, idx: number) => {
+							// eslint-disable-next-line no-restricted-syntax
 							const checkbox = hunksContainer.querySelector(`#hunk-${entry.entryId}-${idx}`) as HTMLInputElement;
 							if (checkbox) {
 								checkbox.checked = enabled;
@@ -367,6 +372,7 @@ export class ComposerUnifiedDiffView {
 			}
 		} catch (error) {
 			// Remove loading indicator if present
+			// eslint-disable-next-line no-restricted-syntax
 			const loadingIndicator = fileContainer.querySelector('.composer-file-loading');
 			if (loadingIndicator) {
 				loadingIndicator.remove();

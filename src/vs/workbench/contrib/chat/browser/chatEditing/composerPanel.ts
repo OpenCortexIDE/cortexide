@@ -13,28 +13,26 @@ import { ViewPane } from '../../../../browser/parts/views/viewPane.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService, IContextKey, RawContextKey } from '../../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../../platform/contextview/browser/contextView.js';
-import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
-import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
+import { IDialogService, IFileDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
+import { IInstantiationService, ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { defaultButtonStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
 import { IViewDescriptorService } from '../../../../common/views.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
-import { IChatEditingService, IChatEditingSession, IModifiedFileEntry } from '../../common/chatEditingService.js';
-import { IChatService } from '../../common/chatService.js';
+import { IChatEditingService, IChatEditingSession, IModifiedFileEntry, chatEditingMaxFileAssignmentName, defaultChatEditingMaxFileLimit } from '../../common/editing/chatEditingService.js';
+import { IChatService } from '../../common/chatService/chatService.js';
 import { IChatRequestVariableEntry } from '../../common/chatVariableEntries.js';
 import { ChatAgentLocation } from '../../common/constants.js';
-import { IChatAgentService } from '../../common/chatAgents.js';
+import { IChatAgentService } from '../../common/participants/chatAgents.js';
 import { observableValue, autorun } from '../../../../../base/common/observable.js';
 import Severity from '../../../../../base/common/severity.js';
 import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { FocusedViewContext } from '../../../../common/contextkeys.js';
 import { MenuId, Action2, registerAction2 } from '../../../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
-import { IFileDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../../platform/quickinput/common/quickInput.js';
 import { ILabelService } from '../../../../../platform/label/common/label.js';
 import { getWorkspaceSymbols, IWorkspaceSymbol } from '../../../search/common/search.js';
@@ -44,7 +42,6 @@ import { IWorkspaceContextService } from '../../../../../platform/workspace/comm
 import { IRepoIndexerService } from '../../../cortexide/browser/repoIndexerService.js';
 import { DetailedLineRangeMapping } from '../../../../../editor/common/diff/rangeMapping.js';
 import { ComposerUnifiedDiffView } from './composerUnifiedDiffView.js';
-import { chatEditingMaxFileAssignmentName, defaultChatEditingMaxFileLimit } from '../../common/chatEditingService.js';
 import { IEditorWorkerService } from '../../../../../editor/common/services/editorWorker.js';
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { diffComposerAudit } from '../../../cortexide/common/diffComposerAudit.js';
@@ -83,6 +80,7 @@ export class ComposerPanel extends ViewPane {
 	private _hasAgent = observableValue<boolean>(this, false);
 	// Cache for computed diffs in summary stats to avoid recomputing for unchanged files
 	// Key: entryId + originalVersion + modifiedVersion
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private readonly _summaryDiffCache = new Map<string, Promise<{ diff: any; originalVersion: number; modifiedVersion: number }>>();
 
 	constructor(
@@ -513,6 +511,7 @@ export class ComposerPanel extends ViewPane {
 				if (isGenerating) {
 					progressContainer.textContent = localize('composer.generating', "Generating proposals...");
 				} else if (isAutoDiscovering) {
+					// eslint-disable-next-line local/code-no-unexternalized-strings
 					progressContainer.textContent = localize('composer.discovering', "Discovering relevant files...");
 				}
 			}));
@@ -1052,6 +1051,7 @@ export class ComposerPanel extends ViewPane {
 				.filter(item => item.uri && this._workspaceContextService.isInsideWorkspace(item.uri))
 				.map(item => ({
 					uri: item.uri!,
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any, local/code-no-any-casts
 					type: (item as any).isFolder ? 'folder' as const : 'file' as const,
 					label: this._labelService.getUriLabel(item.uri!, { relative: true })
 				}));
@@ -1678,6 +1678,7 @@ export class ComposerPanel extends ViewPane {
 				});
 			}
 
+			// eslint-disable-next-line local/code-no-unexternalized-strings
 			this._dialogService.error(localize('composer.applyError', "Failed to apply changes: {0}", errorMessage));
 		}
 	}
