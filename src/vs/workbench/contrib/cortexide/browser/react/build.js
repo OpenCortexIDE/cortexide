@@ -175,7 +175,7 @@ if (isWatch) {
 	// allow-any-unicode-next-line
 	console.log('📦 Building...');
 
-	// Run scope-tailwind once
+	// Transform TSX/JSX class names and compile Tailwind CSS (requires postcss@^8 in root node_modules)
 	execSync('npx scope-tailwind ./src -o src2/ -s void-scope -c styles.css -p "void-"', { stdio: 'inherit' });
 
 	// Run tsup once
