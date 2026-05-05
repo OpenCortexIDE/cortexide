@@ -5,15 +5,15 @@
 
 import Vinyl from 'vinyl';
 import through from 'through';
-import * as builder from './builder';
+import * as builder from './builder.ts';
 import ts from 'typescript';
 import { Readable, Writable, Duplex } from 'stream';
 import { dirname } from 'path';
-import { strings } from './utils';
-import * as fs from 'fs';
+import { strings } from './utils.ts';
+import { readFileSync, statSync } from 'fs';
 import log from 'fancy-log';
-import { ESBuildTranspiler, ITranspiler, TscTranspiler } from './transpiler';
-import colors = require('ansi-colors');
+import { ESBuildTranspiler, type ITranspiler, TscTranspiler } from './transpiler.ts';
+import colors from 'ansi-colors';
 
 export interface IncrementalCompiler {
 	(token?: any): Readable & Writable;
@@ -151,8 +151,8 @@ export function create(
 					path = _fileNames[_pos];
 					more = this.push(new Vinyl({
 						path,
-						contents: fs.readFileSync(path),
-						stat: fs.statSync(path),
+						contents: readFileSync(path),
+						stat: statSync(path),
 						cwd: opts && opts.cwd,
 						base: opts && opts.base || dirname(projectPath)
 					}));
@@ -164,5 +164,5 @@ export function create(
 		};
 	};
 
-	return <IncrementalCompiler>result;
+	return result as IncrementalCompiler;
 }

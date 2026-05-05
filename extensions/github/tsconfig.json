@@ -1,12 +1,11 @@
 {
 	"extends": "../tsconfig.base.json",
 	"compilerOptions": {
+		"rootDir": "./src",
+		"outDir": "./out",
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext",
-		"outDir": "./out",
 		"skipLibCheck": true,
-		"allowSyntheticDefaultImports": false,
-		"ignoreDeprecations": "6.0",
 		"typeRoots": [
 			"./node_modules/@types"
 		]
