@@ -12,7 +12,7 @@ import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { Checkbox } from '../../../../../../../base/browser/ui/toggle/toggle.js';
 
 import { CodeEditorWidget } from '../../../../../../../editor/browser/widget/codeEditor/codeEditorWidget.js'
-import { useAccessor } from './services.js';
+import { useAccessor, useIsDark } from './services.js';
 import { ITextModel } from '../../../../../../../editor/common/model.js';
 import { asCssVariable } from '../../../../../../../platform/theme/common/colorUtils.js';
 import { inputBackground, inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
@@ -1370,6 +1370,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const optionRefs = useRef<(HTMLDivElement | null)[]>([]);
+	const isDark = useIsDark();
 
 	const { x, y, strategy, refs } = useFloating({
 		open: isOpen,
@@ -1482,7 +1483,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 			ref={refs.setFloating}
 			role="listbox"
 			onKeyDown={onPanelKeyDown}
-			className="z-[99999] rounded shadow-xl overflow-hidden"
+			className={`@@void-scope ${isDark ? 'dark' : ''} z-[99999] rounded shadow-xl overflow-hidden`}
 			style={{
 				position: strategy,
 				top: y ?? 0,

@@ -3,6 +3,7 @@
 	"compilerOptions": {
 		"rootDir": "./src",
 		"outDir": "./out",
+		"skipLibCheck": true,
 		"typeRoots": [
 			"./node_modules/@types"
 		]

@@ -133,6 +133,9 @@ export const indentationFilter = Object.freeze<string[]>([
 	// extensions/copilot has its own code style
 	'!extensions/copilot/**',
 
+	// CortexIDE React source files use spaces (React convention), not VS Code tabs
+	'!src/vs/workbench/contrib/cortexide/**',
+
 	// except specific file types
 	'!src/vs/*/**/*.d.ts',
 	'!src/typings/**/*.d.ts',

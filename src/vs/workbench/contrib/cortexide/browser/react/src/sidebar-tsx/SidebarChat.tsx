@@ -38,6 +38,7 @@ import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { useTranslation } from '../util/useTranslation.js';
+import { FileAccess } from '../../../../../../../base/common/network.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
 import { ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
@@ -4938,10 +4939,21 @@ export const SidebarChat = () => {
         )
     }
 
+    const logoUri = useMemo(() => FileAccess.asBrowserUri('vs/workbench/browser/media/cortexide-main.png').toString(true), [])
+
     const landingPageContent = <div
 		ref={sidebarRef}
 		className='w-full h-full max-h-full flex flex-col overflow-auto px-3'
 	>
+		{/* CortexIDE logo */}
+		<div className='flex justify-center pt-6 pb-2'>
+			<img
+				src={logoUri}
+				alt='CortexIDE'
+				className='w-12 h-12 rounded-full object-cover'
+				style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
+			/>
+		</div>
 		<ErrorBoundary>
 			{landingPageInput}
 		</ErrorBoundary>

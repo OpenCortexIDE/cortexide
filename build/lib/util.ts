@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as es from 'event-stream';
+import es from 'event-stream';
 import _debounce from 'debounce';
 import _filter from 'gulp-filter';
 import rename from 'gulp-rename';
@@ -13,15 +13,17 @@ import fs from 'fs';
 import VinylFile from 'vinyl';
 import through from 'through';
 import sm from 'source-map';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import ternaryStream from 'ternary-stream';
 import type { Transform } from 'stream';
 import * as tar from 'tar';
 
 const root = path.dirname(path.dirname(import.meta.dirname));
 
-// Use require for rimraf 2.2.8 (CommonJS module, no default export)
-const rimrafModule = require('rimraf');
+// rimraf 2.x is a CommonJS module — use createRequire to import it in ESM context
+const _require = createRequire(import.meta.url);
+const rimrafModule = _require('rimraf');
 
 export interface ICancellationToken {
 	isCancellationRequested(): boolean;
