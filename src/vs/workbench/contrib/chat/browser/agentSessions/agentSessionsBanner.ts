@@ -6,7 +6,7 @@
 import { $, addDisposableListener } from '../../../../../base/browser/dom.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
-import { ICommandService, CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IProductService } from '../../../../../platform/product/common/productService.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 
@@ -35,9 +35,8 @@ export interface IAgentsBannerResult {
  * The banner requires the `workbench.action.openAgentsWindow` command
  * to be registered (desktop builds only) and is limited to Insiders quality.
  */
-export function canShowAgentsBanner(productService: IProductService): boolean {
-	return productService.quality !== 'stable'
-		&& !!CommandsRegistry.getCommand(OPEN_AGENTS_WINDOW_COMMAND_ID);
+export function canShowAgentsBanner(_productService: IProductService): boolean {
+	return false; // CortexIDE does not use the VS Code Agents app
 }
 
 export interface IAgentsBannerOptions {
