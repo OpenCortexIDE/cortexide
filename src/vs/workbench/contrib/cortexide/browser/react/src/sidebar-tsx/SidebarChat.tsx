@@ -314,15 +314,17 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 
 
 
-const nameOfChatMode = {
-	'normal': 'Chat',
+const nameOfChatMode: Record<ChatMode, string> = {
+	'normal': 'Ask',
 	'gather': 'Gather',
+	'plan': 'Plan',
 	'agent': 'Agent',
 }
 
-const detailOfChatMode = {
-	'normal': 'Normal chat',
-	'gather': 'Reads files, but can\'t edit',
+const detailOfChatMode: Record<ChatMode, string> = {
+	'normal': 'Ask questions about your code',
+	'gather': 'Reads files, no edits',
+	'plan': 'Plans first, then executes',
 	'agent': 'Edits files and uses tools',
 }
 
@@ -334,16 +336,17 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 	const cortexideSettingsService = accessor.get('ICortexideSettingsService')
 	const settingsState = useSettingsState()
 
-	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'agent'], [])
+	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'plan', 'agent'], [])
 
 	const onChangeOption = useCallback((newVal: ChatMode) => {
 		cortexideSettingsService.setGlobalSetting('chatMode', newVal)
 	}, [cortexideSettingsService])
 
 	const getModeDisplayName = (val: ChatMode) => {
-		if (val === 'normal') return t('chat.mode.chat')
-		if (val === 'agent') return t('chat.mode.agent')
-		if (val === 'gather') return t('chat.mode.gather')
+		if (val === 'normal') return t('chat.mode.ask') || nameOfChatMode['normal']
+		if (val === 'agent') return t('chat.mode.agent') || nameOfChatMode['agent']
+		if (val === 'gather') return t('chat.mode.gather') || nameOfChatMode['gather']
+		if (val === 'plan') return t('chat.mode.plan') || nameOfChatMode['plan']
 		return nameOfChatMode[val]
 	}
 

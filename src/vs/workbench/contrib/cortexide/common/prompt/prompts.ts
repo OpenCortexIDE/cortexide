@@ -454,11 +454,11 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
-			: chatMode === 'agent' ? Object.keys(builtinTools) as BuiltinToolName[]
+			: (chatMode === 'agent' || chatMode === 'plan') ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = chatMode === 'agent' ? mcpTools : undefined
+	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') ? mcpTools : undefined
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -551,11 +551,12 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 
 
 export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
-	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
+	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
-			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
-				: mode === 'normal' ? `to assist the user with their coding tasks.`
-					: ''}
+			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
+				: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
+					: mode === 'normal' ? `to assist the user with their coding tasks.`
+						: ''}
 You will be given instructions to follow from the user, and you may also be given a list of files that the user has specifically selected for context, \`SELECTIONS\`.
 Please assist the user with their query.`)
 
@@ -572,7 +573,7 @@ ${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}
 ${activeURI}
 
 - Open files:
-${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'agent' && persistentTerminalIDs.length !== 0 ? `
+${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${(mode === 'agent' || mode === 'plan') && persistentTerminalIDs.length !== 0 ? `
 
 - Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
 </system_info>`)
@@ -580,7 +581,7 @@ ${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'age
 
 	// allow-any-unicode-next-line
 	// Truncate directoryStr if too long. Agent mode gets more context — it needs to plan across files.
-	const MAX_DIRSTR_LENGTH = mode === 'agent' ? 20_000 : 8_000;
+	const MAX_DIRSTR_LENGTH = (mode === 'agent' || mode === 'plan') ? 20_000 : 8_000;
 	const truncatedDirStr = directoryStr.length > MAX_DIRSTR_LENGTH
 		// allow-any-unicode-next-line
 		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated — use get_dir_tree or ls_dir to explore further)'
@@ -606,7 +607,7 @@ ${truncatedDirStr}
 	}
 
 	// Mode-specific instructions
-	if (mode === 'agent') {
+	if (mode === 'agent' || mode === 'plan') {
 		// allow-any-unicode-next-line
 		details.push('Use tools for every action. Never describe what you would do — just do it. Never answer from memory alone.')
 		details.push('Explore before editing: search to locate files, read them in full, understand context. Never assume file contents or structure.')
@@ -672,7 +673,7 @@ ${toolDefinitions}
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
 export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
-	const header = mode === 'agent'
+	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
 		? 'Code assistant. Search and reference files.'
@@ -683,7 +684,7 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
 
 	const details: string[] = []
-	if (mode === 'agent') {
+	if (mode === 'agent' || mode === 'plan') {
 		details.push('Use tools for EVERY action. Never answer from memory alone.')
 		details.push('Before editing: always read_file first. After editing: read_file again to verify.')
 		details.push('For 3+ file changes: list plan first, wait for confirmation.')

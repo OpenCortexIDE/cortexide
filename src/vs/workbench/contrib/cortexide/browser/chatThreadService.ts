@@ -2834,7 +2834,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const existingPlanInfo = this._getCurrentPlan(threadId, false) // Use cache
 		if (!existingPlanInfo) {
 			// No existing plan - check if we should generate one
-			const shouldGeneratePlan = this._shouldGeneratePlan(threadId)
+			// Plan mode always generates a plan; agent mode uses heuristics
+			const shouldGeneratePlan = chatMode === 'plan' || this._shouldGeneratePlan(threadId)
 			if (shouldGeneratePlan) {
 				await this._generatePlanFromUserRequest(threadId, modelSelection, modelSelectionOptions)
 				// CRITICAL: Force cache refresh ONLY here after plan generation
@@ -3211,7 +3212,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context window.
 			// We only check this in agent mode (where conversations grow large) and only once per conversation
 			// to avoid spamming. Uses the static context window from getModelCapabilities; falls back to 128k.
-			if (chatMode === 'agent' && promptTokens > 0 && modelSelection.providerName !== 'auto') {
+			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
 				try {
 					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
 					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
@@ -3559,7 +3560,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 
 				// Update status to show we're waiting for the model response
-				const iterLabel = chatMode === 'agent' && nMessagesSent > 1
+				const iterLabel = (chatMode === 'agent' || chatMode === 'plan') && nMessagesSent > 1
 					? `Step ${nMessagesSent} — thinking...`
 					: 'Waiting for model response...'
 				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: iterLabel, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
@@ -3870,7 +3871,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Also check if we've already read too many files (prevent infinite read loops)
 				// CRITICAL: Only synthesize tools if the model actually supports them
 				// Don't synthesize tools if file read limit was exceeded
-				if (chatMode === 'agent' && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
+				if ((chatMode === 'agent' || chatMode === 'plan') && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
 					if (originalUserMessage) {
 						const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
 						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure']
