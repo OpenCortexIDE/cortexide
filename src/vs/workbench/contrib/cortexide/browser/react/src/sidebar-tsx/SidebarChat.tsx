@@ -741,14 +741,14 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
 		className={`rounded-full flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
-			bg-white hover:bg-red-50 button-press-animation
+			bg-white hover:bg-[var(--cortex-danger)]/5 button-press-animation
 			${className}
 		`}
 		type='button'
 		aria-label="Stop generation"
 		{...props}
 	>
-		<IconSquare size={DEFAULT_BUTTON_SIZE} className="stroke-[3] p-[7px] text-red-600" />
+		<IconSquare size={DEFAULT_BUTTON_SIZE} className="stroke-[3] p-[7px] text-[var(--cortex-danger)]" />
 	</button>
 }
 
@@ -1262,7 +1262,7 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 			const { result } = toolMessage
 			componentParams.bottomChildren = <BottomChildren title='Lint errors'>
 				{result?.lintErrors?.map((error, i) => (
-					<div key={i} className='whitespace-nowrap'>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
+					<div key={`${error.startLineNumber}-${error.endLineNumber}-${i}`} className='whitespace-nowrap'>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
 				))}
 			</BottomChildren>
 		}
@@ -2058,7 +2058,7 @@ const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined, code: str
 const LintErrorChildren = ({ lintErrors }: { lintErrors: LintErrorItem[] }) => {
 	return <div className="text-xs text-void-fg-4 opacity-80 border-l-2 border-void-warning px-2 py-0.5 flex flex-col gap-0.5 overflow-x-auto whitespace-nowrap">
 		{lintErrors.map((error, i) => (
-			<div key={i}>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
+			<div key={`${error.startLineNumber}-${error.endLineNumber}-${i}`}>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
 		))}
 	</div>
 }
@@ -2435,7 +2435,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 				componentParams.hasNextPage = result.hasNextPage
 				componentParams.children = !result.children || (result.children.length ?? 0) === 0 ? undefined
 					: <ToolChildrenWrapper>
-						{result.children.map((child, i) => (<ListableToolItem key={i}
+						{result.children.map((child, i) => (<ListableToolItem key={child.uri?.toString() ?? `child-${i}`}
 							name={`${child.name}${child.isDirectory ? '/' : ''}`}
 							className='w-full overflow-auto'
 							onClick={() => {
@@ -2487,7 +2487,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 				componentParams.hasNextPage = result.hasNextPage
 				componentParams.children = result.uris.length === 0 ? undefined
 					: <ToolChildrenWrapper>
-						{result.uris.map((uri, i) => (<ListableToolItem key={i}
+						{result.uris.map((uri, i) => (<ListableToolItem key={uri.toString()}
 							name={getBasename(uri.fsPath)}
 							className='w-full overflow-auto'
 							onClick={() => { voidOpenFileFn(uri, accessor) }}
@@ -2542,7 +2542,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 				componentParams.hasNextPage = result.hasNextPage
 				componentParams.children = result.uris.length === 0 ? undefined
 					: <ToolChildrenWrapper>
-						{result.uris.map((uri, i) => (<ListableToolItem key={i}
+						{result.uris.map((uri, i) => (<ListableToolItem key={uri.toString()}
 							name={getBasename(uri.fsPath)}
 							className='w-full overflow-auto'
 							onClick={() => { voidOpenFileFn(uri, accessor) }}
@@ -2875,7 +2875,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 					componentParams.children = <ToolChildrenWrapper>
 						<div className='space-y-3'>
 							{result.results.map((r: { title: string, snippet: string, url: string }, i: number) => (
-								<div key={i} className='border border-void-border-2 bg-void-bg-2 rounded p-3 hover:bg-void-bg-3 transition-colors'>
+								<div key={r.url || i} className='border border-void-border-2 bg-void-bg-2 rounded p-3 hover:bg-void-bg-3 transition-colors'>
 									<a
 										href={r.url}
 										target='_blank'
@@ -3122,14 +3122,14 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 		switch (status) {
 			case 'succeeded':
 				return (
-					<div className="w-5 h-5 rounded-full border-2 border-green-500 bg-green-500/20 flex items-center justify-center">
-						<Check size={12} className="text-green-400" strokeWidth={3} />
+					<div className="w-5 h-5 rounded-full border-2 border-[var(--cortex-success)] bg-[var(--cortex-success)]/20 flex items-center justify-center">
+						<Check size={12} className="text-[var(--cortex-success)]" strokeWidth={3} />
 					</div>
 				)
 			case 'failed':
 				return (
-					<div className="w-5 h-5 rounded-full border-2 border-red-500 bg-red-500/20 flex items-center justify-center">
-						<X size={12} className="text-red-400" strokeWidth={3} />
+					<div className="w-5 h-5 rounded-full border-2 border-[var(--cortex-danger)] bg-[var(--cortex-danger)]/20 flex items-center justify-center">
+						<X size={12} className="text-[var(--cortex-danger)]" strokeWidth={3} />
 					</div>
 				)
 			case 'running':
@@ -3191,7 +3191,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 			case 'running':
 				return <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">Running</span>
 			case 'failed':
-				return <span className="px-1.5 py-0.5 text-xs rounded bg-red-500/20 text-red-400 border border-red-500/30">Failed</span>
+				return <span className="px-1.5 py-0.5 text-xs rounded bg-[var(--cortex-danger)]/20 text-[var(--cortex-danger)] border border-[var(--cortex-danger)]/30">Failed</span>
 			case 'paused':
 				return <span className="px-1.5 py-0.5 text-xs rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">Paused</span>
 			case 'skipped':
@@ -3232,7 +3232,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 									</span>
 								)}
 								{approvalState === 'completed' && (
-									<span className="px-2 py-0.5 text-xs rounded bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-1 flex-shrink-0">
+									<span className="px-2 py-0.5 text-xs rounded bg-[var(--cortex-success)]/20 text-[var(--cortex-success)] border border-[var(--cortex-success)]/30 flex items-center gap-1 flex-shrink-0">
 										<Check size={12} />
 										Completed
 									</span>
@@ -3249,7 +3249,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 											title="Reject plan"
 									aria-label="Reject plan"
 											onClick={handleReject}
-											className="px-3 py-1.5 text-xs rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500/40"
+											className="px-3 py-1.5 text-xs rounded bg-[var(--cortex-danger)]/10 text-[var(--cortex-danger)] border border-[var(--cortex-danger)]/20 hover:bg-[var(--cortex-danger)]/20 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--cortex-danger)]/40"
 										>
 											Reject
 										</button>
@@ -3257,7 +3257,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 											title="Approve and execute"
 									aria-label="Approve and execute plan"
 											onClick={handleApprove}
-											className="px-3 py-1.5 text-xs rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/40"
+											className="px-3 py-1.5 text-xs rounded bg-[var(--cortex-success)]/10 text-[var(--cortex-success)] border border-[var(--cortex-success)]/20 hover:bg-[var(--cortex-success)]/20 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--cortex-success)]/40"
 										>
 											Approve & Execute
 										</button>
@@ -3276,7 +3276,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 								<button
 									aria-label="Resume plan execution"
 										onClick={() => chatThreadService.resumeAgentExecution({ threadId })}
-										className="px-3 py-1.5 text-xs rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500/40"
+										className="px-3 py-1.5 text-xs rounded bg-[var(--cortex-success)]/10 text-[var(--cortex-success)] border border-[var(--cortex-success)]/20 hover:bg-[var(--cortex-success)]/20 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--cortex-success)]/40"
 									>
 										Resume
 									</button>
@@ -3300,7 +3300,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 									key={step.stepNumber}
 									className={`flex items-start gap-3 px-4 py-2.5 hover:bg-void-bg-2/30 transition-colors ${
 										isDisabled ? 'opacity-50' : ''
-									} ${status === 'failed' ? 'bg-red-500/5' : ''}`}
+									} ${status === 'failed' ? 'bg-[var(--cortex-danger)]/5' : ''}`}
 								>
 									{/* Checkmark */}
 									<div className="flex-shrink-0 mt-0.5">
@@ -3337,7 +3337,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 											<button
 												aria-label={`Retry step ${step.stepNumber}`}
 															onClick={() => chatThreadService.retryStep({ threadId, messageIdx, stepNumber: step.stepNumber })}
-															className="px-2 py-0.5 text-xs rounded bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/20 transition-colors"
+															className="px-2 py-0.5 text-xs rounded bg-[var(--cortex-success)]/10 text-[var(--cortex-success)] hover:bg-[var(--cortex-success)]/20 border border-[var(--cortex-success)]/20 transition-colors"
 														>
 															Retry
 														</button>
@@ -3405,17 +3405,17 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 
 																return (
 																	<div key={toolId} className={`p-2 rounded border text-xs ${
-																		isSuccess ? 'bg-green-500/10 border-green-500/20' :
-																		isError ? 'bg-red-500/10 border-red-500/20' :
+																		isSuccess ? 'bg-[var(--cortex-success)]/10 border-[var(--cortex-success)]/20' :
+																		isError ? 'bg-[var(--cortex-danger)]/10 border-[var(--cortex-danger)]/20' :
 																		'bg-blue-500/10 border-blue-500/20'
 																	}`}>
 																		<div className="flex items-center justify-between mb-1">
 																			<span className="font-medium text-void-fg-1">{toolMsg.name}</span>
-																			{isSuccess && <Check size={12} className="text-green-400" />}
-																			{isError && <X size={12} className="text-red-400" />}
+																			{isSuccess && <Check size={12} className="text-[var(--cortex-success)]" />}
+																			{isError && <X size={12} className="text-[var(--cortex-danger)]" />}
 																		</div>
 																		{isError && toolMsg.result && (
-																			<div className="mt-1 text-red-400 text-xs">
+																			<div className="mt-1 text-[var(--cortex-danger)] text-xs">
 																				{toolMsg.result}
 																			</div>
 																		)}
@@ -3448,7 +3448,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 														<div className="text-void-fg-3 text-xs mb-2 font-medium">Files Affected:</div>
 														<div className="flex flex-wrap gap-1.5">
 															{step.files.map((file, i) => (
-																<span key={i} className="px-2 py-0.5 bg-purple-500/10 text-purple-400 text-xs rounded border border-purple-500/20 flex items-center gap-1">
+																<span key={`${file}-${i}`} className="px-2 py-0.5 bg-purple-500/10 text-purple-400 text-xs rounded border border-purple-500/20 flex items-center gap-1">
 																	<File size={12} />
 																	{file.split('/').pop()}
 																</span>
@@ -3457,7 +3457,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 													</div>
 												)}
 												{step.error && (
-													<div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs flex items-start gap-2">
+													<div className="p-2 bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20 rounded text-[var(--cortex-danger)] text-xs flex items-start gap-2">
 														<AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
 														<span>{step.error}</span>
 													</div>
@@ -3497,15 +3497,15 @@ const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessag
 		<div className={`${isCheckpointGhost ? 'opacity-50' : ''} my-2`}>
 			<div className={`border rounded-lg p-4 ${
 				message.completed
-					? 'bg-green-500/10 border-green-500/30'
-					: 'bg-amber-500/10 border-amber-500/30'
+					? 'bg-[var(--cortex-success)]/10 border-[var(--cortex-success)]/30'
+					: 'bg-[var(--cortex-warning)]/10 border-[var(--cortex-warning)]/30'
 			}`}>
 				<div className="flex items-center justify-between mb-3">
 					<div className="flex items-center gap-2">
 						{message.completed ? (
-							<Check className="text-green-400" size={18} />
+							<Check className="text-[var(--cortex-success)]" size={18} />
 						) : (
-							<AlertTriangle className="text-amber-400" size={18} />
+							<AlertTriangle className="text-[var(--cortex-warning)]" size={18} />
 						)}
 						<h3 className={`font-semibold text-sm ${
 							message.completed ? 'text-green-300' : 'text-amber-300'
@@ -3531,10 +3531,10 @@ const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessag
 						<h4 className="text-void-fg-2 text-xs font-semibold mb-2">Files Changed:</h4>
 						<div className="space-y-1">
 							{message.filesChanged.map((file, i) => (
-								<div key={i} className="flex items-center gap-2 text-xs">
-									{file.changeType === 'created' && <CirclePlus className="text-green-400" size={12} />}
+								<div key={file.path || i} className="flex items-center gap-2 text-xs">
+									{file.changeType === 'created' && <CirclePlus className="text-[var(--cortex-success)]" size={12} />}
 									{file.changeType === 'modified' && <Pencil className="text-blue-400" size={12} />}
-									{file.changeType === 'deleted' && <X className="text-red-400" size={12} />}
+									{file.changeType === 'deleted' && <X className="text-[var(--cortex-danger)]" size={12} />}
 									<span className="text-void-fg-2">{file.path}</span>
 								</div>
 							))}
@@ -3545,15 +3545,15 @@ const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessag
 				{message.issues && message.issues.length > 0 && (
 					<div className="space-y-2 mb-3">
 						{message.issues.map((issue, i) => (
-							<div key={i} className={`flex gap-2 text-sm p-2 rounded ${
-								issue.severity === 'error' ? 'bg-red-500/10 border border-red-500/20' :
-								issue.severity === 'warning' ? 'bg-amber-500/10 border border-amber-500/20' :
+							<div key={`${issue.severity}-${i}`} className={`flex gap-2 text-sm p-2 rounded ${
+								issue.severity === 'error' ? 'bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20' :
+								issue.severity === 'warning' ? 'bg-[var(--cortex-warning)]/10 border border-[var(--cortex-warning)]/20' :
 								'bg-blue-500/10 border border-blue-500/20'
 							}`}>
 								{issue.severity === 'error' ? (
-									<X className="text-red-400 flex-shrink-0 mt-0.5" size={16} />
+									<X className="text-[var(--cortex-danger)] flex-shrink-0 mt-0.5" size={16} />
 								) : issue.severity === 'warning' ? (
-									<AlertTriangle className="text-amber-400 flex-shrink-0 mt-0.5" size={16} />
+									<AlertTriangle className="text-[var(--cortex-warning)] flex-shrink-0 mt-0.5" size={16} />
 								) : (
 									<Info className="text-blue-400 flex-shrink-0 mt-0.5" size={16} />
 								)}
@@ -3582,7 +3582,7 @@ const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessag
 						<p className="text-void-fg-3 text-xs mb-2 font-medium">Recommended Next Steps:</p>
 						<ul className="space-y-1">
 							{message.nextSteps.map((step, i) => (
-								<li key={i} className="text-void-fg-2 text-xs flex items-start gap-2">
+								<li key={`step-${i}`} className="text-void-fg-2 text-xs flex items-start gap-2">
 									<span className="text-void-fg-4 mt-1">•</span>
 									<span>{step}</span>
 								</li>
@@ -3895,7 +3895,7 @@ const CommandBarInChat = () => {
 
 			return (
 				// name, details
-				<div key={i} className="flex justify-between items-center">
+				<div key={uri.toString()} className="flex justify-between items-center">
 					<div className="flex items-center">
 						{fileNameHTML}
 						{detailsContent}
@@ -4733,7 +4733,7 @@ export const SidebarChat = () => {
 						onFocusChange={setFocusedImageIndex}
 					/>
 					{imageValidationError && (
-						<div className="px-2 py-1 text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md mx-2">
+						<div className="px-2 py-1 text-xs text-[var(--cortex-danger)] bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20 rounded-md mx-2">
 							{imageValidationError.message}
 						</div>
 					)}
@@ -4755,7 +4755,7 @@ export const SidebarChat = () => {
 						onFocusChange={setFocusedPDFIndex}
 					/>
 					{pdfValidationError && (
-						<div className="px-2 py-1 text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md mx-2">
+						<div className="px-2 py-1 text-xs text-[var(--cortex-danger)] bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20 rounded-md mx-2">
 							{pdfValidationError}
 						</div>
 					)}
@@ -4849,8 +4849,8 @@ export const SidebarChat = () => {
 			{modelSel ? (
 				(() => {
 					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-void-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-void-fg-3/60'
+					const color = contextPct >= 1 ? 'text-[var(--cortex-danger)]' : contextPct > 0.8 ? 'text-[var(--cortex-warning)]' : 'text-void-fg-3'
+					const barColor = contextPct >= 1 ? 'bg-[var(--cortex-danger)]' : contextPct > 0.8 ? 'bg-[var(--cortex-warning)]' : 'bg-void-fg-3/60'
 					return <div className='mt-1'>
 						<div className={`text-[10px] ${color}`}>Context ~{contextTotal} / {contextBudget} tokens ({pctNum}%)</div>
 						<div className='h-[3px] w-full bg-void-border-3 rounded mt-0.5'>
@@ -4868,8 +4868,8 @@ export const SidebarChat = () => {
 			{modelSel ? (
 				(() => {
 					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-void-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-void-fg-3/60'
+					const color = contextPct >= 1 ? 'text-[var(--cortex-danger)]' : contextPct > 0.8 ? 'text-[var(--cortex-warning)]' : 'text-void-fg-3'
+					const barColor = contextPct >= 1 ? 'bg-[var(--cortex-danger)]' : contextPct > 0.8 ? 'bg-[var(--cortex-warning)]' : 'bg-void-fg-3/60'
 					return <div className='mt-1 px-2'>
 						<div className={`text-[10px] ${color}`}>Context ~{contextTotal} / {contextBudget} tokens ({pctNum}%)</div>
 						<div className='h-[3px] w-full bg-void-border-3 rounded mt-0.5'>
@@ -4950,7 +4950,7 @@ export const SidebarChat = () => {
 			<img
 				src={logoUri}
 				alt='CortexIDE'
-				className='w-12 h-12 rounded-full object-cover'
+				className='w-12 h-12 rounded-full object-contain'
 				style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
 			/>
 		</div>

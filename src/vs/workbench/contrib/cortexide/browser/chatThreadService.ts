@@ -637,6 +637,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					this._pendingStreamStateUpdates.clear()
 					this._streamStateRafId = undefined
 				})
+				// Register cancellation so RAF never fires after the service is disposed
+				this._register({ dispose: () => { if (this._streamStateRafId !== undefined) { cancelAnimationFrame(this._streamStateRafId); this._streamStateRafId = undefined; } } })
 			}
 		} else {
 			// For non-streaming updates (idle, error, etc.), fire immediately

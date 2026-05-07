@@ -240,7 +240,7 @@ export const LocalSetupWizard = ({ onComplete, onSkip }: LocalSetupWizardProps) 
 								</button>
 								<button
                   onClick={onSkip}
-                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium">
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
 
 									Skip Setup
 								</button>
@@ -270,7 +270,7 @@ export const LocalSetupWizard = ({ onComplete, onSkip }: LocalSetupWizardProps) 
 					</div>
 					<div className="w-full bg-bg-3 rounded-full h-2">
 						<div
-              className="bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] h-2 rounded-full transition-all duration-300"
+              className="bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress.currentStep / progress.totalSteps * 100}%` }} />
 
 					</div>
@@ -390,7 +390,7 @@ const SystemCheckStep = ({ systemCheck, onInstall, onNext, onBack, canGoBack }: 
 				{!systemCheck.ollamaInstalled &&
         <button
           onClick={onInstall}
-          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium">
+          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
 
 						Install Ollama
 					</button>
@@ -515,7 +515,7 @@ const ModelPackStep = ({ selectedPack, onSelect, onDownload, state, onBack, canG
 				<button
           onClick={onDownload}
           disabled={isDownloading}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
 
 					{isDownloading ? 'Downloading...' : 'Download Models'}
 				</button>
@@ -568,7 +568,7 @@ const VerificationStep = ({ onVerify, onSkip, state, onBack, canGoBack }: {onVer
         }
 					<button
           onClick={onVerify}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium">
+          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
 
 						Run Verification
 					</button>
@@ -634,7 +634,7 @@ const VerificationResultsStep = ({ results, onNext, onBack, canGoBack }: {result
         }
 				<button
           onClick={onNext}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium">
+          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
 
 					{allPassed ? 'Continue' : 'Continue Anyway'}
 				</button>
@@ -680,7 +680,7 @@ const DefaultsStep = ({ onComplete, onBack, canGoBack }: {onComplete: () => void
 				</p>
 				<button
           onClick={onComplete}
-          className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[#6b5bff] text-white font-medium text-lg">
+          className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium text-lg">
 
 					Start using CortexIDE
 				</button>

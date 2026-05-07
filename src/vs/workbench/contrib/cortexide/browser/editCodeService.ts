@@ -495,7 +495,6 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			if (diffArea.type !== 'CtrlKZone') continue
 			if (!diffArea._mountInfo) {
 				diffArea._mountInfo = this._addCtrlKZoneInput(diffArea)
-				console.log('MOUNTED CTRLK', diffArea.diffareaid)
 			}
 			else {
 				diffArea._mountInfo.refresh()
@@ -1515,7 +1514,6 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 		// helpers
 		const onDone = () => {
-			console.log('called onDone')
 			diffZone._streamState = { isStreaming: false, }
 			this._onDidChangeStreamingInDiffZone.fire({ uri, diffareaid: diffZone.diffareaid })
 
@@ -1939,12 +1937,6 @@ class EditCodeService extends Disposable implements IEditCodeService {
 							if (typeof originalBounds === 'string' || hasOverlap) {
 								const errorMessage = typeof originalBounds === 'string' ? originalBounds : 'Has overlap' as const
 
-								console.log('--------------Error finding text in code:')
-								console.log('originalFileCode', { originalFileCode })
-								console.log('fullText', { fullText })
-								console.log('error:', errorMessage)
-								console.log('block.orig:', block.orig)
-								console.log('---------')
 								const content = this._errContentOfInvalidStr(errorMessage, block.orig)
 								const retryMsg = 'All of your previous outputs have been ignored. Please re-output ALL SEARCH/REPLACE blocks starting from the first one, and avoid the error this time.'
 								messages.push(

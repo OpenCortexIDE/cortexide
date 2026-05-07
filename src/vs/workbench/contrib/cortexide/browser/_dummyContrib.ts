@@ -38,8 +38,7 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const n = accessor.get(IDummyService);
-		console.log('Hi', n._serviceBrand);
+		accessor.get(IDummyService);
 	}
 });
 
