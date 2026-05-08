@@ -11,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js'
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js'
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js'
-import { ISearchService } from '../../../services/search/common/search.js'
+import { ISearchService, resultIsMatch } from '../../../services/search/common/search.js'
 import { IEditCodeService } from './editCodeServiceInterface.js'
 import { ITerminalToolService } from './terminalToolService.js'
 import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js'
@@ -1528,15 +1528,15 @@ export class ToolsService implements IToolsService {
 				let totalMatches = 0;
 				for (const fileMatch of data.results) {
 					for (const textMatch of (fileMatch.results ?? [])) {
+						if (!resultIsMatch(textMatch)) continue; // skip context lines
 						totalMatches++;
 						if (matches.length < MAX_GREP_MATCHES) {
-							const ranges = Array.isArray(textMatch.ranges) ? textMatch.ranges : [textMatch.ranges];
-							const firstRange = ranges[0];
-							if (firstRange) {
+							const firstLoc = textMatch.rangeLocations[0];
+							if (firstLoc) {
 								matches.push({
 									uri: fileMatch.resource,
-									lineNumber: firstRange.startLineNumber + 1,
-									lineContent: textMatch.preview.text.trimEnd(),
+									lineNumber: firstLoc.source.startLineNumber + 1, // 0-based → 1-based
+									lineContent: textMatch.previewText.trimEnd(),
 								});
 							}
 						}
