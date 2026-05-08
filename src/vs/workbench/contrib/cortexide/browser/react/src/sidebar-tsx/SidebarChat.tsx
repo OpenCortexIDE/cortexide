@@ -331,7 +331,6 @@ const detailOfChatMode: Record<ChatMode, string> = {
 
 const ChatModeDropdown = ({ className }: { className: string }) => {
 	const accessor = useAccessor()
-	const { t } = useTranslation()
 
 	const cortexideSettingsService = accessor.get('ICortexideSettingsService')
 	const settingsState = useSettingsState()
@@ -342,13 +341,7 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 		cortexideSettingsService.setGlobalSetting('chatMode', newVal)
 	}, [cortexideSettingsService])
 
-	const getModeDisplayName = (val: ChatMode) => {
-		if (val === 'normal') return t('chat.mode.ask') || nameOfChatMode['normal']
-		if (val === 'agent') return t('chat.mode.agent') || nameOfChatMode['agent']
-		if (val === 'gather') return t('chat.mode.gather') || nameOfChatMode['gather']
-		if (val === 'plan') return t('chat.mode.plan') || nameOfChatMode['plan']
-		return nameOfChatMode[val]
-	}
+	const getModeDisplayName = (val: ChatMode) => nameOfChatMode[val] ?? val
 
 	return <VoidCustomDropdownBox
 		className={className}

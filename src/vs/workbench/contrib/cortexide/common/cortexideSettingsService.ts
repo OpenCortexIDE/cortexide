@@ -367,6 +367,12 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 
 			// add autoAcceptLLMChanges feature
 			if (readS.globalSettings.autoAcceptLLMChanges === undefined) readS.globalSettings.autoAcceptLLMChanges = false;
+
+			// migrate stale chatMode values from older versions ('chat', 'edit' no longer exist)
+			const validChatModes: ChatMode[] = ['agent', 'gather', 'normal', 'plan'];
+			if (!validChatModes.includes(readS.globalSettings.chatMode as ChatMode)) {
+				readS.globalSettings.chatMode = defaultGlobalSettings.chatMode;
+			}
 		}
 		catch (e) {
 			readS = defaultState()

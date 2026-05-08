@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
 import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
@@ -1478,12 +1477,12 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 
 	if (selectedOption === undefined) return null;
 
-	const floatingPanel = isOpen && createPortal(
+	const floatingPanel = isOpen && (
 		<div
 			ref={refs.setFloating}
 			role="listbox"
 			onKeyDown={onPanelKeyDown}
-			className={`@@void-scope ${isDark ? 'dark' : ''} z-[99999] rounded shadow-xl overflow-hidden`}
+			className={`z-[200] rounded overflow-hidden shadow-xl`}
 			style={{
 				position: strategy,
 				top: y ?? 0,
@@ -1557,8 +1556,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 					);
 				})}
 			</div>
-		</div>,
-		document.body
+		</div>
 	);
 
 	return (
