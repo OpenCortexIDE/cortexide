@@ -476,6 +476,33 @@ export class ToolsService implements IToolsService {
 				return { url, refresh };
 			},
 
+			grep_search: (params: RawToolParamsObj) => {
+				const { query: queryUnknown, include_pattern, exclude_pattern, is_regex, case_sensitive } = params;
+				const query = validateStr('query', queryUnknown);
+				if (!query.trim()) throw new Error('grep_search: query cannot be empty');
+				const includePattern = validateOptionalStr('include_pattern', include_pattern);
+				const excludePattern = validateOptionalStr('exclude_pattern', exclude_pattern);
+				const isRegex = validateBoolean(is_regex, { default: false });
+				const caseSensitive = validateBoolean(case_sensitive, { default: false });
+				if (isRegex) {
+					try { new RegExp(query); } catch (e) { throw new Error(`Invalid regex pattern "${query}": ${e}`); }
+				}
+				return { query, includePattern, excludePattern, isRegex, caseSensitive };
+			},
+
+			get_diagnostics: (params: RawToolParamsObj) => {
+				const { uri: uriUnknown } = params;
+				const uri = validateOptionalURI(uriUnknown, workspaceContextService);
+				return { uri };
+			},
+
+			attempt_completion: (params: RawToolParamsObj) => {
+				const { result: resultUnknown, command: commandUnknown } = params;
+				const result = validateStr('result', resultUnknown);
+				const command = validateOptionalStr('command', commandUnknown);
+				return { result, command };
+			},
+
 		}
 
 
@@ -1483,6 +1510,65 @@ export class ToolsService implements IToolsService {
 					throw new Error(`Failed to browse URL ${url}: ${errorMessage}. Please check the URL and your internet connection.`);
 				}
 			},
+
+			grep_search: async ({ query, includePattern, excludePattern, isRegex, caseSensitive }) => {
+				const MAX_GREP_MATCHES = 300;
+				const folders = workspaceContextService.getWorkspace().folders.map(f => f.uri);
+				const textQuery = queryBuilder.text(
+					{ pattern: query, isRegExp: isRegex, isCaseSensitive: caseSensitive },
+					folders,
+					{
+						includePattern: includePattern ?? undefined,
+						excludePattern: excludePattern ?? undefined,
+						maxResults: MAX_GREP_MATCHES,
+					}
+				);
+				const data = await searchService.textSearch(textQuery, CancellationToken.None);
+				const matches: Array<{ uri: URI; lineNumber: number; lineContent: string }> = [];
+				let totalMatches = 0;
+				for (const fileMatch of data.results) {
+					for (const textMatch of (fileMatch.results ?? [])) {
+						totalMatches++;
+						if (matches.length < MAX_GREP_MATCHES) {
+							const ranges = Array.isArray(textMatch.ranges) ? textMatch.ranges : [textMatch.ranges];
+							const firstRange = ranges[0];
+							if (firstRange) {
+								matches.push({
+									uri: fileMatch.resource,
+									lineNumber: firstRange.startLineNumber + 1,
+									lineContent: textMatch.preview.text.trimEnd(),
+								});
+							}
+						}
+					}
+				}
+				return { result: { matches, totalMatches } };
+			},
+
+			get_diagnostics: async ({ uri }) => {
+				const markers = uri
+					? this.markerService.read({ resource: uri })
+					: this.markerService.read();
+				const diagnostics = markers
+					.filter(m => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+					.slice(0, 500)
+					.map(m => ({
+						uri: m.resource,
+						message: m.message,
+						severity: (m.severity === MarkerSeverity.Error ? 'error' : 'warning') as 'error' | 'warning',
+						startLine: m.startLineNumber,
+						endLine: m.endLineNumber,
+						source: m.source ?? null,
+						code: (typeof m.code === 'string' ? m.code : m.code?.value) ?? null,
+					}));
+				return { result: { diagnostics } };
+			},
+
+			attempt_completion: async ({ result, command }) => {
+				// No side effects — signals the agent loop to terminate.
+				return { result: { acknowledged: true as const } };
+			},
+
 		}
 
 
@@ -1671,6 +1757,37 @@ export class ToolsService implements IToolsService {
 				const titleStr = result.title ? `Title: ${result.title}\n\n` : '';
 				const metadataStr = result.metadata?.publishedDate ? `Published: ${result.metadata.publishedDate}\n\n` : '';
 				return `${titleStr}${metadataStr}Content from ${result.url}:\n\n${result.content.substring(0, 10000)}${result.content.length > 10000 ? '\n\n... (content truncated)' : ''}`;
+			},
+
+			grep_search: (params, result) => {
+				if (result.matches.length === 0) {
+					return `No matches found for "${params.query}".`;
+				}
+				const truncated = result.totalMatches > result.matches.length
+					? `\n(showing ${result.matches.length} of ${result.totalMatches} total matches — narrow the query or use include_pattern to see more)`
+					: '';
+				const lines = result.matches.map(m => `${m.uri.fsPath}:${m.lineNumber}: ${m.lineContent}`);
+				return `Found ${result.totalMatches} match(es) for "${params.query}":\n${lines.join('\n')}${truncated}`;
+			},
+
+			get_diagnostics: (params, result) => {
+				if (result.diagnostics.length === 0) {
+					return params.uri
+						? `No errors or warnings in ${params.uri.fsPath}.`
+						: 'No errors or warnings found across the workspace.';
+				}
+				const lines = result.diagnostics.map(d => {
+					const tag = d.severity === 'error' ? '[ERROR]' : '[WARN] ';
+					const src = d.source ? ` (${d.source})` : '';
+					return `${tag} ${d.uri.fsPath}:${d.startLine}${src}: ${d.message}`;
+				});
+				const scope = params.uri ? params.uri.fsPath : 'workspace';
+				return `Diagnostics for ${scope} — ${result.diagnostics.length} issue(s):\n${lines.join('\n')}`;
+			},
+
+			attempt_completion: (params, _result) => {
+				const commandLine = params.command ? `\n\nVerification command: \`${params.command}\`` : '';
+				return `Task completed.\n\n${params.result}${commandLine}`;
 			},
 		}
 

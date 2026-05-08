@@ -78,6 +78,11 @@ export type BuiltinToolCallParams = {
 	// ---
 	'web_search': { query: string, k?: number, refresh?: boolean },
 	'browse_url': { url: string, refresh?: boolean },
+	// --- fast grep + workspace diagnostics ---
+	'grep_search': { query: string; includePattern: string | null; excludePattern: string | null; isRegex: boolean; caseSensitive: boolean },
+	'get_diagnostics': { uri: URI | null },
+	// --- explicit completion signal ---
+	'attempt_completion': { result: string; command: string | null },
 }
 
 // RESULT OF TOOL CALL
@@ -111,6 +116,11 @@ export type BuiltinToolResultType = {
 	// ---
 	'web_search': { results: Array<{ title: string, snippet: string, url: string }> },
 	'browse_url': { content: string, title?: string, url: string, metadata?: { publishedDate?: string } },
+	// --- fast grep + workspace diagnostics ---
+	'grep_search': { matches: Array<{ uri: URI; lineNumber: number; lineContent: string }>; totalMatches: number },
+	'get_diagnostics': { diagnostics: Array<{ uri: URI; message: string; severity: 'error' | 'warning'; startLine: number; endLine: number; source: string | null; code: string | null }> },
+	// --- explicit completion signal ---
+	'attempt_completion': { acknowledged: true },
 }
 
 

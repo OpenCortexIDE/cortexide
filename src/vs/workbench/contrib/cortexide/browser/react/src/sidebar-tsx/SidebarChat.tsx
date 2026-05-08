@@ -4942,13 +4942,15 @@ export const SidebarChat = () => {
 		className='w-full h-full max-h-full flex flex-col overflow-auto px-3'
 	>
 		{/* CortexIDE logo */}
-		<div className='flex justify-center pt-6 pb-2'>
-			<img
-				src={logoUri}
-				alt='CortexIDE'
-				className='w-12 h-12 rounded-full object-contain'
-				style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
-			/>
+		<div className='flex flex-col items-center pt-6 pb-2 gap-1'>
+			<div className='w-20 h-20 rounded-full overflow-hidden' style={{ border: '2px solid var(--vscode-focusBorder, rgba(88,101,242,0.8))', boxShadow: '0 0 16px var(--vscode-focusBorder, rgba(88,101,242,0.4)), 0 4px 20px rgba(0,0,0,0.5)' }}>
+				<img
+					src={logoUri}
+					alt='CortexIDE'
+					className='w-full h-full object-cover'
+				/>
+			</div>
+			<span className='text-xs text-void-fg-3 tracking-widest uppercase'>CortexIDE</span>
 		</div>
 		<ErrorBoundary>
 			{landingPageInput}

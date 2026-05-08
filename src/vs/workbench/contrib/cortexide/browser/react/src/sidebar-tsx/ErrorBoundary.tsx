@@ -36,6 +36,7 @@ class ErrorBoundary extends Component<Props, State> {
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+		console.error('[CortexIDE ErrorBoundary]', error.message, '\n', error.stack, '\nComponent stack:', errorInfo.componentStack);
 		this.setState({
 			error,
 			errorInfo

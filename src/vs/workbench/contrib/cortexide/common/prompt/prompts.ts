@@ -431,8 +431,38 @@ export const builtinTools: {
 		}
 	},
 
-	// go_to_definition
-	// go_to_usages
+	// --- fast grep + workspace diagnostics ---
+
+	grep_search: {
+		name: 'grep_search',
+		description: `Fast text/regex search across all files in the workspace. Returns matching lines with file path and line number. Prefer this over search_for_files when you need to find WHERE a specific string, symbol, or pattern appears in the codebase — not just which files contain it.`,
+		params: {
+			query: { description: 'The text or regex pattern to search for.' },
+			include_pattern: { description: 'Optional. Glob pattern to limit search scope (e.g., "**/*.ts", "src/**/*.tsx"). Leave empty to search all files.' },
+			exclude_pattern: { description: 'Optional. Glob pattern to exclude (e.g., "**/node_modules/**", "**/*.test.ts").' },
+			is_regex: { description: 'Optional. Default false. Whether the query is a regex pattern.' },
+			case_sensitive: { description: 'Optional. Default false. Whether the search is case-sensitive.' },
+		}
+	},
+
+	get_diagnostics: {
+		name: 'get_diagnostics',
+		description: `Returns all TypeScript, ESLint, and other diagnostic errors and warnings. Use this after editing files to verify your changes introduced no new errors, or to enumerate all errors before starting a fix.`,
+		params: {
+			uri: { description: `Optional. The FULL path to a specific file. Leave empty to get diagnostics for ALL files in the workspace.` },
+		}
+	},
+
+	// --- explicit completion signal ---
+
+	attempt_completion: {
+		name: 'attempt_completion',
+		description: `Signal that you have FULLY completed the assigned task. Call this ONLY after: (1) verifying edited files are correct with read_file, (2) confirming no new diagnostic errors with get_diagnostics, and (3) running any relevant tests/builds. Provide a clear, specific summary of what was accomplished.`,
+		params: {
+			result: { description: 'A clear, specific summary of what was accomplished. List every file changed and what change was made.' },
+			command: { description: 'Optional. A shell command the user can run to verify or demonstrate the result (e.g., "npm test", "npm run build"). Only provide if meaningful.' },
+		}
+	},
 
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
@@ -450,10 +480,15 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
+// Tools restricted to agent/plan modes only (not available in gather)
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion'])
+
 export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
-		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
+		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
+			!(toolName in approvalTypeOfBuiltinToolName) && !AGENT_ONLY_TOOLS.has(toolName)
+		)
 			: (chatMode === 'agent' || chatMode === 'plan') ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
@@ -610,15 +645,16 @@ ${truncatedDirStr}
 	if (mode === 'agent' || mode === 'plan') {
 		// allow-any-unicode-next-line
 		details.push('Use tools for every action. Never describe what you would do — just do it. Never answer from memory alone.')
-		details.push('Explore before editing: search to locate files, read them in full, understand context. Never assume file contents or structure.')
+		details.push('Explore before editing: use grep_search to locate patterns, read_file to read full contents, get_dir_tree for structure. Never assume file contents or location.')
 		// allow-any-unicode-next-line
-		details.push('Edit workflow: read_file -> edit_file (SEARCH/REPLACE with exact matching text) -> read_file again to verify -> report. Never skip verification.')
+		details.push('Edit workflow: grep_search/read_file → edit_file (SEARCH/REPLACE with EXACT matching text) → read_file to verify → get_diagnostics to confirm no errors. Never skip verification.')
 		details.push('Creating files: create_file_or_folder first, then rewrite_file with full content. Never use edit_file on a file that does not exist yet.')
-		details.push('Terminal: use run_command for builds, tests, and installs. Read all output before continuing. Diagnose failures before retrying. For long-running servers, use open_persistent_terminal.')
+		details.push('Terminal: use run_command for builds, tests, installs, and git operations. Read ALL output before continuing. Diagnose failures before retrying.')
 		// allow-any-unicode-next-line
-		details.push('On failure: read the error message carefully, diagnose the root cause, then fix it. Never retry an identical failing call. Never swallow errors silently — surface them.')
+		details.push('On failure: read the error carefully, diagnose the root cause, then fix it. Never retry an identical failing call. Never swallow errors silently.')
 		// allow-any-unicode-next-line
-		details.push('Keep going: do not stop after one step when the task needs several. Use tools until the task is fully and verifiably complete. Write complete, compilable code — never truncate.')
+		details.push('Keep going: do not stop after one step when the task needs several. Write complete, compilable code — never truncate or use placeholders.')
+		details.push('Completion: When the task is FULLY done and verified, call attempt_completion with a precise summary. Do NOT call attempt_completion mid-task or before verification.')
 	} else if (mode === 'gather') {
 		details.push('GATHER mode: Use tools to search and read. One tool call at a time. Do not edit files.')
 	} else {

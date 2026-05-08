@@ -2399,7 +2399,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		toolId: string,
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
-	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean }> => {
+	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
 		let toolParams: ToolCallParams<ToolName>
@@ -2665,6 +2665,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// 5. add to history and keep going
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+
+		// attempt_completion terminates the agent loop
+		if (isBuiltInTool && toolName === 'attempt_completion') {
+			return { completionSignaled: true }
+		}
 
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
@@ -3959,7 +3964,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								// Execute the synthesized tool
 								const mcpTools = this._mcpService.getMCPTools()
 								const mcpTool = mcpTools?.find(t => t.name === toolName as ToolName)
-								const { awaitingUserApproval, interrupted } = await this._runToolCall(
+								const { awaitingUserApproval, interrupted, completionSignaled: hwCompletion } = await this._runToolCall(
 									threadId,
 									toolName as ToolName,
 									toolId,
@@ -3971,6 +3976,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									this._setStreamState(threadId, undefined)
 									return
 								}
+								if (hwCompletion) {
+									this._setStreamState(threadId, { isRunning: undefined })
+									return
+								}
 								if (awaitingUserApproval) {
 									isRunningWhenEnd = 'awaiting_user'
 								} else {
@@ -3978,7 +3987,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								}
 
 								this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
-								// Skip adding the failed assistant message and break out of retry loop
 								// Tool result is already in thread via _runToolCall, so we'll send another message
 								break // Exit inner retry loop, continue outer loop with tool results
 							}
@@ -4051,7 +4059,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							// Execute the synthesized tool
 							const mcpTools = this._mcpService.getMCPTools()
 							const mcpTool = mcpTools?.find(t => t.name === toolName as ToolName)
-							const { awaitingUserApproval, interrupted } = await this._runToolCall(
+							const { awaitingUserApproval, interrupted, completionSignaled: synthCompletion } = await this._runToolCall(
 								threadId,
 								toolName as ToolName,
 								toolId,
@@ -4061,6 +4069,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined)
+								return
+							}
+
+							if (synthCompletion) {
+								this._setStreamState(threadId, { isRunning: undefined })
 								return
 							}
 
@@ -4079,36 +4092,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 				}
 
-				// CRITICAL: Only stop loop if tools were synthesized AND model explicitly indicates task is complete
-				// Don't stop just because tools were synthesized - model might need another iteration
-				// Only stop if model's response clearly indicates completion AND no more tools needed
-				if (hasSynthesizedToolsInThisRequest && !toolCall && info.fullText.trim()) {
-					// Check if model's response indicates the task is actually complete
-					const responseText = info.fullText.toLowerCase()
-					const indicatesCompletion =
-						responseText.includes('i cannot') ||
-						responseText.includes('i don\'t have') ||
-						responseText.includes('i\'m unable') ||
-						responseText.includes('i need more information') ||
-						responseText.includes('please provide') ||
-						// If we've executed multiple tools and model gives a clear answer, it's likely complete
-						(toolsExecutedInRequest.length >= 3 && (
-							responseText.includes('here') ||
-							responseText.includes('found') ||
-							responseText.includes('result') ||
-							responseText.includes('answer')
-						))
-
-					// Only stop if model explicitly indicates completion or we've done substantial work
-					// Don't stop if model just responded with text after first tool synthesis
-					if (indicatesCompletion || (toolsExecutedInRequest.length >= 3 && !originalUserMessage?.displayContent?.toLowerCase().includes('how many'))) {
-						// Model has given its final answer - stop here
-						this._setStreamState(threadId, { isRunning: undefined })
-						return
-					}
-					// Otherwise, continue loop to give model another chance to use tools or complete the task
-				}
-
+				// The agent loop terminates naturally when no tool call is present.
+				// Explicit completion is signalled via attempt_completion.
+				// *** REMOVED: fragile "3 tools executed = done" heuristic that was killing agents mid-task ***
 				// call tool if there is one
 				if (toolCall) {
 					// Skip tool execution if file read limit was exceeded in a previous iteration
@@ -4163,11 +4149,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
-							// PERFORMANCE: Use returned step info instead of re-looking up
 							const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, 'Interrupted by user')
 							if (updatedStep) {
 								activePlanTracking.currentStep = updatedStep
@@ -4179,9 +4164,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						return
 					}
 
-					// Track that this tool was executed (even if it failed - we still tried)
-					// Tool errors are handled by _runToolCall which adds error messages to the thread
-					// The loop will continue so the model can process the error
+					if (completionSignaled) {
+						this._setStreamState(threadId, { isRunning: undefined })
+						return
+					}
+
 					toolsExecutedInRequest.push(toolCall.name)
 
 					// Only update plan step status if we have an active plan (skip if no plan)

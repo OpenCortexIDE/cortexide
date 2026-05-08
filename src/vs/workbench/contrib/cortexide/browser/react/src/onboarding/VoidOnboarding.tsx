@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import '../styles.css';
 import { useEffect, useState, useMemo } from 'react';
 import { useAccessor, useIsDark, useSettingsState } from '../util/services.js';
 import { useTranslation } from '../util/useTranslation.js';

@@ -1377,10 +1377,11 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 		placement: 'bottom-start',
 		middleware: [
 			offset({ mainAxis: gapPx, crossAxis: offsetPx }),
-			flip({ boundary: document.body, padding: 8 }),
-			shift({ boundary: document.body, padding: 8 }),
+			flip({ padding: 8 }),
+			shift({ padding: 8 }),
 			size({
 				apply({ availableHeight, elements, rects }) {
+					if (!elements.floating) return;
 					Object.assign(elements.floating.style, {
 						maxHeight: `${Math.min(availableHeight - 8, 320)}px`,
 						width: matchInputWidth
@@ -1389,7 +1390,6 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 					});
 				},
 				padding: 8,
-				boundary: document.body,
 			}),
 		],
 		whileElementsMounted: autoUpdate,
@@ -1638,7 +1638,7 @@ export const _VoidSelectBox = <T,>({ onChangeSelection, onCreateInstance, select
 				instance.render(containerRef.current)
 
 			disposables.push(
-				instance.onDidSelect(e => { onChangeSelection(options[e.index].value); })
+				instance.onDidSelect(e => { if (e != null && e.index != null && e.index < options.length) onChangeSelection(options[e.index].value); })
 			)
 
 			if (onCreateInstance) {
