@@ -10,7 +10,7 @@ import { IFileService } from '../../../../platform/files/common/files.js'
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js'
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js'
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js'
-import { QueryBuilder } from '../../../services/search/common/queryBuilder.js'
+import { QueryBuilder, ISearchPatternBuilder } from '../../../services/search/common/queryBuilder.js'
 import { ISearchService, resultIsMatch } from '../../../services/search/common/search.js'
 import { IEditCodeService } from './editCodeServiceInterface.js'
 import { ITerminalToolService } from './terminalToolService.js'
@@ -1171,6 +1171,7 @@ export class ToolsService implements IToolsService {
 									type: 'GET',
 									url: instantUrl,
 									timeout: 10000,
+									callSite: 'cortexide.webSearch',
 								}, CancellationToken.None);
 
 								const json = await asJson<any>(response);
@@ -1478,6 +1479,7 @@ export class ToolsService implements IToolsService {
 						type: 'GET',
 						url,
 						timeout: 15000,
+						callSite: 'cortexide.browseUrl',
 					}, CancellationToken.None);
 
 					const html = await asTextOrError(response);
@@ -1519,7 +1521,7 @@ export class ToolsService implements IToolsService {
 					folders,
 					{
 						includePattern: includePattern ?? undefined,
-						excludePattern: excludePattern ?? undefined,
+						excludePattern: excludePattern ? [{ pattern: excludePattern } satisfies ISearchPatternBuilder<URI>] : undefined,
 						maxResults: MAX_GREP_MATCHES,
 					}
 				);

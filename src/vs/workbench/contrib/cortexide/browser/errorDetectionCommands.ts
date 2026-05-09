@@ -17,6 +17,7 @@ import { CancellationTokenSource } from '../../../../base/common/cancellation.js
 import { IChatService } from '../../../../workbench/contrib/chat/common/chatService/chatService.js';
 import { IChatEditingService } from '../../../../workbench/contrib/chat/common/editing/chatEditingService.js';
 import { ChatAgentLocation } from '../../../../workbench/contrib/chat/common/constants.js';
+import { ChatModel } from '../../../../workbench/contrib/chat/common/model/chatModel.js';
 import { IViewsService } from '../../../../workbench/services/views/common/viewsService.js';
 import { ComposerPanel } from '../../../../workbench/contrib/chat/browser/chatEditing/composerPanel.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -134,10 +135,11 @@ registerAction2(class extends Action2 {
 			const fix = fixes[0];
 
 			// Create a chat session for the editing session
-			const chatModel = chatService.startSession(ChatAgentLocation.Chat, CancellationToken.None, false);
+			const chatModelRef = chatService.startNewLocalSession(ChatAgentLocation.Chat, { debugOwner: 'errorDetectionCommands' });
+			const chatModel = chatModelRef.object as ChatModel;
 
 			// Create editing session
-			const editingSession = await chatEditingService.createEditingSession(chatModel);
+			const editingSession = chatEditingService.createEditingSession(chatModel);
 
 			// Open ComposerPanel to show the diff
 			const composerPanel = await viewsService.openView(ComposerPanel.ID) as ComposerPanel | undefined;

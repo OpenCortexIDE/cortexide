@@ -50,7 +50,7 @@ const notifyUpdate = (res: CortexideCheckUpdateResponse & { message: string }, n
 				tooltip: '',
 				class: undefined,
 				run: () => {
-					updateService.downloadUpdate()
+					updateService.downloadUpdate(true)
 				}
 			})
 		}

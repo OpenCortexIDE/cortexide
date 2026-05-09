@@ -22,8 +22,9 @@ import { IThemeService } from '../../../../../platform/theme/common/themeService
 import { IViewDescriptorService } from '../../../../common/views.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IChatEditingService, IChatEditingSession, IModifiedFileEntry, chatEditingMaxFileAssignmentName, defaultChatEditingMaxFileLimit } from '../../common/editing/chatEditingService.js';
-import { IChatService } from '../../common/chatService/chatService.js';
-import { IChatRequestVariableEntry } from '../../common/chatVariableEntries.js';
+import { IChatService, ChatSendResult } from '../../common/chatService/chatService.js';
+import { IChatRequestVariableEntry } from '../../common/attachments/chatVariableEntries.js';
+import { ChatModel } from '../../common/model/chatModel.js';
 import { ChatAgentLocation } from '../../common/constants.js';
 import { IChatAgentService } from '../../common/participants/chatAgents.js';
 import { observableValue, autorun } from '../../../../../base/common/observable.js';
@@ -1364,8 +1365,9 @@ export class ComposerPanel extends ViewPane {
 			}
 
 			// Create or get editing session
-			const chatModel = this._chatService.startSession(ChatAgentLocation.Chat, this._cancellationTokenSource.token, false);
-			const editingSession = await this._chatEditingService.createEditingSession(chatModel);
+			const chatModelRef = this._chatService.startNewLocalSession(ChatAgentLocation.Chat, { debugOwner: 'ComposerPanel' });
+			const chatModel = chatModelRef.object as ChatModel;
+			const editingSession = this._chatEditingService.createEditingSession(chatModel);
 
 			// Clear previous session
 			if (this._currentSession && this._currentSession !== editingSession) {
@@ -1418,12 +1420,19 @@ export class ComposerPanel extends ViewPane {
 				location: ChatAgentLocation.Chat
 			});
 
-			if (!sendResult) {
+			if (!sendResult || ChatSendResult.isRejected(sendResult)) {
 				throw new Error('Failed to send chat request');
 			}
 
 			// Wait for the response to complete (or be cancelled)
-			await sendResult.responseCompletePromise;
+			if (ChatSendResult.isSent(sendResult)) {
+				await sendResult.data.responseCompletePromise;
+			} else if (ChatSendResult.isQueued(sendResult)) {
+				const deferredResult = await sendResult.deferred;
+				if (ChatSendResult.isSent(deferredResult)) {
+					await deferredResult.data.responseCompletePromise;
+				}
+			}
 
 			// Verify the response completed successfully
 			if (this._cancellationTokenSource?.token.isCancellationRequested) {
