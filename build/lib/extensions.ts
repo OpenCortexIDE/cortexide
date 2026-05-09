@@ -161,7 +161,11 @@ function fromLocalEsbuild(extensionPath: string, esbuildConfigFileName: string):
 
 	// Run esbuild, then collect the files
 	new Promise<void>((resolve, reject) => {
-		const proc = cp.execFile(process.argv[0], [esbuildScript], { cwd: extensionPath }, (error, _stdout, stderr) => {
+		// Node 22.15.x requires --experimental-strip-types to load .mts/.ts files directly
+		const nodeArgs = (esbuildScript.endsWith('.mts') || esbuildScript.endsWith('.ts'))
+			? ['--experimental-strip-types', esbuildScript]
+			: [esbuildScript];
+		const proc = cp.execFile(process.argv[0], nodeArgs, { cwd: extensionPath }, (error, _stdout, stderr) => {
 			if (error) {
 				return reject(error);
 			}
@@ -595,7 +599,10 @@ export async function esbuildExtensions(taskName: string, isWatch: boolean, scri
 
 	const tasks = scripts.map(({ script, outputRoot }) => {
 		return new Promise<void>((resolve, reject) => {
-			const args = [script];
+			// Node 22.15.x requires --experimental-strip-types to load .mts/.ts files directly
+			const args = (script.endsWith('.mts') || script.endsWith('.ts'))
+				? ['--experimental-strip-types', script]
+				: [script];
 			if (isWatch) {
 				args.push('--watch');
 			}
