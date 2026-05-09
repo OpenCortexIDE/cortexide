@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import cp from 'child_process';
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import fs from 'fs';
 import filter from 'gulp-filter';
 import pall from 'p-all';

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import fancyLog from 'fancy-log';
 import ansiColors from 'ansi-colors';
 import File from 'vinyl';

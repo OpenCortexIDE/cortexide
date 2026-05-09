@@ -7,7 +7,7 @@
 import { EventEmitter } from 'events';
 EventEmitter.defaultMaxListeners = 100;
 
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import fancyLog from 'fancy-log';
 import * as fs from 'fs';
 import glob from 'glob';

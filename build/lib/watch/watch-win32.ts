@@ -7,7 +7,7 @@ import path from 'path';
 import cp from 'child_process';
 import fs from 'fs';
 import File from 'vinyl';
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import filter from 'gulp-filter';
 import { Stream } from 'stream';
 import { fileURLToPath } from 'url';

@@ -6,7 +6,7 @@
 import gulp from 'gulp';
 import replace from 'gulp-replace';
 import rename from 'gulp-rename';
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import vfs from 'vinyl-fs';
 import { rimraf } from './lib/util.ts';
 import { getVersion } from './lib/getVersion.ts';

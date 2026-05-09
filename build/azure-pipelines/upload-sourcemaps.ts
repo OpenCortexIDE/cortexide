@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import path from 'path';
-import es from 'event-stream';
+import es from '../lib/event-stream-compat.ts';
 import Vinyl from 'vinyl';
 import vfs from 'vinyl-fs';
 import * as util from '../lib/util.ts';

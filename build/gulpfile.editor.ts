@@ -8,7 +8,7 @@ import path from 'path';
 import * as util from './lib/util.ts';
 import { getVersion } from './lib/getVersion.ts';
 import * as task from './lib/task.ts';
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import File from 'vinyl';
 import * as i18n from './lib/i18n.ts';
 import * as standalone from './lib/standalone.ts';

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import eventStream from 'event-stream';
+import eventStream from './lib/event-stream-compat.ts';
 import vfs from 'vinyl-fs';
 import { eslintFilter } from './filters.ts';
 import gulpEslint from './gulp-eslint.ts';

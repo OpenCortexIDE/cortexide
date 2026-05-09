@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import vfs from 'vinyl-fs';
 import { stylelintFilter } from './filters.ts';
 import { getVariableNameValidator } from './lib/stylelint/validateVariableNames.ts';

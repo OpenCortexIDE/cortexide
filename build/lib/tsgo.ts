@@ -5,7 +5,7 @@
 
 import ansiColors from 'ansi-colors';
 import * as cp from 'child_process';
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import fancyLog from 'fancy-log';
 import * as path from 'path';
 

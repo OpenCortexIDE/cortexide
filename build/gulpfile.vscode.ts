@@ -6,7 +6,7 @@
 import gulp from 'gulp';
 import * as fs from 'fs';
 import * as path from 'path';
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import vfs from 'vinyl-fs';
 import rename from 'gulp-rename';
 import replace from 'gulp-replace';

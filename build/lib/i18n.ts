@@ -5,7 +5,7 @@
 
 import path from 'path';
 import fs from 'fs';
-import eventStream from 'event-stream';
+import eventStream from './event-stream-compat.ts';
 import jsonMerge from 'gulp-merge-json';
 import File from 'vinyl';
 import xml2js from 'xml2js';

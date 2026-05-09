@@ -5,7 +5,7 @@
 
 import * as ts from 'typescript';
 import lazy from 'lazy.js';
-import eventStream from 'event-stream';
+import eventStream from './event-stream-compat.ts';
 import File from 'vinyl';
 import sm from 'source-map';
 import path from 'path';

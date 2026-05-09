@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import rimraf from 'rimraf';
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import rename from 'gulp-rename';
 import vfs from 'vinyl-fs';
 import * as ext from './extensions.ts';

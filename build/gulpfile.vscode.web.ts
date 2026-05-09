@@ -6,7 +6,7 @@
 import gulp from 'gulp';
 import * as path from 'path';
 import * as cp from 'child_process';
-import es from 'event-stream';
+import es from './lib/event-stream-compat.ts';
 import * as util from './lib/util.ts';
 import { getVersion } from './lib/getVersion.ts';
 import * as task from './lib/task.ts';
