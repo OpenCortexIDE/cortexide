@@ -2,6 +2,8 @@
 	"nameShort": "CortexIDE",
 	"nameLong": "CortexIDE",
 	"applicationName": "cortexide",
+	"cortexVersion": "0.1.0",
+	"cortexRelease": "0001",
 	"dataFolderName": ".cortexide",
 	"sharedDataFolderName": ".vscode-oss-shared",
 	"win32MutexName": "cortexide",
