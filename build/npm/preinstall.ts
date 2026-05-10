@@ -146,11 +146,11 @@ function installHeaders() {
 	// On Linux, apply a patch to the downloaded headers
 	// Remove dependency on std::source_location to avoid bumping the required GCC version to 11+
 	// Refs https://chromium-review.googlesource.com/c/v8/v8/+/6879784
-	if (process.platform === 'linux') {
+	if (process.platform === 'linux' && local !== undefined) {
 		const homedir = os.homedir();
 		const cachePath = process.env.XDG_CACHE_HOME || path.join(homedir, '.cache');
 		const nodeGypCache = path.join(cachePath, 'node-gyp');
-		const localHeaderPath = path.join(nodeGypCache, local!.target, 'include', 'node');
+		const localHeaderPath = path.join(nodeGypCache, local.target, 'include', 'node');
 		if (fs.existsSync(localHeaderPath)) {
 			console.log('Applying v8-source-location.patch to', localHeaderPath);
 			try {
