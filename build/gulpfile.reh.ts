@@ -55,6 +55,10 @@ const BUILD_TARGETS = [
 	{ platform: 'linux', arch: 'x64' },
 	{ platform: 'linux', arch: 'armhf' },
 	{ platform: 'linux', arch: 'arm64' },
+	{ platform: 'linux', arch: 'riscv64' },
+	{ platform: 'linux', arch: 'loong64' },
+	{ platform: 'linux', arch: 'ppc64' },
+	{ platform: 'linux', arch: 's390x' },
 	{ platform: 'alpine', arch: 'arm64' },
 	// legacy: we use to ship only one alpine so it was put in the arch, but now we ship
 	// multiple alpine images and moved to a better model (alpine as the platform)
@@ -238,7 +242,20 @@ function nodejs(platform: string, arch: string): NodeJS.ReadWriteStream | undefi
 				fetchUrls(`/dist/v${nodeVersion}/win-${arch}/node.exe`, { base: 'https://nodejs.org', checksumSha256 }))
 				.pipe(rename('node.exe'));
 		case 'darwin':
-		case 'linux':
+		case 'linux': {
+			// Support unofficial Node.js builds (e.g. riscv64, loong64) via VSCODE_NODEJS_SITE env var.
+			// Set by package_reh.sh for architectures not available on nodejs.org.
+			const unofficialSite = process.env['VSCODE_NODEJS_SITE'];
+			const unofficialUrlRoot = process.env['VSCODE_NODEJS_URLROOT'];
+			const unofficialUrlSuffix = process.env['VSCODE_NODEJS_URLSUFFIX'] ?? '';
+			if (unofficialSite && unofficialUrlRoot) {
+				log(`Downloading node.js ${nodeVersion} ${platform} ${arch} from unofficial builds: ${unofficialSite}...`);
+				return fetchUrls(`${unofficialUrlRoot}/v${nodeVersion}/node-v${nodeVersion}-${platform}-${arch}${unofficialUrlSuffix}.tar.gz`, { base: unofficialSite, checksumSha256 })
+					.pipe(flatmap(stream => stream.pipe(gunzip()).pipe(untar())))
+					.pipe(filter('**/node'))
+					.pipe(util.setExecutableBit('**'))
+					.pipe(rename('node'));
+			}
 			return (product.nodejsRepository !== 'https://nodejs.org' ?
 				fetchGithub(product.nodejsRepository, { version: `${nodeVersion}-${internalNodeVersion}`, name: expectedName!, checksumSha256 }) :
 				fetchUrls(`/dist/v${nodeVersion}/node-v${nodeVersion}-${platform}-${arch}.tar.gz`, { base: 'https://nodejs.org', checksumSha256 })
@@ -246,6 +263,7 @@ function nodejs(platform: string, arch: string): NodeJS.ReadWriteStream | undefi
 				.pipe(filter('**/node'))
 				.pipe(util.setExecutableBit('**'))
 				.pipe(rename('node'));
+		}
 		case 'alpine':
 			return product.nodejsRepository !== 'https://nodejs.org' ?
 				fetchGithub(product.nodejsRepository, { version: `${nodeVersion}-${internalNodeVersion}`, name: expectedName!, checksumSha256 })
