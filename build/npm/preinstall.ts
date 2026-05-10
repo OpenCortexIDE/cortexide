@@ -154,11 +154,17 @@ function installHeaders() {
 		if (fs.existsSync(localHeaderPath)) {
 			console.log('Applying v8-source-location.patch to', localHeaderPath);
 			try {
-				child_process.execFileSync('patch', ['-p0', '-i', path.join(import.meta.dirname, 'gyp', 'custom-headers', 'v8-source-location.patch')], {
+				// --forward: skip gracefully if patch is already applied (idempotent on retry)
+				child_process.execFileSync('patch', ['--forward', '-p0', '-i', path.join(import.meta.dirname, 'gyp', 'custom-headers', 'v8-source-location.patch')], {
 					cwd: localHeaderPath
 				});
-			} catch (error) {
-				throw new Error(`Error applying v8-source-location.patch: ${(error as Error).message}`);
+			} catch (err) {
+				const error = err as NodeJS.ErrnoException & { status?: number };
+				// patch exits 1 with --forward when the patch is already applied — that's fine.
+				if (error.status !== 1) {
+					throw new Error(`Error applying v8-source-location.patch: ${error.message}`);
+				}
+				console.log('v8-source-location.patch already applied (skipping)');
 			}
 		}
 	}
