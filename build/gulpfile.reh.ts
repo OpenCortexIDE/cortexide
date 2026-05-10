@@ -338,8 +338,8 @@ function packageTask(type: string, platform: string, arch: string, sourceFolderN
 		const jsFilter = util.filter(data => !data.isDirectory() && /\.js$/.test(data.path));
 
 		const productionDependencies = getProductionDependencies(REMOTE_FOLDER);
-		const dependenciesSrc = productionDependencies.map(d => path.relative(REPO_ROOT, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`, `!${d}/.bin/**`]).flat();
-		const deps = gulp.src(dependenciesSrc, { base: 'remote', dot: true })
+		const dependenciesSrc = productionDependencies.map(d => path.relative(REPO_ROOT, d)).filter(d => d && d.trim() !== '').map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`, `!${d}/.bin/**`]).flat();
+		const deps = (dependenciesSrc.length > 0 ? gulp.src(dependenciesSrc, { base: 'remote', dot: true }) : gulp.src(['**'], { base: 'remote', dot: true, allowEmpty: true }))
 			// filter out unnecessary files, no source maps in server build
 			.pipe(filter(['**', '!**/package-lock.json', '!**/*.{js,css}.map']))
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, '.moduleignore')))
