@@ -83,6 +83,13 @@ export function prepareBuiltInCopilotRipgrepShim(platform: string, arch: string,
 	const { nodePlatform, nodeArch } = toNodePlatformArch(platform, arch);
 	const platformArch = `${nodePlatform}-${nodeArch}`;
 
+	// If the copilot extension directory doesn't exist at all, skip silently.
+	// CortexIDE does not ship Copilot as a built-in, so this is expected.
+	if (!fs.existsSync(builtInCopilotExtensionDir)) {
+		console.log(`[prepareBuiltInCopilotRipgrepShim] Copilot extension not present at ${builtInCopilotExtensionDir}, skipping shim.`);
+		return;
+	}
+
 	const extensionNodeModules = path.join(builtInCopilotExtensionDir, 'node_modules');
 	const copilotBase = path.join(extensionNodeModules, '@github', 'copilot');
 	const copilotSdkBase = path.join(copilotBase, 'sdk');
