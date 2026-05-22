@@ -264,7 +264,21 @@ function nodejs(platform: string, arch: string): NodeJS.ReadWriteStream | undefi
 				.pipe(util.setExecutableBit('**'))
 				.pipe(rename('node'));
 		}
-		case 'alpine':
+		case 'alpine': {
+			// Allow VSCODE_NODEJS_SITE to bypass the docker-extract path which can hit
+			// `spawnSync /bin/sh ENOBUFS` on resource-constrained CI runners. The
+			// unofficial-builds.nodejs.org publishes `node-v${ver}-linux-${arch}-musl.tar.gz`
+			// for both x64 and arm64.
+			const unofficialSite = process.env['VSCODE_NODEJS_SITE'];
+			const unofficialUrlRoot = process.env['VSCODE_NODEJS_URLROOT'];
+			if (unofficialSite && unofficialUrlRoot) {
+				log(`Downloading node.js ${nodeVersion} alpine ${arch} from unofficial builds: ${unofficialSite}...`);
+				return fetchUrls(`${unofficialUrlRoot}/v${nodeVersion}/node-v${nodeVersion}-linux-${arch}-musl.tar.gz`, { base: unofficialSite, checksumSha256 })
+					.pipe(flatmap(stream => stream.pipe(gunzip()).pipe(untar())))
+					.pipe(filter('**/node'))
+					.pipe(util.setExecutableBit('**'))
+					.pipe(rename('node'));
+			}
 			return product.nodejsRepository !== 'https://nodejs.org' ?
 				fetchGithub(product.nodejsRepository, { version: `${nodeVersion}-${internalNodeVersion}`, name: expectedName!, checksumSha256 })
 					.pipe(flatmap(stream => stream.pipe(gunzip()).pipe(untar())))
@@ -272,6 +286,7 @@ function nodejs(platform: string, arch: string): NodeJS.ReadWriteStream | undefi
 					.pipe(util.setExecutableBit('**'))
 					.pipe(rename('node'))
 				: extractAlpinefromDocker(nodeVersion, platform, arch);
+		}
 	}
 }
 
