@@ -10,7 +10,12 @@ import type { ILigatureOptions, LigaturesAddon as LigaturesAddonType } from '@xt
 import type { WebglAddon as WebglAddonType } from '@xterm/addon-webgl';
 import type { SerializeAddon as SerializeAddonType } from '@xterm/addon-serialize';
 import type { ImageAddon as ImageAddonType } from '@xterm/addon-image';
-import type { ClipboardAddon as ClipboardAddonType, ClipboardSelectionType } from '@xterm/addon-clipboard';
+import type { ClipboardAddon as ClipboardAddonType } from '@xterm/addon-clipboard';
+// ClipboardSelectionType is a `const enum` in @xterm/addon-clipboard which newer tsgo
+// versions refuse to import across module boundaries. The enum values are 'c' (system)
+// and 'p' (primary) — re-declare as a string-literal type so the build doesn't depend
+// on cross-module const enum resolution.
+type ClipboardSelectionType = 'c' | 'p';
 import * as dom from '../../../../../base/browser/dom.js';
 import { IXtermCore } from '../xterm-private.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
