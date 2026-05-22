@@ -525,11 +525,22 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			all = es.merge(all, shortcut, policyDest);
 		}
 
+		// Allow overriding the Electron repo + tag via env vars so community arch builds
+		// (ppc64le/loong64/riscv64) can pull from arch-specific forks (lex-ibm, darkyzhou,
+		// riscv-forks) instead of the official electron releases that lack those binaries.
+		const electronOverride: { repo?: string; tag?: string } = {};
+		if (process.env['VSCODE_ELECTRON_REPOSITORY']) {
+			electronOverride.repo = process.env['VSCODE_ELECTRON_REPOSITORY'];
+		}
+		if (process.env['VSCODE_ELECTRON_TAG']) {
+			electronOverride.tag = process.env['VSCODE_ELECTRON_TAG'];
+		}
 		const electronConfig = {
 			...config,
 			platform,
 			arch: arch === 'armhf' ? 'arm' : arch,
 			ffmpegChromium: false,
+			...electronOverride,
 			...(embedded ? {
 				darwinMiniAppName: embedded.nameShort,
 				darwinMiniAppDisplayName: embedded.nameLong,
