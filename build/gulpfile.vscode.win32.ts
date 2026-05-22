@@ -131,7 +131,12 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			definitions['ProxyMutex'] = embedded.win32MutexName;
 		}
 
-		if (quality === 'stable' || quality === 'insider') {
+		// Only declare AppxPackage* for InnoSetup when product.json actually opts into the
+		// Windows 11 context-menu shell extension for this architecture — otherwise the
+		// .appx is never built (see gulpfile.vscode.ts) and the InnoSetup compile fails
+		// with `Source file ".../appx/code_${arch}.appx" does not exist`.
+		const win32ContextMenu = (product as { win32ContextMenu?: Record<string, { clsid: string }> }).win32ContextMenu;
+		if ((quality === 'stable' || quality === 'insider') && win32ContextMenu?.[arch]) {
 			definitions['AppxPackage'] = `${quality === 'stable' ? 'code' : 'code_insider'}_${arch}.appx`;
 			definitions['AppxPackageDll'] = `${quality === 'stable' ? 'code' : 'code_insider'}_explorer_command_${arch}.dll`;
 			definitions['AppxPackageName'] = `${product.win32AppUserModelId}`;
