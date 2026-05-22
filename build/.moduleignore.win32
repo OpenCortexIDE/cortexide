@@ -1,0 +1,9 @@
+# @github/copilot/pvrecorder — strip non-Windows native binaries on Windows builds.
+# rcedit walks **/*.node and fails on non-PE files like the bundled macOS/Linux
+# pvrecorder binaries. Strip all non-Windows artifacts; the JS fallback handles
+# import gracefully on the host platform.
+@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/mac/**
+@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/linux/**
+@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/raspberry-pi/**
+@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/jetson/**
+@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/beaglebone/**

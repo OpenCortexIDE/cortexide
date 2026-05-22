@@ -664,6 +664,21 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 		const patchPromises = deps.map<Promise<unknown>>(async dep => {
 			const basename = path.basename(dep);
 
+			// rcedit only understands PE/COFF binaries. Skip files that are not — e.g. Mach-O
+			// or ELF .node files bundled in npm packages with per-platform subdirs (mac/linux).
+			// Reading the first 2 bytes is enough: 'MZ' identifies PE; anything else we skip.
+			try {
+				const fh = await fs.promises.open(path.join(cwd, dep), 'r');
+				const header = Buffer.alloc(2);
+				await fh.read(header, 0, 2, 0);
+				await fh.close();
+				if (header[0] !== 0x4d || header[1] !== 0x5a) { // 'MZ'
+					return;
+				}
+			} catch {
+				return;
+			}
+
 			await rcedit(path.join(cwd, dep), {
 				'file-version': baseVersion,
 				'version-string': {
