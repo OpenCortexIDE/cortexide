@@ -14,6 +14,9 @@ on:
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
   copilot-setup-steps:
+    # Skip on cortexide fork: uses upstream's `vscode-large-runners`
+    # self-hosted runner, which is not available to us.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: vscode-large-runners
 
     # Set the permissions to the lowest permissions possible needed for your steps.
