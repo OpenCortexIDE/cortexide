@@ -6,6 +6,10 @@ permissions: {}
 jobs:
   main:
     name: Prevent engineering system changes in PRs
+    # Skip on cortexide fork: this check queries microsoft/vscode collaborator
+    # permissions (403 from our token) and enforces upstream's bot policy.
+    # We govern engineering-system changes via PR review on this repo.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: ubuntu-latest
     steps:
       - name: Get file changes
