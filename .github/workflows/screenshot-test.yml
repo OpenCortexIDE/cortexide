@@ -21,6 +21,11 @@ concurrency:
 jobs:
   screenshots:
     name: Checking Component Screenshots
+    # Skip on cortexide fork: this workflow uploads to
+    # hediet-screenshots.azurewebsites.net (upstream's Azure endpoint, returns
+    # 403 for our OIDC token) and posts a comment via the upstream service.
+    # We don't currently run a screenshot diff service.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: ubuntu-latest
     continue-on-error: true # TODO(hediet): Remove once screenshot pipeline is stable
     steps:
