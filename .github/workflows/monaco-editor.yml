@@ -14,6 +14,9 @@ permissions: {}
 jobs:
   main:
     name: Monaco Editor checks
+    # Skip on cortexide fork: Monaco Editor is published from microsoft/vscode;
+    # this check is part of that publishing flow and not relevant downstream.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -21,7 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS objects for the copilot simulation cache are not on our LFS
+          # server. Monaco Editor checks don't need those files anyway.
+          lfs: false
           persist-credentials: false
 
       - uses: actions/setup-node@v6

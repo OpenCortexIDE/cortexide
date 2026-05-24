@@ -24,7 +24,10 @@ jobs:
       - name: Checkout microsoft/vscode
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS disabled: the copilot simulation-cache sqlite pointers in this
+          # repo reference LFS objects that don't exist on our LFS server (404).
+          # Compile/hygiene doesn't touch those files. See PR description.
+          lfs: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -159,6 +162,9 @@ jobs:
 
   copilot-check-test-cache:
     name: Copilot - Check Test Cache
+    # Skip on cortexide fork: this job opens the LFS-stored simulation sqlite
+    # databases, which are not mirrored to our LFS server. Run only on upstream.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -167,7 +173,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS disabled: cache-cli check + pr-check-cache-files.ts operate on
+          # file listings / pointer metadata, not blob content. LFS objects for
+          # the copilot simulation cache are not present on our LFS server.
+          lfs: false
 
       - uses: actions/setup-node@v6
         with:
@@ -212,7 +221,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS disabled: telemetry extractor scans TS sources only.
+          lfs: false
 
       - uses: actions/setup-node@v6
         with:
@@ -224,6 +234,9 @@ jobs:
 
   copilot-linux-tests:
     name: Copilot - Test (Linux)
+    # Skip on cortexide fork: simulate-ci depends on LFS-stored simulation cache
+    # databases that are not mirrored to our LFS server. Run only on upstream.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -329,6 +342,9 @@ jobs:
 
   copilot-windows-tests:
     name: Copilot - Test (Windows)
+    # Skip on cortexide fork: simulate-ci depends on LFS-stored simulation cache
+    # databases that are not mirrored to our LFS server. Run only on upstream.
+    if: github.repository_owner != 'OpenCortexIDE'
     runs-on: windows-2022
     permissions:
       contents: read
