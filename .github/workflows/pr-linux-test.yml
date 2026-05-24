@@ -26,7 +26,10 @@ jobs:
       - name: Checkout microsoft/vscode
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS disabled: platform test jobs do not exercise the copilot
+          # simulation cache (the only LFS-tracked files in the repo) and our
+          # LFS server returns 404 for those objects.
+          lfs: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

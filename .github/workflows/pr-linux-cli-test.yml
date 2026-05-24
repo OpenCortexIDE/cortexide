@@ -18,7 +18,10 @@ jobs:
       - name: Checkout microsoft/vscode
         uses: actions/checkout@v6
         with:
-          lfs: true
+          # LFS disabled: the CLI Rust tests do not exercise the copilot
+          # simulation cache (the only LFS-tracked files in the repo) and our
+          # LFS server returns 404 for those objects.
+          lfs: false
 
       - name: Install Rust
         run: |
