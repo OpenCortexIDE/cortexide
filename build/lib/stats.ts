@@ -3,13 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import fancyLog from 'fancy-log';
 import ansiColors from 'ansi-colors';
 import File from 'vinyl';
 
 class Entry {
-	constructor(readonly name: string, public totalCount: number, public totalSize: number) { }
+	readonly name: string;
+	public totalCount: number;
+	public totalSize: number;
+
+	constructor(name: string, totalCount: number, totalSize: number) {
+		this.name = name;
+		this.totalCount = totalCount;
+		this.totalSize = totalSize;
+	}
 
 	toString(pretty?: boolean): string {
 		if (!pretty) {

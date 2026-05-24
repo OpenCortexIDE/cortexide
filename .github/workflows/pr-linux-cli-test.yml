@@ -11,12 +11,14 @@ on:
 jobs:
   linux-cli-test:
     name: ${{ inputs.job_name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       RUSTUP_TOOLCHAIN: ${{ inputs.rustup_toolchain }}
     steps:
       - name: Checkout microsoft/vscode
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Install Rust
         run: |

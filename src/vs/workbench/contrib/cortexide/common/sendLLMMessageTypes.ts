@@ -8,6 +8,12 @@ import { ToolName, ToolParamName } from './toolsServiceTypes.js'
 import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './cortexideSettingsTypes.js'
 
 
+// allow-any-unicode-next-line
+// Typed result wrapper for all IPC call responses — enables callers to distinguish success from failure
+export type IPCCallResult<T = void> =
+	| { ok: true; data: T }
+	| { ok: false; error: string; code: 'TIMEOUT' | 'ABORT' | 'PROVIDER_ERROR' | 'CHANNEL_ERROR' }
+
 export const errorDetails = (fullError: Error | null): string | null => {
 	if (fullError === null) {
 		return null

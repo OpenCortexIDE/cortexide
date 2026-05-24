@@ -28,11 +28,11 @@ import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { ICortexideModelService } from '../common/cortexideModelService.js';
 
-type VoidCommandBarModule = typeof import('./react/out/void-editor-widgets-tsx/index.js');
+type VoidCommandBarModule = typeof import('./react/out/editor-widgets/index.js');
 let mountVoidCommandBarPromise: Promise<VoidCommandBarModule['mountVoidCommandBar']> | undefined;
 function getMountVoidCommandBar() {
 	if (!mountVoidCommandBarPromise) {
-		mountVoidCommandBarPromise = import('./react/out/void-editor-widgets-tsx/index.js').then(m => m.mountVoidCommandBar);
+		mountVoidCommandBarPromise = import('./react/out/editor-widgets/index.js').then(m => m.mountVoidCommandBar);
 	}
 	return mountVoidCommandBarPromise;
 }
@@ -675,11 +675,18 @@ registerAction2(class extends Action2 {
 			id: CORTEXIDE_GOTO_NEXT_DIFF_ACTION_ID,
 			f1: true,
 			title: localize2('voidGoToNextDiffAction', 'Void: Go to Next Diff'),
-			keybinding: {
-				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.DownArrow,
-				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.DownArrow },
-				weight: KeybindingWeight.ExternalExtension,
-			}
+			keybinding: [
+				{
+					primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.DownArrow,
+					mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.DownArrow },
+					weight: KeybindingWeight.ExternalExtension,
+				},
+				// Cursor-style shortcut: Alt+]
+				{
+					primary: KeyMod.Alt | KeyCode.BracketRight,
+					weight: KeybindingWeight.ExternalExtension,
+				},
+			]
 		});
 	}
 
@@ -702,11 +709,18 @@ registerAction2(class extends Action2 {
 			id: CORTEXIDE_GOTO_PREV_DIFF_ACTION_ID,
 			f1: true,
 			title: localize2('voidGoToPrevDiffAction', 'Void: Go to Previous Diff'),
-			keybinding: {
-				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.UpArrow,
-				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.UpArrow },
-				weight: KeybindingWeight.ExternalExtension,
-			}
+			keybinding: [
+				{
+					primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.UpArrow,
+					mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.UpArrow },
+					weight: KeybindingWeight.ExternalExtension,
+				},
+				// Cursor-style shortcut: Alt+[
+				{
+					primary: KeyMod.Alt | KeyCode.BracketLeft,
+					weight: KeybindingWeight.ExternalExtension,
+				},
+			]
 		});
 	}
 

@@ -67,7 +67,8 @@ import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
 import { IRepoIndexerService } from './repoIndexerService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { IMemoriesService } from '../common/memoriesService.js';
+import { IMemoriesService } from '../common/memoriesService.js'
+import { ICortexideRulesService } from '../common/cortexideRulesService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -1257,6 +1258,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IRepoIndexerService private readonly repoIndexerService: IRepoIndexerService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMemoriesService private readonly memoriesService: IMemoriesService,
+		@ICortexideRulesService private readonly rulesService: ICortexideRulesService,
 	) {
 		super()
 	}
@@ -1279,14 +1281,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	// Get combined AI instructions from settings and .voidrules files
-	private _getCombinedAIInstructions(): string {
+	// Get combined AI instructions from settings, .voidrules files, and .cortexide/rules/*.md
+	private _getCombinedAIInstructions(activeFileUri?: URI): string {
 		const globalAIInstructions = this.cortexideSettingsService.state.globalSettings.aiInstructions;
 		const voidRulesFileContent = this._getVoidRulesFileContents();
+		// New: structured rules from .cortexide/rules/*.md (scoped per active file)
+		const structuredRules = this.rulesService.buildRulesBlock(activeFileUri);
 
 		const ans: string[] = []
 		if (globalAIInstructions) ans.push(globalAIInstructions)
 		if (voidRulesFileContent) ans.push(voidRulesFileContent)
+		if (structuredRules) ans.push(structuredRules)
 		return ans.join('\n\n')
 	}
 
@@ -1354,7 +1359,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories })
+		const activeFileURI = this.editorService.activeEditor?.resource;
+		const projectRules = this._getCombinedAIInstructions(activeFileURI) || undefined;
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules })
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1555,7 +1562,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories })
+			const activeFileURILocal = this.editorService.activeEditor?.resource;
+			const projectRulesLocal = this._getCombinedAIInstructions(activeFileURILocal) || undefined;
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal })
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat)
@@ -1694,6 +1703,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// For cloud models, use existing logic
 			// Cap local model contexts: use 50% of model's context window, up to 128k max
 			// This reduces latency for large models while still allowing them to use their full capacity
+			// allow-any-unicode-next-line
 			// Small models (≤8k) keep full context, medium models (≤32k) get 16k, large models get min(50%, 128k)
 			if (contextWindow <= 8_000) {
 				effectiveContextWindow = contextWindow // Small models: use full context
@@ -1866,6 +1876,7 @@ gemini response:
 	"function_response": {
 		"name": "get_weather",
 			"response": {
+			// allow-any-unicode-next-line
 			"temperature": "15°C",
 				"condition": "Cloudy"
 		}

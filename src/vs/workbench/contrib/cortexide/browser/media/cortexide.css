@@ -3,90 +3,144 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+/* ===========================================================================
+ * CortexIDE Design Tokens
+ *
+ * All CortexIDE-specific UI (chat panel, settings, onboarding, quick-edit)
+ * uses these tokens exclusively. The VS Code editor, explorer, and extensions
+ * continue to use the user's selected theme via --vscode-* tokens.
+ *
+ * Overriding: Users can override any --cortex-* or --void-* variable by
+ * adding CSS to their VS Code settings: "editor.tokenColorCustomizations"
+ * or via a theme extension. All values below are defaults only.
+ * =========================================================================== */
+
 :root {
-	/* Core surfaces */
-	--cortex-surface-0: #010101;
-	--cortex-surface-1: #040404;
-	--cortex-surface-1-alt: #060606;
-	--cortex-surface-2: #080808;
-	--cortex-surface-2-alt: #0d0d0d;
-	--cortex-surface-3: #101010;
-	--cortex-surface-4: #151515;
-	--cortex-overlay: rgba(0, 0, 0, 0.82);
+	/* -- Core surfaces (dark theme - light overrides below) ----------------- */
+	/* Stepped from near-black to visible dark grey so depth reads clearly.    */
+	--cortex-surface-0:     #0a0a0d;   /* deepest background (onboarding overlay) */
+	--cortex-surface-1:     #111116;   /* sidebar / panel base */
+	--cortex-surface-1-alt: #14141a;   /* sidebar alternate row */
+	--cortex-surface-2:     #18181f;   /* input, card backgrounds */
+	--cortex-surface-2-alt: #1e1e27;   /* hover state of surface-2 */
+	--cortex-surface-3:     #242430;   /* elevated cards, dropdowns */
+	--cortex-surface-4:     #2c2c3c;   /* highest elevation (menus) */
+	--cortex-overlay:       rgba(5, 5, 10, 0.88);
 
-	/* Text */
-	--cortex-text-strong: #f5f5f7;
-	--cortex-text-base: #e2e3f0;
-	--cortex-text-muted: #a5a7c4;
-	--cortex-text-subtle: #6d708d;
+	/* -- Text --------------------------------------------------------------- */
+	--cortex-text-strong:   #f0f0f5;   /* headings, active labels    4.9:1 on surface-1 */
+	--cortex-text-base:     #d4d4e8;   /* body text                  4.5:1 on surface-1 */
+	--cortex-text-muted:    #9898b8;   /* secondary labels, hints    3.2:1 on surface-1 */
+	--cortex-text-subtle:   #6a6a88;   /* placeholders, timestamps  (decorative) */
 
-	/* Accents & roles */
-	--cortex-brand: #7b5cff;
-	--cortex-brand-soft: color-mix(in srgb, var(--cortex-brand) 28%, transparent);
-	--cortex-accent: var(--cortex-brand);
-	--cortex-success: #38b284;
-	--cortex-warning: #f4c95d;
-	--cortex-danger: #ff5c7a;
+	/* -- Brand / accents ---------------------------------------------------- */
+	--cortex-brand:         #8b6fff;   /* primary purple accent */
+	--cortex-brand-dim:     #6d52d4;   /* pressed / active brand */
+	--cortex-brand-soft:    color-mix(in srgb, var(--cortex-brand) 22%, transparent);
+	--cortex-brand-glow:    0 0 12px color-mix(in srgb, var(--cortex-brand) 40%, transparent);
+	--cortex-accent:        var(--cortex-brand);
+	--cortex-success:       #3dbf8e;
+	--cortex-warning:       #f5c842;
+	--cortex-danger:        #ff5c7a;
 
-	/* Borders + outlines */
-	--cortex-border-weak: #161616;
-	--cortex-border-strong: #1f1f1f;
-	--cortex-ring-color: var(--cortex-brand);
+	/* -- Borders ------------------------------------------------------------ */
+	/* Visible against the surfaces above - not just near-black               */
+	--cortex-border-weak:   #22222e;   /* subtle dividers */
+	--cortex-border-base:   #2e2e40;   /* standard border */
+	--cortex-border-strong: #3a3a52;   /* elevated / focused border */
+	--cortex-ring-color:    var(--cortex-brand);
 
-	/* Typography */
-	--cortex-font-title: 14px;
+	/* -- Typography --------------------------------------------------------- */
+	--cortex-font-title:    14px;
 	--cortex-font-subtitle: 13px;
-	--cortex-font-body: 12px;
-	--cortex-font-label: 11px;
-	--cortex-font-micro: 10px;
+	--cortex-font-body:     12px;
+	--cortex-font-label:    11px;
+	--cortex-font-micro:    10px;
 
-	/* Spacing */
+	/*
+	 * Platform-appropriate monospace font stack.
+	 * Cascadia Code  → Windows 11+ (ships with VS Code)
+	 * SF Mono        → macOS / iOS
+	 * JetBrains Mono → Linux & cross-platform installs
+	 * Fira Code      → popular open-source fallback
+	 * ui-monospace   → OS system monospace (all platforms)
+	 * monospace      → final safety net
+	 */
+	--cortex-font-mono:
+		'Cascadia Code', 'Cascadia Mono',
+		'SF Mono',
+		'JetBrains Mono',
+		'Fira Code',
+		ui-monospace,
+		monospace;
+
+	/* -- Spacing ------------------------------------------------------------ */
 	--cortex-space-2xs: 2px;
-	--cortex-space-xs: 4px;
-	--cortex-space-sm: 8px;
-	--cortex-space-md: 12px;
-	--cortex-space-lg: 16px;
-	--cortex-space-xl: 20px;
+	--cortex-space-xs:  4px;
+	--cortex-space-sm:  8px;
+	--cortex-space-md:  12px;
+	--cortex-space-lg:  16px;
+	--cortex-space-xl:  20px;
 	--cortex-space-2xl: 24px;
 
-	/* Radii */
+	/* -- Radii -------------------------------------------------------------- */
 	--cortex-radius-xs: 3px;
-	--cortex-radius-sm: 4px;
+	--cortex-radius-sm: 5px;
 	--cortex-radius-md: 8px;
 	--cortex-radius-lg: 12px;
+	--cortex-radius-xl: 16px;
 
-	/* Motion + depth */
-	--cortex-transition-fast: 140ms ease;
-	--cortex-transition-base: 200ms ease;
-	--cortex-transition-slow: 280ms ease;
-	--cortex-shadow-soft: 0 30px 80px rgba(0, 0, 0, 0.5);
-	--cortex-shadow-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+	/* -- Motion ------------------------------------------------------------- */
+	--cortex-transition-fast: 120ms ease;
+	--cortex-transition-base: 180ms ease;
+	--cortex-transition-slow: 260ms ease;
 
+	/* -- Depth -------------------------------------------------------------- */
+	--cortex-shadow-soft:     0 24px 64px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4);
+	--cortex-shadow-panel:    0 2px 8px rgba(0, 0, 0, 0.35);
+	--cortex-shadow-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+	/* -- Logo --------------------------------------------------------------- */
 	--cortex-logo-url: url('../../../../browser/media/code-icon.svg');
 
-	/* Legacy aliases (avoid churn across existing components) */
-	--void-bg-1: var(--cortex-surface-1);
-	--void-bg-1-alt: var(--cortex-surface-1-alt);
-	--void-bg-2: var(--cortex-surface-2);
-	--void-bg-2-alt: var(--cortex-surface-2-alt);
-	--void-bg-2-hover: color-mix(in srgb, var(--cortex-surface-2-alt) 85%, #1d2238 15%);
-	--void-bg-3: var(--cortex-surface-3);
+	/* -- Inline diff accept / reject --------------------------------------- */
+	--cortex-accept-bg:      rgb(28, 130, 54);
+	--cortex-accept-bg-dim:  rgb(22, 108, 44);
+	--cortex-accept-border:  rgb(16, 80, 32);
+	--cortex-reject-bg:      rgb(200, 38, 54);
+	--cortex-reject-bg-dim:  rgb(170, 32, 46);
+	--cortex-reject-border:  rgb(130, 24, 36);
+	--cortex-btn-text:        #ffffff;
 
-	--void-fg-0: var(--cortex-text-strong);
-	--void-fg-1: var(--cortex-text-base);
-	--void-fg-2: var(--cortex-text-muted);
-	--void-fg-3: var(--cortex-text-subtle);
-	--void-fg-4: #4f5269;
+	/* -- Scrollbar ---------------------------------------------------------- */
+	--cortex-scrollbar-track: transparent;
+	--cortex-scrollbar-thumb: #2e2e42;
+	--cortex-scrollbar-thumb-hover: #3e3e58;
 
-	--void-warning: var(--cortex-warning);
+	/* -- Legacy aliases ----------------------------------------------------- */
+	/* Keep these so existing components that reference --void-* still work.  */
+	--void-bg-1:         var(--cortex-surface-1);
+	--void-bg-1-alt:     var(--cortex-surface-1-alt);
+	--void-bg-2:         var(--cortex-surface-2);
+	--void-bg-2-alt:     var(--cortex-surface-2-alt);
+	--void-bg-2-hover:   var(--cortex-surface-2-alt);
+	--void-bg-3:         var(--cortex-surface-3);
 
-	--void-border-1: var(--cortex-border-strong);
-	--void-border-2: #24273a;
-	--void-border-3: var(--cortex-border-weak);
-	--void-border-4: #353a55;
+	--void-fg-0:         var(--cortex-text-strong);
+	--void-fg-1:         var(--cortex-text-base);
+	--void-fg-2:         var(--cortex-text-muted);
+	--void-fg-3:         var(--cortex-text-subtle);
+	--void-fg-4:         #504f6a;
 
-	--void-ring-color: var(--cortex-ring-color);
-	--void-link-color: var(--cortex-accent);
+	--void-warning:      var(--cortex-warning);
+
+	--void-border-1:     var(--cortex-border-strong);
+	--void-border-2:     var(--cortex-border-base);
+	--void-border-3:     var(--cortex-border-weak);
+	--void-border-4:     var(--cortex-border-base);
+
+	--void-ring-color:   var(--cortex-ring-color);
+	--void-link-color:   var(--cortex-brand);
 
 	--void-space-1: var(--cortex-space-2xs);
 	--void-space-2: var(--cortex-space-xs);
@@ -100,19 +154,19 @@
 	--void-radius-sm: var(--cortex-radius-sm);
 	--void-radius-md: var(--cortex-radius-md);
 	--void-radius-lg: var(--cortex-radius-lg);
-	--void-radius-xl: calc(var(--cortex-radius-lg) + 4px);
+	--void-radius-xl: var(--cortex-radius-xl);
 
 	--void-transition-fast: var(--cortex-transition-fast);
 	--void-transition-base: var(--cortex-transition-base);
 	--void-transition-slow: var(--cortex-transition-slow);
 }
 
-/* ----------------------------------------------------------------------------------------
- * Workbench chrome & layout scaffolding
- * Do NOT override body/part background and color or --vscode-* so the user's selected
- * theme (e.g. Solarized Dark, Light+) applies. CortexIDE variables (--cortex-*, --void-*)
- * remain in :root for use inside CortexIDE-specific UI (e.g. .void-scope, chat panel).
- * ------------------------------------------------------------------------------------- */
+/* ===========================================================================
+ * Workbench chrome - minimal, non-invasive overrides.
+ * Do NOT set body/part background-color or --vscode-* tokens.
+ * The user's selected VS Code theme drives the editor and explorer.
+ * =========================================================================== */
+
 body.monaco-workbench,
 .monaco-workbench {
 	font-size: var(--cortex-font-body);
@@ -121,13 +175,15 @@ body.monaco-workbench,
 .monaco-workbench .part.titlebar,
 .monaco-workbench .part.statusbar {
 	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
 	box-shadow: var(--cortex-shadow-hairline);
 }
 
-/* On Windows, disable backdrop-filter on titlebar to avoid stacking context issues
- * that prevent menubar dropdowns from appearing when appended to document.body */
+/* Disable backdrop-filter on Windows title bar - causes stacking context bugs
+ * that prevent menubar dropdowns from rendering above the title bar. */
 .monaco-workbench.windows .part.titlebar {
 	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
 }
 
 .monaco-workbench .part.sidebar > .content .pane-header,
@@ -145,8 +201,8 @@ body.monaco-workbench,
 	background: transparent;
 }
 
-.monaco-workbench .part.editor>.content .editor-group-container {
-	border-color: color-mix(in srgb, var(--cortex-border-strong) 65%, transparent);
+.monaco-workbench .part.editor > .content .editor-group-container {
+	border-color: color-mix(in srgb, var(--cortex-border-weak) 60%, transparent);
 }
 
 .monaco-workbench .part.statusbar .statusbar-item {
@@ -155,113 +211,66 @@ body.monaco-workbench,
 	letter-spacing: 0.01em;
 }
 
-.monaco-editor .void-sweepIdxBG {
-	background-color: var(--vscode-void-sweepIdxBG);
-}
+/* -- Inline diff decoration colours --------------------------------------- */
+.monaco-editor .void-sweepIdxBG  { background-color: var(--vscode-void-sweepIdxBG); }
+.void-sweepBG                    { background-color: var(--vscode-void-sweepBG); }
+.void-highlightBG                { background-color: var(--vscode-void-highlightBG); }
+.void-greenBG                    { background-color: var(--vscode-void-greenBG); }
+.void-redBG                      { background-color: var(--vscode-void-redBG); }
+.void-diff-disabled              { opacity: 0.45; }
 
-.void-sweepBG {
-	background-color: var(--vscode-void-sweepBG);
-}
-
-.void-highlightBG {
-	background-color: var(--vscode-void-highlightBG);
-}
-
-.void-greenBG {
-	background-color: var(--vscode-void-greenBG);
-}
-
-.void-redBG {
-	background-color: var(--vscode-void-redBG);
-}
-
-.void-diff-disabled {
-	opacity: 0.5;
-}
-
-
-/* Renamed from void-watermark-button to void-openfolder-button */
-.void-openfolder-button {
+/* -- Shared button styles used by watermark / welcome screen --------------- */
+.void-openfolder-button,
+.void-openssh-button,
+.void-settings-watermark-button {
 	padding: 8px 20px;
 	background-color: var(--cortex-surface-3);
 	color: var(--cortex-text-base);
-	border: 1px solid var(--cortex-border-strong);
-	border-radius: 4px;
+	border: 1px solid var(--cortex-border-base);
+	border-radius: var(--cortex-radius-md);
 	outline: none !important;
 	box-shadow: none !important;
 	cursor: pointer;
-	transition: background-color var(--cortex-transition-fast);
+	transition:
+		background-color var(--cortex-transition-fast),
+		border-color var(--cortex-transition-fast);
 }
-.void-openfolder-button:hover,
-.void-openfolder-button:active {
-	background-color: var(--cortex-surface-4);
-}
-
-/* Added for Open SSH button with slightly darker color */
-.void-openssh-button {
-	padding: 8px 20px;
-	background-color: var(--cortex-surface-2);
-	color: var(--cortex-text-base);
-	border: 1px solid var(--cortex-border-strong);
-	border-radius: 4px;
-	outline: none !important;
-	box-shadow: none !important;
-	cursor: pointer;
-	transition: background-color var(--cortex-transition-fast);
-}
-.void-openssh-button:hover,
-.void-openssh-button:active {
-	background-color: var(--cortex-surface-3);
-}
-
 
 .void-settings-watermark-button {
 	margin: 8px 0;
-	padding: 8px 20px;
-	background-color: var(--cortex-surface-2);
-	color: var(--cortex-text-base);
-	border: 1px solid var(--cortex-border-strong);
-	border-radius: 4px;
-	outline: none !important;
-	box-shadow: none !important;
-	cursor: pointer;
-	transition: background-color var(--cortex-transition-fast);
 }
 
+.void-openfolder-button:hover,
+.void-openfolder-button:active,
+.void-openssh-button:hover,
+.void-openssh-button:active,
 .void-settings-watermark-button:hover,
 .void-settings-watermark-button:active {
-	background-color: var(--cortex-surface-3);
+	background-color: var(--cortex-surface-4);
+	border-color: var(--cortex-border-strong);
 }
 
 .void-link {
-	color: var(--cortex-text-base);
+	color: var(--cortex-brand);
 	cursor: pointer;
 	transition: opacity var(--cortex-transition-fast);
+	text-decoration: none;
 }
+.void-link:hover { opacity: 0.8; text-decoration: underline; }
 
-.void-link:hover {
-	opacity: 0.8;
-}
-
-/* ----------------------------------------------------------------------------------------
- * Explorer / Search / Extensions surfaces
- * ------------------------------------------------------------------------------------- */
-/* Sidebar, extensions, search: use user theme (no cortex overrides) */
-
-/* ----------------------------------------------------------------------------------------
- * Chat / message input experience - use user theme so chat panel respects selected theme
- * ------------------------------------------------------------------------------------- */
+/* ===========================================================================
+ * Chat panel - let the user's VS Code theme drive colours in the auxiliary
+ * bar so the panel blends with the rest of the workbench.
+ * =========================================================================== */
 .monaco-workbench .interactive-session .chat-input-container {
 	background-color: var(--vscode-input-background) !important;
 	border: 1px solid var(--vscode-input-border) !important;
 	box-shadow: none !important;
 }
-
 .monaco-workbench .interactive-session .chat-input-container:focus-within {
 	border-color: var(--vscode-focusBorder) !important;
 	box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset;
 }
-
 .monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor,
 .monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .monaco-editor-background,
 .monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .margin,
@@ -269,11 +278,9 @@ body.monaco-workbench,
 	background-color: var(--vscode-input-background) !important;
 	color: var(--vscode-input-foreground) !important;
 }
-
 .monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .cursor {
 	border-color: var(--vscode-input-foreground) !important;
 }
-
 .monaco-workbench .interactive-session .chat-input-toolbars,
 .monaco-workbench .interactive-session .chat-input-toolbars .monaco-toolbar .action-item,
 .monaco-workbench .interactive-session .chat-modelPicker-item {
@@ -282,146 +289,117 @@ body.monaco-workbench,
 	border-color: var(--vscode-sideBar-border) !important;
 }
 
-/* Chat panel (auxiliary bar): override void/cortex variables so React chat UI uses theme */
+/* Override cortex/void tokens inside the chat auxiliary bar so the React UI
+ * inherits the user's active VS Code theme rather than our dark defaults. */
 .monaco-workbench .part.auxiliarybar > .content {
-	--void-bg-1: var(--vscode-sideBar-background);
+	--void-bg-1:     var(--vscode-sideBar-background);
 	--void-bg-1-alt: var(--vscode-sideBar-background);
-	--void-bg-2: var(--vscode-sideBar-background);
+	--void-bg-2:     var(--vscode-sideBar-background);
 	--void-bg-2-alt: var(--vscode-sideBar-background);
 	--void-bg-2-hover: var(--vscode-list-hoverBackground, var(--vscode-sideBar-background));
-	--void-bg-3: var(--vscode-sideBar-background);
-	--void-fg-0: var(--vscode-sideBar-foreground);
-	--void-fg-1: var(--vscode-sideBar-foreground);
-	--void-fg-2: var(--vscode-sideBar-foreground);
-	--void-fg-3: var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
-	--void-fg-4: var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
+	--void-bg-3:     var(--vscode-sideBar-background);
+	--void-fg-0:     var(--vscode-sideBar-foreground);
+	--void-fg-1:     var(--vscode-sideBar-foreground);
+	--void-fg-2:     var(--vscode-sideBar-foreground);
+	--void-fg-3:     var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
+	--void-fg-4:     var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
 	--void-border-1: var(--vscode-sideBar-border, transparent);
 	--void-border-2: var(--vscode-sideBar-border, transparent);
 	--void-border-3: var(--vscode-sideBar-border, transparent);
 	--void-border-4: var(--vscode-sideBar-border, transparent);
 }
 
-/* ----------------------------------------------------------------------------------------
- * Settings experience: use user theme (no cortex background/color overrides)
- * ------------------------------------------------------------------------------------- */
+/* ===========================================================================
+ * void-scope - the React root element for all CortexIDE panels.
+ * Scrollbars, focus rings, and density utilities live here.
+ * =========================================================================== */
 
-/* styles for all containers used by void */
 .void-scope {
-	--scrollbar-vertical-width: 8px;
-	--scrollbar-horizontal-height: 6px;
+	--scrollbar-vertical-width:    6px;
+	--scrollbar-horizontal-height: 4px;
 }
 
-/* Target both void-scope and all its descendants with scrollbars */
-.void-scope,
-.void-scope * {
-	scrollbar-width: thin !important;
-	scrollbar-color: var(--void-bg-1) var(--void-bg-3) !important;
-	/* For Firefox */
-}
-
+/* -- Scrollbars (Webkit) --------------------------------------------------- */
 .void-scope::-webkit-scrollbar,
 .void-scope *::-webkit-scrollbar {
 	width: var(--scrollbar-vertical-width) !important;
 	height: var(--scrollbar-horizontal-height) !important;
-	background-color: var(--void-bg-3) !important;
 }
-
-.void-scope::-webkit-scrollbar-thumb,
-.void-scope *::-webkit-scrollbar-thumb {
-	background-color: var(--void-bg-1) !important;
-	border-radius: 4px !important;
-	border: none !important;
-	-webkit-box-shadow: none !important;
-	box-shadow: none !important;
-}
-
-.void-scope::-webkit-scrollbar-thumb:hover,
-.void-scope *::-webkit-scrollbar-thumb:hover {
-	background-color: var(--void-bg-1) !important;
-	filter: brightness(1.1) !important;
-}
-
-.void-scope::-webkit-scrollbar-thumb:active,
-.void-scope *::-webkit-scrollbar-thumb:active {
-	background-color: var(--void-bg-1) !important;
-	filter: brightness(1.2) !important;
-}
-
 .void-scope::-webkit-scrollbar-track,
 .void-scope *::-webkit-scrollbar-track {
-	background-color: var(--void-bg-3) !important;
-	border: none !important;
+	background: var(--cortex-scrollbar-track) !important;
+	border-radius: 3px !important;
 }
-
+.void-scope::-webkit-scrollbar-thumb,
+.void-scope *::-webkit-scrollbar-thumb {
+	background-color: var(--cortex-scrollbar-thumb) !important;
+	border-radius: 3px !important;
+	border: none !important;
+	box-shadow: none !important;
+	-webkit-box-shadow: none !important;
+}
+.void-scope::-webkit-scrollbar-thumb:hover,
+.void-scope *::-webkit-scrollbar-thumb:hover {
+	background-color: var(--cortex-scrollbar-thumb-hover) !important;
+}
 .void-scope::-webkit-scrollbar-corner,
 .void-scope *::-webkit-scrollbar-corner {
-	background-color: var(--void-bg-3) !important;
+	background: transparent !important;
 }
 
-/* Add void-scrollable-element styles to match */
+/* Firefox */
+.void-scope,
+.void-scope * {
+	scrollbar-width: thin !important;
+	scrollbar-color: var(--cortex-scrollbar-thumb) transparent !important;
+}
+
+/* -- Focus ring ------------------------------------------------------------ */
+.void-scope :focus-visible {
+	outline: 1.5px solid var(--cortex-brand) !important;
+	outline-offset: 1px !important;
+}
+
+/* -- Legacy scrollable element used in diff / composer panels --------------- */
 .void-scrollable-element {
 	background-color: var(--vscode-editor-background);
-	--scrollbar-vertical-width: 14px;
+	--scrollbar-vertical-width:    10px;
 	--scrollbar-horizontal-height: 6px;
 	overflow: auto;
-	/* Ensure scrollbars are shown when needed */
 }
-
-.void-scrollable-element,
-.void-scrollable-element * {
-	scrollbar-width: thin !important;
-	/* For Firefox */
-	scrollbar-color: var(--void-bg-1) var(--void-bg-3) !important;
-	/* For Firefox */
-}
-
 .void-scrollable-element::-webkit-scrollbar,
 .void-scrollable-element *::-webkit-scrollbar {
 	width: var(--scrollbar-vertical-width) !important;
 	height: var(--scrollbar-horizontal-height) !important;
-	background-color: var(--void-bg-3) !important;
 }
-
-.void-scrollable-element::-webkit-scrollbar-thumb,
-.void-scrollable-element *::-webkit-scrollbar-thumb {
-	background-color: var(--void-bg-1) !important;
-	border-radius: 4px !important;
-	border: none !important;
-	-webkit-box-shadow: none !important;
-	box-shadow: none !important;
-}
-
-.void-scrollable-element::-webkit-scrollbar-thumb:hover,
-.void-scrollable-element *::-webkit-scrollbar-thumb:hover {
-	background-color: var(--void-bg-1) !important;
-	filter: brightness(1.1) !important;
-}
-
-.void-scrollable-element::-webkit-scrollbar-thumb:active,
-.void-scrollable-element *::-webkit-scrollbar-thumb:active {
-	background-color: var(--void-bg-1) !important;
-	filter: brightness(1.2) !important;
-}
-
 .void-scrollable-element::-webkit-scrollbar-track,
 .void-scrollable-element *::-webkit-scrollbar-track {
-	background-color: var(--void-bg-3) !important;
+	background: transparent !important;
+}
+.void-scrollable-element::-webkit-scrollbar-thumb,
+.void-scrollable-element *::-webkit-scrollbar-thumb {
+	background-color: var(--cortex-scrollbar-thumb) !important;
+	border-radius: 4px !important;
 	border: none !important;
 }
-
-.void-scrollable-element::-webkit-scrollbar-corner,
-.void-scrollable-element *::-webkit-scrollbar-corner {
-	background-color: var(--void-bg-3) !important;
+.void-scrollable-element::-webkit-scrollbar-thumb:hover,
+.void-scrollable-element *::-webkit-scrollbar-thumb:hover {
+	background-color: var(--cortex-scrollbar-thumb-hover) !important;
+}
+.void-scrollable-element,
+.void-scrollable-element * {
+	scrollbar-width: thin !important;
+	scrollbar-color: var(--cortex-scrollbar-thumb) transparent !important;
 }
 
-/* CortexIDE logo in sidebar title - target the title label for the void view container */
-.monaco-workbench .auxiliarybar-part > .content > .composite#workbench.view.void ~ .composite.title > .title-label h2::before,
-.monaco-workbench .auxiliarybar-part > .content > .composite.title > .title-label h2::before {
+/* -- CortexIDE logo in the auxiliary bar pane title ----------------------- */
+/* Targets the title label of the CortexIDE chat panel sidebar view. */
+.monaco-workbench .auxiliarybar-part .composite.title .title-label h2::before {
 	content: '';
 	display: inline-block;
-	width: 16px;
-	height: 16px;
-	margin-right: 8px;
+	width: 15px;
+	height: 15px;
+	margin-right: 6px;
 	vertical-align: middle;
 	background-image: var(--cortex-logo-url);
 	background-size: contain;
@@ -430,8 +408,10 @@ body.monaco-workbench,
 	border-radius: 50%;
 	-webkit-mask: none;
 	mask: none;
+	opacity: 0.9;
 }
 
+/* Remove the mask that VS Code normally applies to codicon-based icons */
 .monaco-workbench .editor-group-watermark .void-void-icon {
 	border-radius: 50% !important;
 	background-color: transparent !important;
@@ -439,17 +419,18 @@ body.monaco-workbench,
 	-webkit-mask: none !important;
 }
 
-/* ----------------------------------------------------------------------------------------
+/* ===========================================================================
  * Command palette / quick input
- * ------------------------------------------------------------------------------------- */
+ * Rounded, blurred, elevated above the editor surface.
+ * =========================================================================== */
 .monaco-workbench .quick-input-widget {
-	background: color-mix(in srgb, var(--cortex-surface-2) 92%, #020208 8%) !important;
+	background: color-mix(in srgb, var(--cortex-surface-2) 94%, #000008 6%) !important;
 	color: var(--cortex-text-base) !important;
-	border-radius: 24px !important;
-	border: 1px solid var(--cortex-border-strong) !important;
-	box-shadow: var(--cortex-shadow-soft), inset 0 0 0 1px rgba(255, 255, 255, 0.02) !important;
-	backdrop-filter: blur(22px);
-	/* Ensure transform doesn't interfere with JavaScript positioning */
+	border-radius: 20px !important;
+	border: 1px solid var(--cortex-border-base) !important;
+	box-shadow: var(--cortex-shadow-soft), inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+	backdrop-filter: blur(24px);
+	-webkit-backdrop-filter: blur(24px);
 	transform: none !important;
 }
 
@@ -457,14 +438,20 @@ body.monaco-workbench,
 .monaco-workbench .quick-input-widget .quick-input-and-message,
 .monaco-workbench .quick-input-widget .quick-input-check-all {
 	background: transparent !important;
-	border-bottom: 1px solid color-mix(in srgb, var(--cortex-border-weak) 80%, transparent) !important;
+	border-bottom: 1px solid color-mix(in srgb, var(--cortex-border-weak) 70%, transparent) !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-header .monaco-inputbox,
 .monaco-workbench .quick-input-widget .monaco-inputbox {
-	background: color-mix(in srgb, var(--cortex-surface-1) 90%, #050505 10%) !important;
+	background: color-mix(in srgb, var(--cortex-surface-1) 92%, #000005 8%) !important;
 	border: 1px solid var(--cortex-border-weak) !important;
-	border-radius: 16px !important;
+	border-radius: 12px !important;
+	transition: border-color var(--cortex-transition-fast) !important;
+}
+.monaco-workbench .quick-input-widget .quick-input-header .monaco-inputbox:focus-within,
+.monaco-workbench .quick-input-widget .monaco-inputbox:focus-within {
+	border-color: var(--cortex-brand) !important;
+	box-shadow: 0 0 0 1px var(--cortex-brand-soft) !important;
 }
 
 .monaco-workbench .quick-input-widget .monaco-inputbox input {
@@ -474,74 +461,224 @@ body.monaco-workbench,
 
 .monaco-workbench .quick-input-widget .quick-input-list {
 	background: transparent !important;
-	line-height: 22px !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-entry {
 	background: transparent !important;
 	color: var(--cortex-text-muted) !important;
-	border-radius: 14px !important;
+	border-radius: 10px !important;
 	border: 1px solid transparent !important;
-	padding: 6px 12px !important;
-	height: 32px !important;
-	min-height: 32px !important;
-	max-height: 32px !important;
-	line-height: 20px !important;
+	padding: 5px 10px !important;
+	height: 30px !important;
+	min-height: 30px !important;
+	max-height: 30px !important;
 	box-sizing: border-box !important;
-}
-
-.monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-entry .quick-input-list-label {
-	color: inherit !important;
-	line-height: 22px !important;
-	display: flex !important;
-	align-items: center !important;
+	transition:
+		background-color var(--cortex-transition-fast),
+		border-color var(--cortex-transition-fast),
+		color var(--cortex-transition-fast) !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-list .monaco-list-row {
-	height: 32px !important;
-	min-height: 32px !important;
-	max-height: 32px !important;
+	height: 30px !important;
+	min-height: 30px !important;
+	max-height: 30px !important;
 	box-sizing: border-box !important;
-}
-
-.monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-icon {
-	height: 20px !important;
-	display: flex !important;
-	align-items: center !important;
-}
-
-.monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-rows {
-	line-height: 22px !important;
-	height: 100% !important;
-	display: flex !important;
-	align-items: center !important;
-}
-
-.monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-rows > .quick-input-list-row {
-	line-height: 20px !important;
-	min-height: 20px !important;
-	height: auto !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-entry:hover,
 .monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-entry.focused,
 .monaco-workbench .quick-input-widget .quick-input-list .quick-input-list-entry.selected {
-	background: color-mix(in srgb, var(--cortex-surface-1-alt) 65%, #090c18 35%) !important;
-	border-color: var(--cortex-border-strong) !important;
+	background: color-mix(in srgb, var(--cortex-brand) 10%, var(--cortex-surface-2) 90%) !important;
+	border-color: color-mix(in srgb, var(--cortex-brand) 30%, transparent) !important;
 	color: var(--cortex-text-strong) !important;
-	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-	height: 32px !important;
-	min-height: 32px !important;
-	max-height: 32px !important;
-	padding: 6px 12px !important;
+	height: 30px !important;
+	min-height: 30px !important;
+	max-height: 30px !important;
+	padding: 5px 10px !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-message {
 	color: var(--cortex-text-subtle) !important;
 }
-
 .monaco-workbench .quick-input-widget .quick-input-action-bar .action-label {
 	color: var(--cortex-text-muted) !important;
 }
 
-/* Settings / preferences: use user theme (no void/cortex background overrides) */
+/* ===========================================================================
+ * Responsive layout
+ *
+ * < 480px  → mobile / small tablet (touch-first, 44px targets)
+ * 480-768px → tablet portrait (compact)
+ * > 768px  → desktop (default)
+ * =========================================================================== */
+
+@media (max-width: 480px) {
+	.void-scope button,
+	.void-scope [role="button"],
+	.void-scope select,
+	.void-scope input[type="checkbox"],
+	.void-scope input[type="radio"] {
+		min-height: 44px;
+		min-width: 44px;
+	}
+	.void-scope .void-sidebar-layout   { flex-direction: column; }
+	.void-scope .void-chat-input-area  { padding: var(--cortex-space-md); }
+	.void-scope .void-chat-input-textarea {
+		width: 100%;
+		font-size: var(--cortex-font-body);
+	}
+	.void-scope .void-context-chips {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+	.void-scope .void-secondary-panel-chrome { display: none; }
+	.void-scope code,
+	.void-scope pre,
+	.void-scope .void-code-block {
+		font-family: var(--cortex-font-mono);
+	}
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+	.void-scope button,
+	.void-scope [role="button"] { min-height: 36px; }
+	.void-scope .void-sidebar-layout { min-width: 260px; }
+}
+
+@media (min-width: 769px) {
+	.void-scope button,
+	.void-scope [role="button"] {
+		min-height: unset;
+		min-width: unset;
+	}
+}
+
+/* Monospace in code blocks - all sizes */
+.void-scope code,
+.void-scope pre,
+.void-scope .void-code-block,
+.void-scope .monaco-editor .view-line {
+	font-family: var(--cortex-font-mono);
+}
+
+/* Safe-area insets for iOS notch / home indicator */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+	.void-scope .void-chat-input-area {
+		padding-bottom: max(var(--cortex-space-md), env(safe-area-inset-bottom));
+	}
+}
+
+/* Loading pulse animation used by mountFnGenerator before void-scope mounts */
+@keyframes void-loading-pulse {
+	0%, 80%, 100% { transform: scale(0.6); opacity: 0.35; }
+	40%           { transform: scale(1);   opacity: 1; }
+}
+
+/* ===========================================================================
+ * Light theme token overrides
+ *
+ * VS Code sets body.vscode-light when the active colour theme is light.
+ * We swap the --cortex-* surface / text / border tokens to values that read
+ * correctly on a light background. All other CSS rules stay the same.
+ * =========================================================================== */
+
+body.vscode-light :root,
+body.vscode-light,
+.vscode-light :root,
+.vscode-light {
+	--cortex-surface-0:     #ffffff;
+	--cortex-surface-1:     #f7f7fa;
+	--cortex-surface-1-alt: #f1f1f6;
+	--cortex-surface-2:     #eaeaf1;
+	--cortex-surface-2-alt: #e1e1ea;
+	--cortex-surface-3:     #d5d5e2;
+	--cortex-surface-4:     #c8c8d8;
+	--cortex-overlay:       rgba(250, 250, 255, 0.90);
+
+	--cortex-text-strong:   #0d0d18;
+	--cortex-text-base:     #1a1a2e;
+	--cortex-text-muted:    #484868;
+	--cortex-text-subtle:   #78789a;
+
+	--cortex-brand:         #6340e0;   /* deeper purple for WCAG AA on white */
+	--cortex-brand-dim:     #4f2fc0;
+	--cortex-brand-soft:    color-mix(in srgb, var(--cortex-brand) 15%, transparent);
+	--cortex-success:       #187a52;
+	--cortex-warning:       #a06a00;
+	--cortex-danger:        #c8001e;
+
+	--cortex-border-weak:   #e2e2ee;
+	--cortex-border-base:   #cecee0;
+	--cortex-border-strong: #b8b8d0;
+
+	--cortex-shadow-soft:     0 24px 64px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.08);
+	--cortex-shadow-hairline: inset 0 1px 0 rgba(0, 0, 0, 0.06);
+
+	--cortex-scrollbar-thumb:       #c4c4d8;
+	--cortex-scrollbar-thumb-hover: #a8a8c4;
+
+	/* Legacy --void-* overrides */
+	--void-bg-2-hover: color-mix(in srgb, var(--cortex-surface-2-alt) 80%, #e0e0f0 20%);
+	--void-fg-4:       #9090b0;
+	--void-border-2:   var(--cortex-border-base);
+	--void-border-4:   var(--cortex-border-strong);
+
+	/* Inline diff buttons: WCAG AA on light backgrounds */
+	--cortex-accept-bg:      rgb(18, 98, 40);
+	--cortex-accept-bg-dim:  rgb(14, 82, 32);
+	--cortex-accept-border:  rgb(10, 60, 22);
+	--cortex-reject-bg:      rgb(180, 24, 38);
+	--cortex-reject-bg-dim:  rgb(154, 20, 32);
+	--cortex-reject-border:  rgb(110, 14, 24);
+	--cortex-btn-text:        #ffffff;
+}
+
+/* High-contrast light theme */
+body.vscode-high-contrast-light :root,
+body.vscode-high-contrast-light,
+.vscode-high-contrast-light :root,
+.vscode-high-contrast-light {
+	--cortex-surface-0:     #ffffff;
+	--cortex-surface-1:     #f0f0f0;
+	--cortex-surface-1-alt: #e8e8e8;
+	--cortex-surface-2:     #e0e0e0;
+	--cortex-surface-2-alt: #d4d4d4;
+	--cortex-surface-3:     #c8c8c8;
+	--cortex-surface-4:     #b8b8b8;
+	--cortex-overlay:       rgba(255, 255, 255, 0.95);
+
+	--cortex-text-strong: #000000;
+	--cortex-text-base:   #080808;
+	--cortex-text-muted:  #282828;
+	--cortex-text-subtle: #484848;
+
+	--cortex-brand:        #3a0fcc;
+	--cortex-border-weak:  #b0b0b0;
+	--cortex-border-base:  #888888;
+	--cortex-border-strong:#606060;
+
+	--cortex-scrollbar-thumb:       #909090;
+	--cortex-scrollbar-thumb-hover: #606060;
+
+	--void-border-2: #b0b0b0;
+	--void-border-4: #888888;
+}
+
+/* High-contrast dark theme */
+body.vscode-high-contrast :root,
+body.vscode-high-contrast,
+.vscode-high-contrast :root,
+.vscode-high-contrast {
+	--cortex-border-weak:   #444444;
+	--cortex-border-base:   #666666;
+	--cortex-border-strong: #888888;
+	--cortex-text-strong:   #ffffff;
+	--cortex-text-base:     #f0f0f0;
+	--cortex-text-muted:    #d0d0d0;
+	--cortex-text-subtle:   #a0a0a0;
+
+	--cortex-scrollbar-thumb:       #555555;
+	--cortex-scrollbar-thumb-hover: #777777;
+}

@@ -88,6 +88,10 @@ export const defaultProviderSettings = {
 	pollinations: {
 		apiKey: '',
 	},
+	// allow-any-unicode-next-line
+	moonshot: { // Kimi K2 — free tier available at platform.moonshot.ai
+		apiKey: '',
+	},
 
 } as const
 
@@ -288,6 +292,14 @@ export const defaultModelsOfProvider = {
 		'claude',
 		'deepseek',
 		'qwen3-coder-30b',
+	],
+	moonshot: [ // https://platform.moonshot.ai/docs/api/chat
+		// allow-any-unicode-next-line
+		// Kimi K2 — #1 SWE-bench agentic benchmark (June 2026). Modified MIT license, free tier available.
+		'kimi-k2-0711-preview',  // Kimi K2 Preview: 1T MoE, best for agentic coding tasks
+		'moonshot-v1-8k',        // Fast 8k context model
+		'moonshot-v1-32k',       // 32k context model
+		'moonshot-v1-128k',      // Long context (128k tokens)
 	],
 
 
@@ -1729,6 +1741,64 @@ const pollinationsSettings: VoidStaticProviderInfo = {
 }
 
 
+// ---------------- MOONSHOT (KIMI) ----------------
+const moonshotSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		// Kimi K2 has a very large context window and supports tool calling
+		const base = extensiveModelOptionsFallback(modelName);
+		if (base) {
+			base.specialToolFormat = 'openai-style';
+		}
+		return base;
+	},
+	modelOptions: {
+		'kimi-k2-0711-preview': {
+			contextWindow: 131_072,
+			reservedOutputTokenSpace: 8192,
+			cost: { input: 0.14, output: 0.14 }, // USD per 1M tokens (free tier available)
+			downloadable: false,
+			supportsFIM: false,
+			supportsSystemMessage: 'system-role',
+			specialToolFormat: 'openai-style',
+			reasoningCapabilities: false,
+		},
+		'moonshot-v1-8k': {
+			contextWindow: 8_192,
+			reservedOutputTokenSpace: null,
+			cost: { input: 0.12, output: 0.12 },
+			downloadable: false,
+			supportsFIM: false,
+			supportsSystemMessage: 'system-role',
+			specialToolFormat: 'openai-style',
+			reasoningCapabilities: false,
+		},
+		'moonshot-v1-32k': {
+			contextWindow: 32_768,
+			reservedOutputTokenSpace: null,
+			cost: { input: 0.24, output: 0.24 },
+			downloadable: false,
+			supportsFIM: false,
+			supportsSystemMessage: 'system-role',
+			specialToolFormat: 'openai-style',
+			reasoningCapabilities: false,
+		},
+		'moonshot-v1-128k': {
+			contextWindow: 131_072,
+			reservedOutputTokenSpace: null,
+			cost: { input: 0.60, output: 0.60 },
+			downloadable: false,
+			supportsFIM: false,
+			supportsSystemMessage: 'system-role',
+			specialToolFormat: 'openai-style',
+			reasoningCapabilities: false,
+		},
+	},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
 // ---------------- OPENROUTER ----------------
 const openRouterModelOptions_assumingOpenAICompat = {
 	'qwen/qwen3-235b-a22b': {
@@ -1957,6 +2027,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	lmStudio: lmStudioSettings,
 
 	pollinations: pollinationsSettings,
+	moonshot: moonshotSettings,
 
 	googleVertex: googleVertexSettings,
 	microsoftAzure: microsoftAzureSettings,

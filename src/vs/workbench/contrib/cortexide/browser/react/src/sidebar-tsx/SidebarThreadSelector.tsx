@@ -128,7 +128,7 @@ const DuplicateButton = ({ threadId }: { threadId: string }) => {
 		Icon={Copy}
 		className='size-[11px]'
 		onClick={() => { chatThreadsService.duplicateThread(threadId); }}
-		data-tooltip-id='void-tooltip'
+		data-tooltip-id='cortex-tooltip'
 		data-tooltip-place='top'
 		data-tooltip-content='Duplicate thread'
 	>
@@ -150,7 +150,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 				Icon={X}
 				className='size-[11px]'
 				onClick={() => { setIsTrashPressed(false); }}
-				data-tooltip-id='void-tooltip'
+				data-tooltip-id='cortex-tooltip'
 				data-tooltip-place='top'
 				data-tooltip-content='Cancel'
 			/>
@@ -158,7 +158,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 				Icon={Check}
 				className='size-[11px]'
 				onClick={() => { chatThreadsService.deleteThread(threadId); setIsTrashPressed(false); }}
-				data-tooltip-id='void-tooltip'
+				data-tooltip-id='cortex-tooltip'
 				data-tooltip-place='top'
 				data-tooltip-content='Confirm'
 			/>
@@ -167,7 +167,7 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 			Icon={Trash2}
 			className='size-[11px]'
 			onClick={() => { setIsTrashPressed(true); }}
-			data-tooltip-id='void-tooltip'
+			data-tooltip-id='cortex-tooltip'
 			data-tooltip-place='top'
 			data-tooltip-content='Delete thread'
 		/>
@@ -253,7 +253,7 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
                 ) : null}
 				{/* name */}
 				<span className="truncate overflow-hidden text-ellipsis text-void-fg-1"
-					data-tooltip-id='void-tooltip'
+					data-tooltip-id='cortex-tooltip'
 					data-tooltip-content={numMessages + ' messages'}
 					data-tooltip-place='top'
 				>{firstMsg}</span>

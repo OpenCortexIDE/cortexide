@@ -164,3 +164,4 @@ async function openSSHConfigFile() {
 function deactivate() {
     // Cleanup if needed
 }
+//# sourceMappingURL=extension.js.map

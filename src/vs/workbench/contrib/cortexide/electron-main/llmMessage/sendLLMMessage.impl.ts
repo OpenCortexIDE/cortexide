@@ -328,6 +328,12 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://gen.pollinations.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
 	}
+	else if (providerName === 'moonshot') {
+		// allow-any-unicode-next-line
+		// Kimi K2 by Moonshot AI — OpenAI-compatible endpoint
+		const thisConfig = settingsOfProvider[providerName]
+		return new OpenAI({ baseURL: 'https://api.moonshot.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
+	}
 
 	else throw new Error(`CortexIDE providerName was invalid: ${providerName}.`)
 }
@@ -1612,6 +1618,11 @@ export const sendLLMMessageToProviderImplementation = {
 		list: null,
 	},
 	pollinations: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendFIM: null,
+		list: null,
+	},
+	moonshot: {
 		sendChat: (params) => _sendOpenAICompatibleChat(params),
 		sendFIM: null,
 		list: null,

@@ -205,8 +205,9 @@ export interface IGalleryExtensionAssets {
 	coreTranslations: [string, IGalleryExtensionAsset][];
 }
 
-export function isIExtensionIdentifier(thing: any): thing is IExtensionIdentifier {
-	return thing
+export function isIExtensionIdentifier(obj: unknown): obj is IExtensionIdentifier {
+	const thing = obj as IExtensionIdentifier | undefined;
+	return !!thing
 		&& typeof thing === 'object'
 		&& typeof thing.id === 'string'
 		&& (!thing.uuid || typeof thing.uuid === 'string');
@@ -259,8 +260,8 @@ export interface IGalleryExtension {
 	detailsLink?: string;
 	ratingLink?: string;
 	supportLink?: string;
-	telemetryData?: any;
-	queryContext?: IStringDictionary<any>;
+	telemetryData?: IStringDictionary<unknown>;
+	queryContext?: IStringDictionary<unknown>;
 }
 
 export type InstallSource = 'gallery' | 'vsix' | 'resource';
@@ -300,6 +301,7 @@ export interface ILocalExtension extends IExtension {
 	preRelease: boolean;
 	updated: boolean;
 	pinned: boolean;
+	forceAutoUpdate: boolean;
 	source: InstallSource;
 	size: number;
 }
@@ -353,7 +355,10 @@ export interface IDeprecationInfo {
 	readonly extension?: {
 		readonly id: string;
 		readonly displayName: string;
-		readonly autoMigrate?: { readonly storage: boolean };
+		readonly autoMigrate?: {
+			readonly storage: boolean;
+			readonly donotDisable?: boolean;
+		};
 		readonly preRelease?: boolean;
 	};
 	readonly settings?: readonly string[];
@@ -392,6 +397,7 @@ export interface IExtensionInfo extends IExtensionIdentifier {
 	version?: string;
 	preRelease?: boolean;
 	hasPreRelease?: boolean;
+	currentVersion?: string;
 }
 
 export interface IExtensionQueryOptions {
@@ -450,7 +456,7 @@ export interface InstallExtensionResult {
 	readonly source?: URI | IGalleryExtension;
 	readonly local?: ILocalExtension;
 	readonly error?: Error;
-	readonly context?: IStringDictionary<any>;
+	readonly context?: IStringDictionary<unknown>;
 	readonly profileLocation: URI;
 	readonly applicationScoped?: boolean;
 	readonly workspaceScoped?: boolean;
@@ -593,7 +599,7 @@ export type InstallOptions = {
 	/**
 	 * Context passed through to InstallExtensionResult
 	 */
-	context?: IStringDictionary<any>;
+	context?: IStringDictionary<unknown>;
 };
 
 export type UninstallOptions = {
@@ -737,7 +743,7 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration)
 			[AllowedExtensionsConfigKey]: {
 				// Note: Type is set only to object because to support policies generation during build time, where single type is expected.
 				type: 'object',
-				markdownDescription: localize('extensions.allowed', "Specify a list of extensions that are allowed to use. This helps maintain a secure and consistent development environment by restricting the use of unauthorized extensions. For more information on how to configure this setting, please visit the [Configure Allowed Extensions](https://code.visualstudio.com/docs/setup/enterprise#_configure-allowed-extensions) section."),
+				markdownDescription: localize('extensions.allowed', "Specify a list of extensions that are allowed to use. This helps maintain a secure and consistent development environment by restricting the use of unauthorized extensions. For more information on how to configure this setting, please visit the [Configure Allowed Extensions](https://aka.ms/vscode/enterprise/extensions/allowed) section."),
 				default: '*',
 				defaultSnippets: [{
 					body: {},
@@ -756,7 +762,7 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration)
 					localization: {
 						description: {
 							key: 'extensions.allowed.policy',
-							value: localize('extensions.allowed.policy', "Specify a list of extensions that are allowed to use. This helps maintain a secure and consistent development environment by restricting the use of unauthorized extensions. More information: https://code.visualstudio.com/docs/setup/enterprise#_configure-allowed-extensions"),
+							value: localize('extensions.allowed.policy', "Specify a list of extensions that are allowed to use. This helps maintain a secure and consistent development environment by restricting the use of unauthorized extensions. More information: https://aka.ms/vscode/enterprise/extensions/allowed"),
 						}
 					}
 				},

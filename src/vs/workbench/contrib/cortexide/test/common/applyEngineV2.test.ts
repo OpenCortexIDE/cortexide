@@ -466,6 +466,7 @@ suite('ApplyEngineV2', () => {
 					ctime: Date.now(),
 					readonly: false,
 					locked: false,
+					executable: false,
 				};
 			}
 			return originalReadFile(resource, options);

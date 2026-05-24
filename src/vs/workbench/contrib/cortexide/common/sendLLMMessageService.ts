@@ -15,8 +15,9 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { isWeb } from '../../../../base/common/platform.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -71,6 +72,21 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	) {
 		super()
 
+		// LLM features require the Electron main process IPC channel which is not available in the
+		// web browser build. Surface a clear message rather than crashing with an obscure error.
+		if (isWeb) {
+			this.notificationService.notify({
+				severity: Severity.Info,
+				message: 'CortexIDE: AI features (LLM, MCP) require the desktop app and are not available in the web version.',
+			});
+			// allow-any-unicode-next-line
+			this.logService.info('[LLMMessageService] Running in web mode — IPC channel unavailable, AI features disabled.');
+			// allow-any-unicode-next-line
+			// Cast to satisfy TypeScript — the channel will never actually be called in web mode
+			this.channel = null as any;
+			return;
+		}
+
 		// const service = ProxyChannel.toService<LLMMessageChannel>(mainProcessService.getChannel('void-channel-sendLLMMessage')); // lets you call it like a service
 		// see llmMessageChannel.ts
 		this.channel = this.mainProcessService.getChannel('cortexide-channel-llmMessage')
@@ -114,6 +130,11 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		const { onText, onFinalMessage, onError, onAbort, modelSelection, ...proxyParams } = params;
+
+		if (isWeb) {
+			onError({ message: 'AI features are not available in the web version. Please use the desktop app.', fullError: null });
+			return null;
+		}
 
 		// throw an error if no model/provider selected (this should usually never be reached, the UI should check this first, but might happen in cases like Apply where we haven't built much UI/checks yet, good practice to have check logic on backend)
 		if (modelSelection === null) {

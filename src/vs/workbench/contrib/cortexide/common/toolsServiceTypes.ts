@@ -78,6 +78,11 @@ export type BuiltinToolCallParams = {
 	// ---
 	'web_search': { query: string, k?: number, refresh?: boolean },
 	'browse_url': { url: string, refresh?: boolean },
+	// --- fast grep + workspace diagnostics ---
+	'grep_search': { query: string; includePattern: string | null; excludePattern: string | null; isRegex: boolean; caseSensitive: boolean },
+	'get_diagnostics': { uri: URI | null },
+	// --- explicit completion signal ---
+	'attempt_completion': { result: string; command: string | null },
 }
 
 // RESULT OF TOOL CALL
@@ -93,8 +98,8 @@ export type BuiltinToolResultType = {
 	'go_to_definition': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
 	'find_references': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
 	'search_symbols': { symbols: Array<{ name: string, kind: string, uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
-	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info', message: string, line: number, column: number, suggestion?: string }> },
-	'generate_tests': { testCode: string, testFileUri: URI },
+	'automated_code_review': { fileContent: string, language: string, lintErrors: LintErrorItem[] | null },
+	'generate_tests': { fileContent: string, language: string, testFramework: string, suggestedTestFilePath: string },
 	'rename_symbol': { changes: Array<{ uri: URI, oldText: string, newText: string, line: number, column: number }> },
 	'extract_function': { newFunctionCode: string, replacementCode: string, insertLine: number },
 	// ---
@@ -111,6 +116,11 @@ export type BuiltinToolResultType = {
 	// ---
 	'web_search': { results: Array<{ title: string, snippet: string, url: string }> },
 	'browse_url': { content: string, title?: string, url: string, metadata?: { publishedDate?: string } },
+	// --- fast grep + workspace diagnostics ---
+	'grep_search': { matches: Array<{ uri: URI; lineNumber: number; lineContent: string }>; totalMatches: number },
+	'get_diagnostics': { diagnostics: Array<{ uri: URI; message: string; severity: 'error' | 'warning'; startLine: number; endLine: number; source: string | null; code: string | null }> },
+	// --- explicit completion signal ---
+	'attempt_completion': { acknowledged: true },
 }
 
 

@@ -109,6 +109,10 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 	else if (providerName === 'pollinations') {
 		return { title: 'Pollinations', }
 	}
+	else if (providerName === 'moonshot') {
+		// allow-any-unicode-next-line
+		return { title: 'Moonshot AI (Kimi)', desc: 'Kimi K2 — #1 SWE-bench agentic coding. Free tier available.' }
+	}
 
 	throw new Error(`descOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -132,6 +136,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 	if (providerName === 'lmStudio') return 'Read more about custom [Endpoints here](https://lmstudio.ai/docs/app/api/endpoints/openai).'
 	if (providerName === 'liteLLM') return 'Read more about endpoints [here](https://docs.litellm.ai/docs/providers/openai_compatible).'
 	if (providerName === 'pollinations') return 'Get your [API Key here](https://enter.pollinations.ai/). [API Docs](https://enter.pollinations.ai/api/docs).'
+	if (providerName === 'moonshot') return 'Get your free [API Key here](https://platform.moonshot.ai/console/api-keys). Kimi K2 has a generous free tier. [Pricing](https://platform.moonshot.ai/docs/pricing).'
 
 	throw new Error(`subTextMdOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -161,7 +166,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 													providerName === 'microsoftAzure' ? 'key-...' :
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'pollinations' ? 'sk-... or pk-...' :
-																'',
+																	providerName === 'moonshot' ? 'sk-key...' :
+																		'',
 
 			isPasswordField: true,
 		}
@@ -363,6 +369,12 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.pollinations),
 		_didFillInProviderSettings: undefined,
 	},
+	moonshot: {
+		...defaultCustomSettings,
+		...defaultProviderSettings.moonshot,
+		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.moonshot),
+		_didFillInProviderSettings: undefined,
+	},
 }
 
 
@@ -463,7 +475,7 @@ export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: C
 
 
 
-export type ChatMode = 'agent' | 'gather' | 'normal'
+export type ChatMode = 'agent' | 'gather' | 'normal' | 'plan'
 
 
 export type GlobalSettings = {

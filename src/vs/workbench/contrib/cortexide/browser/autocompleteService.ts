@@ -31,7 +31,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 const allLinebreakSymbols = ['\r\n', '\n'];
 const _ln = isWindows ? allLinebreakSymbols[0] : allLinebreakSymbols[1];
 
-// The extension this was called from is here - https://github.com/voideditor/void/blob/autocomplete/extensions/void/src/extension/extension.ts
+// Original autocomplete extension reference: https://github.com/OpenCortexIDE/cortexide
 
 
 /*
@@ -945,7 +945,6 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			_newlineCount: 0,
 		}
 
-		console.log('starting autocomplete...', predictionType)
 
 		const overridesOfModel = this._settingsService.state.overridesOfModel
 		// Model selection is already resolved above, so we can safely access options
@@ -1187,7 +1186,6 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					const matchup = removeAllWhitespace(prefix) === removeAllWhitespace(autocompletion.prefix + autocompletion.insertText)
 
 					if (matchup) {
-						console.log('ACCEPT', autocompletion.id)
 						this._lastCompletionAccept = Date.now()
 
 						// Mark as finished before deleting to prevent abort in dispose callback

@@ -11,7 +11,7 @@ import { IEditorContribution } from '../../../../editor/common/editorCommon.js';
 import { Selection } from '../../../../editor/common/core/selection.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import * as dom from '../../../../base/browser/dom.js';
-import { mountVoidSelectionHelper } from './react/out/void-editor-widgets-tsx/index.js';
+import { mountVoidSelectionHelper } from './react/out/editor-widgets/index.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
@@ -69,7 +69,7 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 			this._reactComponentDisposable = res;
 			this._rerender = res.rerender;
 
-			this._register(this._reactComponentDisposable);
+			this._register(res);
 
 
 		});

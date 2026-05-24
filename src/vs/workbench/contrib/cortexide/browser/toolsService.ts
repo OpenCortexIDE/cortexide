@@ -10,8 +10,8 @@ import { IFileService } from '../../../../platform/files/common/files.js'
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js'
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js'
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js'
-import { QueryBuilder } from '../../../services/search/common/queryBuilder.js'
-import { ISearchService } from '../../../services/search/common/search.js'
+import { QueryBuilder, ISearchPatternBuilder } from '../../../services/search/common/queryBuilder.js'
+import { ISearchService, resultIsMatch } from '../../../services/search/common/search.js'
 import { IEditCodeService } from './editCodeServiceInterface.js'
 import { ITerminalToolService } from './terminalToolService.js'
 import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js'
@@ -476,6 +476,33 @@ export class ToolsService implements IToolsService {
 				return { url, refresh };
 			},
 
+			grep_search: (params: RawToolParamsObj) => {
+				const { query: queryUnknown, include_pattern, exclude_pattern, is_regex, case_sensitive } = params;
+				const query = validateStr('query', queryUnknown);
+				if (!query.trim()) throw new Error('grep_search: query cannot be empty');
+				const includePattern = validateOptionalStr('include_pattern', include_pattern);
+				const excludePattern = validateOptionalStr('exclude_pattern', exclude_pattern);
+				const isRegex = validateBoolean(is_regex, { default: false });
+				const caseSensitive = validateBoolean(case_sensitive, { default: false });
+				if (isRegex) {
+					try { new RegExp(query); } catch (e) { throw new Error(`Invalid regex pattern "${query}": ${e}`); }
+				}
+				return { query, includePattern, excludePattern, isRegex, caseSensitive };
+			},
+
+			get_diagnostics: (params: RawToolParamsObj) => {
+				const { uri: uriUnknown } = params;
+				const uri = validateOptionalURI(uriUnknown, workspaceContextService);
+				return { uri };
+			},
+
+			attempt_completion: (params: RawToolParamsObj) => {
+				const { result: resultUnknown, command: commandUnknown } = params;
+				const result = validateStr('result', resultUnknown);
+				const command = validateOptionalStr('command', commandUnknown);
+				return { result, command };
+			},
+
 		}
 
 
@@ -821,65 +848,15 @@ export class ToolsService implements IToolsService {
 					throw new Error(`File does not exist: ${uri.fsPath}`)
 				}
 
-				const content = model.getValue(EndOfLinePreference.LF)
-				const issues: Array<{ severity: 'error' | 'warning' | 'info', message: string, line: number, column: number, suggestion?: string }> = []
+				const fileContent = model.getValue(EndOfLinePreference.LF)
+				const ext = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const language = ext || 'plaintext'
 
-				// Get lint errors
-				await timeout(1000)
+				// Give lint errors time to settle after any recent edits
+				await timeout(800)
 				const { lintErrors } = this._getLintErrors(uri)
-				if (lintErrors) {
-					for (const error of lintErrors) {
-						issues.push({
-							severity: error.code?.startsWith('E') ? 'error' : 'warning',
-							message: error.message,
-							line: error.startLineNumber,
-							column: 1,
-							suggestion: `Fix: ${error.message}`,
-						})
-					}
-				}
 
-				// Basic code quality checks
-				const lines = content.split('\n')
-				for (let i = 0; i < lines.length; i++) {
-					const line = lines[i]
-					const lineNum = i + 1
-
-					// Check for long lines
-					if (line.length > 120) {
-						issues.push({
-							severity: 'info',
-							message: `Line ${lineNum} is too long (${line.length} characters). Consider breaking it into multiple lines.`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Break long lines into multiple lines for better readability.',
-						})
-					}
-
-					// Check for TODO/FIXME comments
-					if (line.match(/TODO|FIXME|XXX|HACK/i)) {
-						issues.push({
-							severity: 'info',
-							message: `Line ${lineNum} contains a TODO/FIXME comment: ${line.trim().substring(0, 50)}`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Address the TODO/FIXME comment or remove it if no longer needed.',
-						})
-					}
-
-					// Check for console.log (common in production code)
-					if (line.includes('console.log') && !uri.fsPath.includes('test') && !uri.fsPath.includes('spec')) {
-						issues.push({
-							severity: 'warning',
-							message: `Line ${lineNum} contains console.log. Consider removing debug statements in production code.`,
-							line: lineNum,
-							column: 1,
-							suggestion: 'Remove console.log or use a proper logging framework.',
-						})
-					}
-				}
-
-				return { result: { issues } }
+				return { result: { fileContent, language, lintErrors: lintErrors ?? null } }
 			},
 
 			generate_tests: async ({ uri, functionName, testFramework }) => {
@@ -889,41 +866,48 @@ export class ToolsService implements IToolsService {
 					throw new Error(`File does not exist: ${uri.fsPath}`)
 				}
 
-				const fileExtension = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const fileContent = model.getValue(EndOfLinePreference.LF)
+				const ext = uri.fsPath.split('.').pop()?.toLowerCase() || ''
+				const language = ext || 'plaintext'
 
-				// Detect test framework from file extension and project structure
+				// Detect test framework: caller hint > package.json > file extension default
 				let detectedFramework = testFramework
 				if (!detectedFramework) {
-					if (fileExtension === 'ts' || fileExtension === 'js') {
-						detectedFramework = 'jest' // Default for JS/TS
-					} else if (fileExtension === 'py') {
-						detectedFramework = 'pytest'
-					} else if (fileExtension === 'java') {
-						detectedFramework = 'junit'
-					} else {
-						detectedFramework = 'generic'
+					// Try to read package.json from workspace root for JS/TS projects
+					try {
+						const workspace = workspaceContextService.getWorkspace()
+						if (workspace.folders.length > 0) {
+							const pkgUri = joinPath(workspace.folders[0].uri, 'package.json')
+							const pkgContent = await fileService.readFile(pkgUri)
+							const pkg = JSON.parse(pkgContent.value.toString())
+							const devDeps = { ...pkg.dependencies, ...pkg.devDependencies }
+							if (devDeps['vitest']) detectedFramework = 'vitest'
+							else if (devDeps['jest'] || devDeps['@jest/core']) detectedFramework = 'jest'
+							else if (devDeps['mocha']) detectedFramework = 'mocha'
+							else if (devDeps['jasmine']) detectedFramework = 'jasmine'
+						}
+					// allow-any-unicode-next-line
+					} catch { /* no package.json or parse error — fall through */ }
+
+					if (!detectedFramework) {
+						if (ext === 'py') detectedFramework = 'pytest'
+						else if (ext === 'java' || ext === 'kt') detectedFramework = 'JUnit'
+						else if (ext === 'go') detectedFramework = 'testing (Go standard library)'
+						else if (ext === 'rs') detectedFramework = 'Rust built-in #[test]'
+						else detectedFramework = 'jest'
 					}
 				}
 
-				// For now, return a placeholder test structure
-				// In a real implementation, this would use an LLM to generate actual tests
-				const testFileName = uri.fsPath.replace(/\.(ts|js|py|java)$/, '.test.$1')
-				const testFileUri = URI.file(testFileName)
-
-				let testCode = ''
-				if (functionName) {
-					testCode = `// Generated test for function: ${functionName}\n`
-					testCode += `// Framework: ${detectedFramework}\n\n`
-					testCode += `// TODO: Implement actual test cases for ${functionName}\n`
-					testCode += `// This is a placeholder - implement real test logic\n`
-				} else {
-					testCode = `// Generated tests for file: ${uri.fsPath}\n`
-					testCode += `// Framework: ${detectedFramework}\n\n`
-					testCode += `// TODO: Implement test cases for all exported functions/classes\n`
-					testCode += `// This is a placeholder - implement real test logic\n`
+				// Derive a sensible test file path
+				const insertBeforeExt = (path: string, insertion: string) => {
+					const lastDot = path.lastIndexOf('.')
+					return lastDot >= 0
+						? `${path.slice(0, lastDot)}${insertion}.${path.slice(lastDot + 1)}`
+						: `${path}${insertion}`
 				}
+				const suggestedTestFilePath = insertBeforeExt(uri.fsPath, '.test')
 
-				return { result: { testCode, testFileUri } }
+				return { result: { fileContent, language, testFramework: detectedFramework, suggestedTestFilePath } }
 			},
 
 			rename_symbol: async ({ uri, line, column, newName }) => {
@@ -1187,6 +1171,7 @@ export class ToolsService implements IToolsService {
 									type: 'GET',
 									url: instantUrl,
 									timeout: 10000,
+									callSite: 'cortexide.webSearch',
 								}, CancellationToken.None);
 
 								const json = await asJson<any>(response);
@@ -1494,6 +1479,7 @@ export class ToolsService implements IToolsService {
 						type: 'GET',
 						url,
 						timeout: 15000,
+						callSite: 'cortexide.browseUrl',
 					}, CancellationToken.None);
 
 					const html = await asTextOrError(response);
@@ -1526,6 +1512,65 @@ export class ToolsService implements IToolsService {
 					throw new Error(`Failed to browse URL ${url}: ${errorMessage}. Please check the URL and your internet connection.`);
 				}
 			},
+
+			grep_search: async ({ query, includePattern, excludePattern, isRegex, caseSensitive }) => {
+				const MAX_GREP_MATCHES = 300;
+				const folders = workspaceContextService.getWorkspace().folders.map(f => f.uri);
+				const textQuery = queryBuilder.text(
+					{ pattern: query, isRegExp: isRegex, isCaseSensitive: caseSensitive },
+					folders,
+					{
+						includePattern: includePattern ?? undefined,
+						excludePattern: excludePattern ? [{ pattern: excludePattern } satisfies ISearchPatternBuilder<URI>] : undefined,
+						maxResults: MAX_GREP_MATCHES,
+					}
+				);
+				const data = await searchService.textSearch(textQuery, CancellationToken.None);
+				const matches: Array<{ uri: URI; lineNumber: number; lineContent: string }> = [];
+				let totalMatches = 0;
+				for (const fileMatch of data.results) {
+					for (const textMatch of (fileMatch.results ?? [])) {
+						if (!resultIsMatch(textMatch)) continue; // skip context lines
+						totalMatches++;
+						if (matches.length < MAX_GREP_MATCHES) {
+							const firstLoc = textMatch.rangeLocations[0];
+							if (firstLoc) {
+								matches.push({
+									uri: fileMatch.resource,
+									lineNumber: firstLoc.source.startLineNumber + 1, // 0-based → 1-based
+									lineContent: textMatch.previewText.trimEnd(),
+								});
+							}
+						}
+					}
+				}
+				return { result: { matches, totalMatches } };
+			},
+
+			get_diagnostics: async ({ uri }) => {
+				const markers = uri
+					? this.markerService.read({ resource: uri })
+					: this.markerService.read();
+				const diagnostics = markers
+					.filter(m => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+					.slice(0, 500)
+					.map(m => ({
+						uri: m.resource,
+						message: m.message,
+						severity: (m.severity === MarkerSeverity.Error ? 'error' : 'warning') as 'error' | 'warning',
+						startLine: m.startLineNumber,
+						endLine: m.endLineNumber,
+						source: m.source ?? null,
+						code: (typeof m.code === 'string' ? m.code : m.code?.value) ?? null,
+					}));
+				return { result: { diagnostics } };
+			},
+
+			attempt_completion: async ({ result, command }) => {
+				// No side effects — signals the agent loop to terminate.
+				return { result: { acknowledged: true as const } };
+			},
+
 		}
 
 
@@ -1598,27 +1643,22 @@ export class ToolsService implements IToolsService {
 				).join('\n')}`
 			},
 			automated_code_review: (params, result) => {
-				if (result.issues.length === 0) {
-					return `No issues found in ${params.uri.fsPath}. Code looks good!`
-				}
-				const bySeverity = { error: [] as typeof result.issues, warning: [] as typeof result.issues, info: [] as typeof result.issues }
-				for (const issue of result.issues) {
-					bySeverity[issue.severity].push(issue)
-				}
-				let output = `Code review for ${params.uri.fsPath}:\n\n`
-				if (bySeverity.error.length > 0) {
-					output += `Errors (${bySeverity.error.length}):\n${bySeverity.error.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}\n\n`
-				}
-				if (bySeverity.warning.length > 0) {
-					output += `Warnings (${bySeverity.warning.length}):\n${bySeverity.warning.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}\n\n`
-				}
-				if (bySeverity.info.length > 0) {
-					output += `Info (${bySeverity.info.length}):\n${bySeverity.info.map(i => `  Line ${i.line}: ${i.message}${i.suggestion ? `\n    Suggestion: ${i.suggestion}` : ''}`).join('\n')}`
-				}
-				return output
+				const lintSection = result.lintErrors && result.lintErrors.length > 0
+					? `Lint errors:\n${stringifyLintErrors(result.lintErrors)}\n\n`
+					: 'No lint errors detected.\n\n'
+				const MAX_REVIEW_FILE_CHARS = 40_000
+				const content = result.fileContent.length > MAX_REVIEW_FILE_CHARS
+					? result.fileContent.slice(0, MAX_REVIEW_FILE_CHARS) + '\n... (truncated)'
+					: result.fileContent
+				return `File: ${params.uri.fsPath} (${result.language})\n\n${lintSection}File content:\n\`\`\`${result.language}\n${content}\n\`\`\`\n\nReview the code above. Identify bugs, security issues, performance problems, anti-patterns, and concrete improvement opportunities. Reference exact line numbers.`
 			},
 			generate_tests: (params, result) => {
-				return `Generated test file: ${result.testFileUri.fsPath}\n\nTest code:\n\`\`\`\n${result.testCode}\n\`\`\``
+				const targetFn = params.functionName ? ` for \`${params.functionName}\`` : ''
+				const MAX_TEST_FILE_CHARS = 40_000
+				const content = result.fileContent.length > MAX_TEST_FILE_CHARS
+					? result.fileContent.slice(0, MAX_TEST_FILE_CHARS) + '\n... (truncated)'
+					: result.fileContent
+				return `File to test: ${params.uri.fsPath} (${result.language})\nTest framework: ${result.testFramework}\nWrite tests to: ${result.suggestedTestFilePath}\n\nSource code${targetFn}:\n\`\`\`${result.language}\n${content}\n\`\`\`\n\nGenerate comprehensive ${result.testFramework} tests for the above${targetFn}. Cover happy path, edge cases, and error conditions. Then use create_file_or_folder and rewrite_file to write the test file to ${result.suggestedTestFilePath}.`
 			},
 			rename_symbol: (params, result) => {
 				if (result.changes.length === 0) {
@@ -1719,6 +1759,37 @@ export class ToolsService implements IToolsService {
 				const titleStr = result.title ? `Title: ${result.title}\n\n` : '';
 				const metadataStr = result.metadata?.publishedDate ? `Published: ${result.metadata.publishedDate}\n\n` : '';
 				return `${titleStr}${metadataStr}Content from ${result.url}:\n\n${result.content.substring(0, 10000)}${result.content.length > 10000 ? '\n\n... (content truncated)' : ''}`;
+			},
+
+			grep_search: (params, result) => {
+				if (result.matches.length === 0) {
+					return `No matches found for "${params.query}".`;
+				}
+				const truncated = result.totalMatches > result.matches.length
+					? `\n(showing ${result.matches.length} of ${result.totalMatches} total matches — narrow the query or use include_pattern to see more)`
+					: '';
+				const lines = result.matches.map(m => `${m.uri.fsPath}:${m.lineNumber}: ${m.lineContent}`);
+				return `Found ${result.totalMatches} match(es) for "${params.query}":\n${lines.join('\n')}${truncated}`;
+			},
+
+			get_diagnostics: (params, result) => {
+				if (result.diagnostics.length === 0) {
+					return params.uri
+						? `No errors or warnings in ${params.uri.fsPath}.`
+						: 'No errors or warnings found across the workspace.';
+				}
+				const lines = result.diagnostics.map(d => {
+					const tag = d.severity === 'error' ? '[ERROR]' : '[WARN] ';
+					const src = d.source ? ` (${d.source})` : '';
+					return `${tag} ${d.uri.fsPath}:${d.startLine}${src}: ${d.message}`;
+				});
+				const scope = params.uri ? params.uri.fsPath : 'workspace';
+				return `Diagnostics for ${scope} — ${result.diagnostics.length} issue(s):\n${lines.join('\n')}`;
+			},
+
+			attempt_completion: (params, _result) => {
+				const commandLine = params.command ? `\n\nVerification command: \`${params.command}\`` : '';
+				return `Task completed.\n\n${params.result}${commandLine}`;
 			},
 		}
 

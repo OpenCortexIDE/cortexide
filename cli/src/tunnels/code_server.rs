@@ -23,7 +23,7 @@ use crate::util::http::{self, BoxedHttp};
 use crate::util::io::SilentCopyProgress;
 use crate::util::machine::process_exists;
 use crate::util::prereqs::skip_requirements_check;
-use crate::{debug, info, log, spanf, trace, warning};
+use crate::log;
 use lazy_static::lazy_static;
 use opentelemetry::KeyValue;
 use regex::Regex;
@@ -74,6 +74,8 @@ pub struct CodeServerArgs {
 	pub connection_token: Option<String>,
 	pub connection_token_file: Option<String>,
 	pub without_connection_token: bool,
+	// reconnection
+	pub reconnection_grace_time: Option<u32>,
 }
 
 impl CodeServerArgs {
@@ -119,6 +121,9 @@ impl CodeServerArgs {
 		}
 		if let Some(i) = self.log {
 			args.push(format!("--log={i}"));
+		}
+		if let Some(t) = self.reconnection_grace_time {
+			args.push(format!("--reconnection-grace-time={t}"));
 		}
 
 		for extension in &self.install_extensions {

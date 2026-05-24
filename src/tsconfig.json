@@ -8,6 +8,7 @@
 		"allowJs": true,
 		"resolveJsonModule": true,
 		"isolatedModules": false,
+		"skipLibCheck": true,
 		"outDir": "../out/vs",
 		"types": [
 			"@webgpu/types",
@@ -33,6 +34,8 @@
 		"./vscode-dts/vscode.d.ts"
 	],
 	"exclude": [
-		"vs/workbench/contrib/webview/browser/pre/service-worker.js"
+		"vs/workbench/contrib/webview/browser/pre/service-worker.js",
+		"vs/workbench/contrib/cortexide/browser/react/src",
+		"vs/workbench/contrib/cortexide/browser/react/src2"
 	]
 }

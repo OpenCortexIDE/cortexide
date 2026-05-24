@@ -2,15 +2,12 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-
-// @ts-check
-
-import * as path from 'path';
+import path from 'path';
 import { spawn } from 'child_process';
-import * as fs from 'fs';
+import { promises as fs } from 'fs';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const rootDir = path.resolve(__dirname, '..', '..');
+const rootDir = path.resolve(import.meta.dirname, '..', '..');
 
 function runProcess(command: string, args: ReadonlyArray<string> = []) {
 	return new Promise<void>((resolve, reject) => {
@@ -22,7 +19,7 @@ function runProcess(command: string, args: ReadonlyArray<string> = []) {
 
 async function exists(subdir: string) {
 	try {
-		await fs.promises.stat(path.join(rootDir, subdir));
+		await fs.stat(path.join(rootDir, subdir));
 		return true;
 	} catch {
 		return false;
@@ -51,11 +48,11 @@ async function main() {
 	await ensureCompiled();
 
 	// Can't require this until after dependencies are installed
-	const { getBuiltInExtensions } = require('./builtInExtensions');
+	const { getBuiltInExtensions } = await import('./builtInExtensions.ts');
 	await getBuiltInExtensions();
 }
 
-if (require.main === module) {
+if (import.meta.main) {
 	main().catch(err => {
 		console.error(err);
 		process.exit(1);

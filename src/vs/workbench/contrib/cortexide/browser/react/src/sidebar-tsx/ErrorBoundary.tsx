@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { WarningBox } from '../void-settings-tsx/WarningBox.js';
+import { WarningBox } from '../settings/WarningBox.js';
 
 interface Props {
 	children: ReactNode;
@@ -36,6 +36,7 @@ class ErrorBoundary extends Component<Props, State> {
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+		console.error('[CortexIDE ErrorBoundary]', error.message, '\n', error.stack, '\nComponent stack:', errorInfo.componentStack);
 		this.setState({
 			error,
 			errorInfo

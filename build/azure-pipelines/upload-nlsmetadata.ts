@@ -3,15 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from 'event-stream';
+import es from '../lib/event-stream-compat.ts';
 import Vinyl from 'vinyl';
 import vfs from 'vinyl-fs';
 import merge from 'gulp-merge-json';
 import gzip from 'gulp-gzip';
 import { ClientAssertionCredential } from '@azure/identity';
-import path = require('path');
+import path from 'path';
 import { readFileSync } from 'fs';
-const azure = require('gulp-azure-storage');
+import azure from 'gulp-azure-storage';
 
 const commit = process.env['BUILD_SOURCEVERSION'];
 const credential = new ClientAssertionCredential(process.env['AZURE_TENANT_ID']!, process.env['AZURE_CLIENT_ID']!, () => Promise.resolve(process.env['AZURE_ID_TOKEN']!));

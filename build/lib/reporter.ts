@@ -3,14 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from 'event-stream';
+import es from './event-stream-compat.ts';
 import fancyLog from 'fancy-log';
 import ansiColors from 'ansi-colors';
 import fs from 'fs';
 import path from 'path';
 
 class ErrorLog {
-	constructor(public id: string) {
+	public id: string;
+
+	constructor(id: string) {
+		this.id = id;
 	}
 	allErrors: string[][] = [];
 	startTime: number | null = null;
@@ -73,7 +76,7 @@ function getErrorLog(id: string = '') {
 	return errorLog;
 }
 
-const buildLogFolder = path.join(path.dirname(path.dirname(__dirname)), '.build');
+const buildLogFolder = path.join(path.dirname(path.dirname(import.meta.dirname)), '.build');
 
 try {
 	fs.mkdirSync(buildLogFolder);

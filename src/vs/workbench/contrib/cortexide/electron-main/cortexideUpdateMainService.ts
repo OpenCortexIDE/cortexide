@@ -108,7 +108,7 @@ export class CortexideMainUpdateService extends Disposable implements ICortexide
 				releaseUrl = 'https://api.github.com/repos/OpenCortexIDE/cortexide/releases/latest';
 			}
 
-			const context = await this._requestService.request({ url: releaseUrl, type: 'GET' }, CancellationToken.None);
+			const context = await this._requestService.request({ url: releaseUrl, type: 'GET', callSite: 'cortexide.updateCheck' }, CancellationToken.None);
 			if (context.res.statusCode !== 200) {
 				throw new Error(`GitHub API returned ${context.res.statusCode}`);
 			}

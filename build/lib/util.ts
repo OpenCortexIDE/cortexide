@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as es from 'event-stream';
+import es from './event-stream-compat.ts';
 import _debounce from 'debounce';
 import _filter from 'gulp-filter';
 import rename from 'gulp-rename';
@@ -11,15 +11,19 @@ import path from 'path';
 import fs from 'fs';
 
 import VinylFile from 'vinyl';
-import { ThroughStream } from 'through';
+import through from 'through';
 import sm from 'source-map';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import ternaryStream from 'ternary-stream';
+import type { Transform } from 'stream';
+import * as tar from 'tar';
 
-const root = path.dirname(path.dirname(__dirname));
+const root = path.dirname(path.dirname(import.meta.dirname));
 
-// Use require for rimraf 2.2.8 (CommonJS module, no default export)
-const rimrafModule = require('rimraf');
+// rimraf 2.x is a CommonJS module — use createRequire to import it in ESM context
+const _require = createRequire(import.meta.url);
+const rimrafModule = _require('rimraf');
 
 export interface ICancellationToken {
 	isCancellationRequested(): boolean;
@@ -206,8 +210,7 @@ export function loadSourcemaps(): NodeJS.ReadWriteStream {
 				return;
 			}
 
-			const contents = (<Buffer>f.contents).toString('utf8');
-
+			const contents = (f.contents as Buffer).toString('utf8');
 			const reg = /\/\/# sourceMappingURL=(.*)$/g;
 			let lastMatch: RegExpExecArray | null = null;
 			let match: RegExpExecArray | null = null;
@@ -247,7 +250,7 @@ export function stripSourceMappingURL(): NodeJS.ReadWriteStream {
 
 	const output = input
 		.pipe(es.mapSync<VinylFile, VinylFile>(f => {
-			const contents = (<Buffer>f.contents).toString('utf8');
+			const contents = (f.contents as Buffer).toString('utf8');
 			f.contents = Buffer.from(contents.replace(/\n\/\/# sourceMappingURL=(.*)$/gm, ''), 'utf8');
 			return f;
 		}));
@@ -286,7 +289,7 @@ export function rewriteSourceMappingURL(sourceMappingURLBase: string): NodeJS.Re
 
 	const output = input
 		.pipe(es.mapSync<VinylFile, VinylFile>(f => {
-			const contents = (<Buffer>f.contents).toString('utf8');
+			const contents = (f.contents as Buffer).toString('utf8');
 			const str = `//# sourceMappingURL=${sourceMappingURLBase}/${path.dirname(f.relative).replace(/\\/g, '/')}/$1`;
 			f.contents = Buffer.from(contents.replace(/\n\/\/# sourceMappingURL=(.*)$/gm, str));
 			return f;
@@ -353,7 +356,7 @@ export function rebase(count: number): NodeJS.ReadWriteStream {
 }
 
 export interface FilterStream extends NodeJS.ReadWriteStream {
-	restore: ThroughStream;
+	restore: through.ThroughStream;
 }
 
 export function filter(fn: (data: any) => boolean): FilterStream {
@@ -381,6 +384,12 @@ export function getElectronVersion(): Record<string, string> {
 	const electronVersion = /^target="(.*)"$/m.exec(npmrc)![1];
 	const msBuildId = /^ms_build_id="(.*)"$/m.exec(npmrc)![1];
 	return { electronVersion, msBuildId };
+}
+
+export function getVersionedResourcesFolder(platform: string, commit: string): string {
+	const productJson = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8'));
+	const useVersionedUpdate = platform === 'win32' && productJson.win32VersionedUpdate;
+	return useVersionedUpdate ? commit.substring(0, 10) : '';
 }
 
 export class VinylStat implements fs.Stats {
@@ -432,4 +441,40 @@ export class VinylStat implements fs.Stats {
 	isSymbolicLink(): boolean { return false; }
 	isFIFO(): boolean { return false; }
 	isSocket(): boolean { return false; }
+}
+
+export function untar(): Transform {
+	return es.through(function (this: through.ThroughStream, f: VinylFile) {
+		if (!f.contents || !Buffer.isBuffer(f.contents)) {
+			this.emit('error', new Error('Expected file with Buffer contents'));
+			return;
+		}
+
+		const self = this;
+		const parser = new tar.Parser();
+
+		parser.on('entry', (entry: tar.ReadEntry) => {
+			if (entry.type === 'File') {
+				const chunks: Buffer[] = [];
+				entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+				entry.on('end', () => {
+					const file = new VinylFile({
+						path: entry.path,
+						contents: Buffer.concat(chunks),
+						stat: new VinylStat({
+							mode: entry.mode,
+							mtime: entry.mtime,
+							size: entry.size
+						})
+					});
+					self.emit('data', file);
+				});
+			} else {
+				entry.resume();
+			}
+		});
+
+		parser.on('error', (err: Error) => self.emit('error', err));
+		parser.end(f.contents);
+	}) as Transform;
 }

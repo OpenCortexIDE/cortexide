@@ -7,7 +7,7 @@ import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
-import { mountVoidTooltip } from './react/out/void-tooltip/index.js';
+import { mountVoidTooltip } from './react/out/tooltip/index.js';
 import { h, getActiveWindow } from '../../../../base/browser/dom.js';
 
 // Tooltip contribution that mounts the component at startup
@@ -30,7 +30,7 @@ export class TooltipContribution extends Disposable implements IWorkbenchContrib
 
 		if (workbench) {
 			// Create a container element for the tooltip using h function
-			const tooltipContainer = h('div.void-tooltip-container').root;
+			const tooltipContainer = h('div.cortex-tooltip-container').root;
 			workbench.appendChild(tooltipContainer);
 
 			// Mount the React component

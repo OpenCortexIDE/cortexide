@@ -6,39 +6,41 @@
 import '../../../../platform/update/common/update.config.contribution.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions, IWorkbenchContribution } from '../../../common/contributions.js';
+import { IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
 import { MenuId, registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
-import { ProductContribution, UpdateContribution, CONTEXT_UPDATE_STATE, SwitchProductQualityContribution, RELEASE_NOTES_URL, showReleaseNotesInEditor, DOWNLOAD_URL } from './update.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { ProductContribution, UpdateContribution, CONTEXT_UPDATE_STATE, SwitchProductQualityContribution, showReleaseNotesInEditor, DefaultAccountUpdateContribution } from './update.js';
+import { UpdateTitleBarContribution } from './updateTitleBarEntry.js';
+import { PostUpdateWidgetContribution } from './postUpdateWidget.js';
 import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import product from '../../../../platform/product/common/product.js';
-import { IUpdateService, StateType, State } from '../../../../platform/update/common/update.js';
+import { IUpdateService, StateType } from '../../../../platform/update/common/update.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { isWindows, isWeb } from '../../../../base/common/platform.js';
-import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { isWindows } from '../../../../base/common/platform.js';
+import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { mnemonicButtonLabel } from '../../../../base/common/labels.js';
 import { ShowCurrentReleaseNotesActionId, ShowCurrentReleaseNotesFromCurrentFileActionId } from '../common/update.js';
 import { IsWebContext } from '../../../../platform/contextkey/common/contextkeys.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { URI } from '../../../../base/common/uri.js';
-import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
-import { IBannerService } from '../../../services/banner/browser/bannerService.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 
 const workbench = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
 
 workbench.registerWorkbenchContribution(ProductContribution, LifecyclePhase.Restored);
 workbench.registerWorkbenchContribution(UpdateContribution, LifecyclePhase.Restored);
 workbench.registerWorkbenchContribution(SwitchProductQualityContribution, LifecyclePhase.Restored);
+workbench.registerWorkbenchContribution(DefaultAccountUpdateContribution, LifecyclePhase.Eventually);
+workbench.registerWorkbenchContribution(UpdateTitleBarContribution, LifecyclePhase.Restored);
+workbench.registerWorkbenchContribution(PostUpdateWidgetContribution, LifecyclePhase.Restored);
 
 // Release notes
 
-export class ShowCurrentReleaseNotesAction extends Action2 {
+export class ShowReleaseNotesAction extends Action2 {
+
+	static readonly AVAILABLE = !!product.releaseNotesUrl;
 
 	constructor() {
 		super({
@@ -49,23 +51,22 @@ export class ShowCurrentReleaseNotesAction extends Action2 {
 			},
 			category: { value: product.nameShort, original: product.nameShort },
 			f1: true,
-			precondition: RELEASE_NOTES_URL,
 			menu: [{
 				id: MenuId.MenubarHelpMenu,
 				group: '1_welcome',
 				order: 5,
-				when: RELEASE_NOTES_URL,
 			}]
 		});
 	}
 
-	async run(accessor: ServicesAccessor): Promise<void> {
+	async run(accessor: ServicesAccessor, version?: string): Promise<void> {
 		const instantiationService = accessor.get(IInstantiationService);
 		const productService = accessor.get(IProductService);
 		const openerService = accessor.get(IOpenerService);
+		const targetVersion = version ?? productService.version;
 
 		try {
-			await showReleaseNotesInEditor(instantiationService, productService.version, false);
+			await showReleaseNotesInEditor(instantiationService, targetVersion, false);
 		} catch (err) {
 			if (productService.releaseNotesUrl) {
 				await openerService.open(URI.parse(productService.releaseNotesUrl));
@@ -102,7 +103,9 @@ export class ShowCurrentReleaseNotesFromCurrentFileAction extends Action2 {
 	}
 }
 
-registerAction2(ShowCurrentReleaseNotesAction);
+if (ShowReleaseNotesAction.AVAILABLE) {
+	registerAction2(ShowReleaseNotesAction);
+}
 registerAction2(ShowCurrentReleaseNotesFromCurrentFileAction);
 
 // Update
@@ -137,7 +140,7 @@ class DownloadUpdateAction extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		await accessor.get(IUpdateService).downloadUpdate();
+		await accessor.get(IUpdateService).downloadUpdate(true);
 	}
 }
 
@@ -176,16 +179,17 @@ class RestartToUpdateAction extends Action2 {
 class DownloadAction extends Action2 {
 
 	static readonly ID = 'workbench.action.download';
+	static readonly AVAILABLE = !!product.downloadUrl;
 
 	constructor() {
 		super({
 			id: DownloadAction.ID,
 			title: localize2('openDownloadPage', "Download {0}", product.nameLong),
-			precondition: ContextKeyExpr.and(IsWebContext, DOWNLOAD_URL), // Only show when running in a web browser and a download url is available
+			precondition: IsWebContext, // Only show when running in a web browser
 			f1: true,
 			menu: [{
 				id: MenuId.StatusBarWindowIndicatorMenu,
-				when: ContextKeyExpr.and(IsWebContext, DOWNLOAD_URL)
+				when: IsWebContext
 			}]
 		});
 	}
@@ -200,57 +204,13 @@ class DownloadAction extends Action2 {
 	}
 }
 
-registerAction2(DownloadAction);
-class SwitchUpdateChannelAction extends Action2 {
-	constructor() {
-		super({
-			id: 'update.switchChannel',
-			title: localize2('switchUpdateChannel', 'Switch Update Channel...'),
-			category: { value: product.nameShort, original: product.nameShort },
-			f1: true,
-		});
-	}
-
-	async run(accessor: ServicesAccessor): Promise<void> {
-		const configurationService = accessor.get(IConfigurationService);
-		const dialogService = accessor.get(IDialogService);
-		const notificationService = accessor.get(INotificationService);
-
-		const currentChannel = configurationService.getValue<'stable' | 'beta' | 'nightly'>('update.updateChannel') || 'stable';
-
-		const { result } = await dialogService.prompt<'stable' | 'beta' | 'nightly'>({
-			type: 'info',
-			message: localize('switchUpdateChannel.message', 'Select Update Channel'),
-			detail: localize('switchUpdateChannel.detail', 'Choose which update channel to use. This will take effect after restart.'),
-			buttons: [
-				{
-					label: localize('updateChannel.stable', 'Stable'),
-					run: () => 'stable' as const
-				},
-				{
-					label: localize('updateChannel.beta', 'Beta'),
-					run: () => 'beta' as const
-				},
-				{
-					label: localize('updateChannel.nightly', 'Nightly'),
-					run: () => 'nightly' as const
-				}
-			],
-			cancelButton: true
-		});
-
-		if (result && result !== currentChannel) {
-			await configurationService.updateValue('update.updateChannel', result);
-			notificationService.info(localize('switchUpdateChannel.success', 'Update channel changed to {0}. Please restart for changes to take effect.', result));
-		}
-	}
+if (DownloadAction.AVAILABLE) {
+	registerAction2(DownloadAction);
 }
-
 registerAction2(CheckForUpdateAction);
 registerAction2(DownloadUpdateAction);
 registerAction2(InstallUpdateAction);
 registerAction2(RestartToUpdateAction);
-registerAction2(SwitchUpdateChannelAction);
 
 if (isWindows) {
 	class DeveloperApplyUpdateAction extends Action2 {
@@ -286,105 +246,24 @@ if (isWindows) {
 	registerAction2(DeveloperApplyUpdateAction);
 }
 
-// Update Banner
-
-const UPDATE_BANNER_LATER_COMMAND = 'update.banner.later';
-const UPDATE_BANNER_INSTALL_COMMAND = 'update.banner.install';
-
-export class UpdateBannerContribution extends Disposable implements IWorkbenchContribution {
-
-	private static readonly BANNER_ID = 'update.banner';
-	private bannerShown = false;
-	private currentState: State | undefined;
-
-	constructor(
-		@IUpdateService private readonly updateService: IUpdateService,
-		@IBannerService private readonly bannerService: IBannerService,
-	) {
-		super();
-
-		// Register commands for banner actions
-		this.registerCommands();
-
-		// Listen to update state changes
-		this._register(this.updateService.onStateChange(state => this.onUpdateStateChange(state)));
-
-		// Check initial state
-		this.onUpdateStateChange(this.updateService.state);
-	}
-
-	private registerCommands(): void {
-		// Register "Later" command
-		CommandsRegistry.registerCommand(UPDATE_BANNER_LATER_COMMAND, () => {
-			if (this.bannerShown) {
-				this.bannerService.hide(UpdateBannerContribution.BANNER_ID);
-				this.bannerShown = false;
-			}
-		});
-
-		// Register "Install Now" command
-		CommandsRegistry.registerCommand(UPDATE_BANNER_INSTALL_COMMAND, () => {
-			if (!this.currentState) {
-				return;
-			}
-
-			if (this.currentState.type === StateType.Ready) {
-				this.updateService.quitAndInstall();
-			} else if (this.currentState.type === StateType.Downloaded) {
-				this.updateService.applyUpdate();
-			}
+registerAction2(class ShowUpdateInfoAction extends Action2 {
+	constructor() {
+		super({
+			id: 'update.showUpdateInfo',
+			title: localize2('showUpdateInfo', "Show Update Info"),
+			category: Categories.Developer,
+			f1: true,
+			precondition: IsWebContext.negate(),
 		});
 	}
 
-	private onUpdateStateChange(state: State): void {
-		this.currentState = state;
-
-		// Only show banner for Ready or Downloaded states
-		// Don't show if updates are disabled or if we're on web
-		if (isWeb || state.type === StateType.Disabled || state.type === StateType.Uninitialized) {
-			if (this.bannerShown) {
-				this.bannerService.hide(UpdateBannerContribution.BANNER_ID);
-				this.bannerShown = false;
-			}
-			return;
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const commandService = accessor.get(ICommandService);
+		const quickInputService = accessor.get(IQuickInputService);
+		const markdown = await quickInputService.input({ prompt: localize('showUpdateInfo.prompt', "Enter markdown to render, or JSON with markdown/buttons (leave empty to load from URL)") });
+		if (markdown === undefined) {
+			return; // cancelled
 		}
-
-		// Show banner when update is ready or downloaded
-		if (state.type === StateType.Ready || state.type === StateType.Downloaded) {
-			if (!this.bannerShown) {
-				this.showBanner(state);
-			}
-		} else {
-			// Hide banner for other states
-			if (this.bannerShown) {
-				this.bannerService.hide(UpdateBannerContribution.BANNER_ID);
-				this.bannerShown = false;
-			}
-		}
+		await commandService.executeCommand('_update.showUpdateInfo', markdown || undefined);
 	}
-
-	private showBanner(state: State): void {
-		this.bannerService.show({
-			id: UpdateBannerContribution.BANNER_ID,
-			message: localize('updateBanner.message', 'New update available'),
-			icon: ThemeIcon.fromId('sync'),
-			actions: [
-				{
-					label: localize('updateBanner.later', 'Later'),
-					href: `command:${UPDATE_BANNER_LATER_COMMAND}`
-				},
-				{
-					label: localize('updateBanner.installNow', 'Install Now'),
-					href: `command:${UPDATE_BANNER_INSTALL_COMMAND}`
-				}
-			],
-			onClose: () => {
-				this.bannerShown = false;
-			}
-		});
-
-		this.bannerShown = true;
-	}
-}
-
-workbench.registerWorkbenchContribution(UpdateBannerContribution, LifecyclePhase.Restored);
+});

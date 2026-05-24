@@ -55,7 +55,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 const CHAT_RETRIES = 3
 const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
-const MAX_AGENT_LOOP_ITERATIONS = 20 // Maximum iterations to prevent infinite loops
+const MAX_AGENT_LOOP_ITERATIONS = 100 // Hard cap; most tasks complete well under 30 iterations
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
 
@@ -164,6 +164,7 @@ type ChatThreads = {
 export type ThreadsState = {
 	allThreads: ChatThreads;
 	currentThreadId: string; // intended for internal use only
+	openTabs: string[]; // ordered list of thread IDs currently shown as tabs
 }
 
 export type IsRunningType =
@@ -263,6 +264,14 @@ export interface IChatThreadService {
 	getCurrentThread(): ThreadType;
 	openNewThread(): void;
 	switchToThread(threadId: string): void;
+
+	// tab management (tabs are a persistent ordered subset of threads shown in the tab bar)
+	switchToTab(threadId: string): void;
+	closeTab(threadId: string): void;
+
+	// allow-any-unicode-next-line
+	// branch a conversation at a specific message — creates a new thread with messages[0..messageIdx]
+	branchFromMessage(threadId: string, messageIdx: number): void;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -399,7 +408,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super()
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {}
 
@@ -409,14 +418,34 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this.state = {
 			allThreads: allThreads,
 			currentThreadId: null as unknown as string, // gets set in startNewThread()
+			openTabs: [], // populated by openNewThread()
 		}
 
 		// always be in a thread
 		this.openNewThread()
 
-
-		// keep track of user-modified files
-
+		// Invalidate file read cache when files are changed externally (e.g. user edits file
+		// while agent is running, or a build tool writes to disk). Without this the agent
+		// reads stale content from cache after the file has changed.
+		this._register(this._fileService.onDidFilesChange(e => {
+			for (const [threadId, threadCache] of this._fileReadCache.entries()) {
+				const lruList = this._fileReadCacheLRU.get(threadId)
+				const keysToDelete: string[] = []
+				for (const cacheKey of threadCache.keys()) {
+					const cachedPath = cacheKey.split('|')[0]
+					if (e.affects(URI.file(cachedPath))) {
+						keysToDelete.push(cacheKey)
+					}
+				}
+				for (const key of keysToDelete) {
+					threadCache.delete(key)
+					if (lruList) {
+						const idx = lruList.indexOf(key)
+						if (idx >= 0) lruList.splice(idx, 1)
+					}
+				}
+			}
+		}))
 	}
 
 	// If true for a thread, suppress plan generation once for the next user message
@@ -444,11 +473,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 
 	dangerousSetState = (newState: ThreadsState) => {
-		this.state = newState
+		// Normalize: if imported state has no openTabs (e.g. old export), derive from allThreads
+		this.state = {
+			...newState,
+			openTabs: newState.openTabs ?? Object.keys(newState.allThreads ?? {}),
+		}
 		this._onDidChangeCurrentThread.fire()
 	}
 	resetState = () => {
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // see constructor
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // see constructor
 		this.openNewThread()
 		this._onDidChangeCurrentThread.fire()
 	}
@@ -604,6 +637,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					this._pendingStreamStateUpdates.clear()
 					this._streamStateRafId = undefined
 				})
+				// Register cancellation so RAF never fires after the service is disposed
+				this._register({ dispose: () => { if (this._streamStateRafId !== undefined) { cancelAnimationFrame(this._streamStateRafId); this._streamStateRafId = undefined; } } })
 			}
 		} else {
 			// For non-streaming updates (idle, error, etc.), fire immediately
@@ -2364,7 +2399,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		toolId: string,
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
-	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean }> => {
+	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
 		let toolParams: ToolCallParams<ToolName>
@@ -2631,6 +2666,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// 5. add to history and keep going
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 
+		// attempt_completion terminates the agent loop
+		if (isBuiltInTool && toolName === 'attempt_completion') {
+			return { completionSignaled: true }
+		}
+
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
 			const readFileParams = toolParams as BuiltinToolCallParams['read_file']
@@ -2799,7 +2839,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const existingPlanInfo = this._getCurrentPlan(threadId, false) // Use cache
 		if (!existingPlanInfo) {
 			// No existing plan - check if we should generate one
-			const shouldGeneratePlan = this._shouldGeneratePlan(threadId)
+			// Plan mode always generates a plan; agent mode uses heuristics
+			const shouldGeneratePlan = chatMode === 'plan' || this._shouldGeneratePlan(threadId)
 			if (shouldGeneratePlan) {
 				await this._generatePlanFromUserRequest(threadId, modelSelection, modelSelectionOptions)
 				// CRITICAL: Force cache refresh ONLY here after plan generation
@@ -3173,6 +3214,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				return
 			}
 
+			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context window.
+			// We only check this in agent mode (where conversations grow large) and only once per conversation
+			// to avoid spamming. Uses the static context window from getModelCapabilities; falls back to 128k.
+			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
+				try {
+					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
+					const contextWindow = (caps as any).contextWindow ?? 128_000
+					const usagePct = promptTokens / contextWindow
+					const existingMsgs = this.state.allThreads[threadId]?.messages ?? []
+					const alreadyWarned = existingMsgs.some(m => m.role === 'assistant' && m.displayContent?.includes('context window'))
+					if (usagePct >= 0.7 && !alreadyWarned) {
+						const pct = Math.round(usagePct * 100)
+						this._notificationService.warn(
+							`Context is ${pct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
+							`The agent may start losing earlier context. Consider starting a new thread.`
+						)
+					}
+				} catch {
+					// getModelCapabilities import may fail for some providers; ignore
+				}
+			}
+
 			// CRITICAL: Check again after async operation (plan might have been added during prep)
 			// Invalidate cache in case plan was added during message prep, then use fast check
 			this._planCache.delete(threadId)
@@ -3501,7 +3565,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 
 				// Update status to show we're waiting for the model response
-				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Waiting for model response...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
+				const iterLabel = (chatMode === 'agent' || chatMode === 'plan') && nMessagesSent > 1
+					? `Step ${nMessagesSent} — thinking...`
+					: 'Waiting for model response...'
+				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: iterLabel, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
 				const llmRes = await messageIsDonePromise // wait for message to complete
 
 				// if something else started running in the meantime
@@ -3809,7 +3876,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Also check if we've already read too many files (prevent infinite read loops)
 				// CRITICAL: Only synthesize tools if the model actually supports them
 				// Don't synthesize tools if file read limit was exceeded
-				if (chatMode === 'agent' && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
+				if ((chatMode === 'agent' || chatMode === 'plan') && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
 					if (originalUserMessage) {
 						const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
 						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure']
@@ -3897,7 +3964,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								// Execute the synthesized tool
 								const mcpTools = this._mcpService.getMCPTools()
 								const mcpTool = mcpTools?.find(t => t.name === toolName as ToolName)
-								const { awaitingUserApproval, interrupted } = await this._runToolCall(
+								const { awaitingUserApproval, interrupted, completionSignaled: hwCompletion } = await this._runToolCall(
 									threadId,
 									toolName as ToolName,
 									toolId,
@@ -3909,6 +3976,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									this._setStreamState(threadId, undefined)
 									return
 								}
+								if (hwCompletion) {
+									this._setStreamState(threadId, { isRunning: undefined })
+									return
+								}
 								if (awaitingUserApproval) {
 									isRunningWhenEnd = 'awaiting_user'
 								} else {
@@ -3916,7 +3987,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								}
 
 								this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
-								// Skip adding the failed assistant message and break out of retry loop
 								// Tool result is already in thread via _runToolCall, so we'll send another message
 								break // Exit inner retry loop, continue outer loop with tool results
 							}
@@ -3989,7 +4059,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							// Execute the synthesized tool
 							const mcpTools = this._mcpService.getMCPTools()
 							const mcpTool = mcpTools?.find(t => t.name === toolName as ToolName)
-							const { awaitingUserApproval, interrupted } = await this._runToolCall(
+							const { awaitingUserApproval, interrupted, completionSignaled: synthCompletion } = await this._runToolCall(
 								threadId,
 								toolName as ToolName,
 								toolId,
@@ -3999,6 +4069,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined)
+								return
+							}
+
+							if (synthCompletion) {
+								this._setStreamState(threadId, { isRunning: undefined })
 								return
 							}
 
@@ -4017,36 +4092,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 				}
 
-				// CRITICAL: Only stop loop if tools were synthesized AND model explicitly indicates task is complete
-				// Don't stop just because tools were synthesized - model might need another iteration
-				// Only stop if model's response clearly indicates completion AND no more tools needed
-				if (hasSynthesizedToolsInThisRequest && !toolCall && info.fullText.trim()) {
-					// Check if model's response indicates the task is actually complete
-					const responseText = info.fullText.toLowerCase()
-					const indicatesCompletion =
-						responseText.includes('i cannot') ||
-						responseText.includes('i don\'t have') ||
-						responseText.includes('i\'m unable') ||
-						responseText.includes('i need more information') ||
-						responseText.includes('please provide') ||
-						// If we've executed multiple tools and model gives a clear answer, it's likely complete
-						(toolsExecutedInRequest.length >= 3 && (
-							responseText.includes('here') ||
-							responseText.includes('found') ||
-							responseText.includes('result') ||
-							responseText.includes('answer')
-						))
-
-					// Only stop if model explicitly indicates completion or we've done substantial work
-					// Don't stop if model just responded with text after first tool synthesis
-					if (indicatesCompletion || (toolsExecutedInRequest.length >= 3 && !originalUserMessage?.displayContent?.toLowerCase().includes('how many'))) {
-						// Model has given its final answer - stop here
-						this._setStreamState(threadId, { isRunning: undefined })
-						return
-					}
-					// Otherwise, continue loop to give model another chance to use tools or complete the task
-				}
-
+				// The agent loop terminates naturally when no tool call is present.
+				// Explicit completion is signalled via attempt_completion.
+				// *** REMOVED: fragile "3 tools executed = done" heuristic that was killing agents mid-task ***
 				// call tool if there is one
 				if (toolCall) {
 					// Skip tool execution if file read limit was exceeded in a previous iteration
@@ -4101,11 +4149,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
-							// PERFORMANCE: Use returned step info instead of re-looking up
 							const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, 'Interrupted by user')
 							if (updatedStep) {
 								activePlanTracking.currentStep = updatedStep
@@ -4117,9 +4164,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						return
 					}
 
-					// Track that this tool was executed (even if it failed - we still tried)
-					// Tool errors are handled by _runToolCall which adds error messages to the thread
-					// The loop will continue so the model can process the error
+					if (completionSignaled) {
+						this._setStreamState(threadId, { isRunning: undefined })
+						return
+					}
+
 					toolsExecutedInRequest.push(toolCall.name)
 
 					// Only update plan step status if we have an active plan (skip if no plan)
@@ -5290,44 +5339,95 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setState({ currentThreadId: threadId })
 	}
 
+	// Tab management: tabs are an ordered subset of threads visible in the tab bar.
+	// switchToTab adds the thread to openTabs if not already present, then switches.
+	switchToTab(threadId: string) {
+		const openTabs = this.state.openTabs.includes(threadId)
+			? this.state.openTabs
+			: [...this.state.openTabs, threadId]
+		this._setState({ currentThreadId: threadId, openTabs })
+	}
+
+	// closeTab removes the thread from openTabs. If it was the active tab, switch to
+	// allow-any-unicode-next-line
+	// the nearest remaining tab. Does NOT delete the thread — it stays in history.
+	closeTab(threadId: string) {
+		const { openTabs, currentThreadId } = this.state
+		const newTabs = openTabs.filter(id => id !== threadId)
+
+		if (newTabs.length === 0) {
+			// allow-any-unicode-next-line
+			// All tabs closed — open a fresh thread (which will add itself to openTabs)
+			this._setState({ openTabs: newTabs })
+			this.openNewThread()
+			return
+		}
+
+		let newCurrentId = currentThreadId
+		if (currentThreadId === threadId) {
+			// Switch to the tab to the left, or the first remaining if nothing to the left
+			const closedIdx = openTabs.indexOf(threadId)
+			newCurrentId = newTabs[Math.max(0, closedIdx - 1)]
+		}
+
+		this._setState({ openTabs: newTabs, currentThreadId: newCurrentId })
+	}
 
 	openNewThread() {
-		// if a thread with 0 messages already exists, switch to it
-		const { allThreads: currentThreads } = this.state
-		for (const threadId in currentThreads) {
-			if (currentThreads[threadId]!.messages.length === 0) {
-				// switch to the existing empty thread and exit
-				this.switchToThread(threadId)
+		// if a thread with 0 messages already exists in openTabs, switch to it
+		const { allThreads: currentThreads, openTabs } = this.state
+		for (const threadId of openTabs) {
+			if (currentThreads[threadId]?.messages.length === 0) {
+				this._setState({ currentThreadId: threadId })
 				return
 			}
 		}
 		// otherwise, start a new thread
 		const newThread = newThreadObject()
 
-		// update state
+		// allow-any-unicode-next-line
+		// update state — add the new thread to openTabs
 		const newThreads: ChatThreads = {
 			...currentThreads,
 			[newThread.id]: newThread
 		}
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+		this._setState({
+			allThreads: newThreads,
+			currentThreadId: newThread.id,
+			openTabs: [...openTabs, newThread.id],
+		})
 	}
 
 
 	deleteThread(threadId: string): void {
-		const { allThreads: currentThreads } = this.state
+		const { allThreads: currentThreads, openTabs, currentThreadId } = this.state
 
 		// delete the thread
 		const newThreads = { ...currentThreads };
 		delete newThreads[threadId];
 
+		// also remove from openTabs and fix currentThreadId if needed
+		const newTabs = openTabs.filter(id => id !== threadId)
+		let newCurrentId = currentThreadId
+		if (currentThreadId === threadId) {
+			// Prefer an adjacent tab; fall back to any remaining thread; fall back to a new one
+			const closedIdx = openTabs.indexOf(threadId)
+			newCurrentId = newTabs[Math.max(0, closedIdx - 1)] ?? Object.keys(newThreads)[0] ?? ''
+		}
+
 		// store the updated threads
 		this._storeAllThreads(newThreads);
-		this._setState({ ...this.state, allThreads: newThreads })
+		this._setState({ allThreads: newThreads, openTabs: newTabs, currentThreadId: newCurrentId })
+
+		// if nothing remains, open a fresh thread
+		if (Object.keys(newThreads).length === 0) {
+			this.openNewThread()
+		}
 	}
 
 	duplicateThread(threadId: string) {
-		const { allThreads: currentThreads } = this.state
+		const { allThreads: currentThreads, openTabs } = this.state
 		const threadToDuplicate = currentThreads[threadId]
 		if (!threadToDuplicate) return
 		const newThread = {
@@ -5338,10 +5438,46 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...currentThreads,
 			[newThread.id]: newThread,
 		}
+		// Insert the duplicate right after the source tab, or append if not in tabs
+		const sourceTabIdx = openTabs.indexOf(threadId)
+		const newTabs = sourceTabIdx !== -1
+			? [...openTabs.slice(0, sourceTabIdx + 1), newThread.id, ...openTabs.slice(sourceTabIdx + 1)]
+			: [...openTabs, newThread.id]
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads })
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabs: newTabs })
 	}
 
+
+	// Creates a new thread containing messages[0..messageIdx] (inclusive) from the source thread,
+	// then opens it as a tab. The original thread is left intact.
+	branchFromMessage(threadId: string, messageIdx: number) {
+		const { allThreads: currentThreads, openTabs } = this.state
+		const sourceThread = currentThreads[threadId]
+		if (!sourceThread) return
+
+		const branchedMessages = deepClone(sourceThread.messages.slice(0, messageIdx + 1))
+		const newThread: ThreadType = {
+			...deepClone(sourceThread),
+			id: generateUuid(),
+			messages: branchedMessages,
+			lastModified: new Date().toISOString(),
+			state: {
+				...deepClone(sourceThread.state),
+				mountedInfo: undefined, // don't carry over mount info
+			},
+		}
+
+		const newThreads: ChatThreads = { ...currentThreads, [newThread.id]: newThread }
+
+		// Insert the branch right after the source tab if it's open, else append
+		const sourceTabIdx = openTabs.indexOf(threadId)
+		const newTabs = sourceTabIdx !== -1
+			? [...openTabs.slice(0, sourceTabIdx + 1), newThread.id, ...openTabs.slice(sourceTabIdx + 1)]
+			: [...openTabs, newThread.id]
+
+		this._storeAllThreads(newThreads)
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabs: newTabs })
+	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
 		// Invalidate plan cache when plan messages are added

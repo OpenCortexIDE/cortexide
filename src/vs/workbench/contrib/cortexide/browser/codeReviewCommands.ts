@@ -14,10 +14,11 @@ import { localize2 } from '../../../../nls.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
-import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { IChatService } from '../../../../workbench/contrib/chat/common/chatService.js';
-import { IChatEditingService } from '../../../../workbench/contrib/chat/common/chatEditingService.js';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { IChatService } from '../../../../workbench/contrib/chat/common/chatService/chatService.js';
+import { IChatEditingService } from '../../../../workbench/contrib/chat/common/editing/chatEditingService.js';
 import { ChatAgentLocation } from '../../../../workbench/contrib/chat/common/constants.js';
+import { ChatModel } from '../../../../workbench/contrib/chat/common/model/chatModel.js';
 import { IViewsService } from '../../../../workbench/services/views/common/viewsService.js';
 import { ComposerPanel } from '../../../../workbench/contrib/chat/browser/chatEditing/composerPanel.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -96,8 +97,10 @@ registerAction2(class extends Action2 {
 
 					// Show notification with summary
 					if (result.annotations.length === 0) {
+						// allow-any-unicode-next-line
 						notificationService.info(`✅ ${fileName}: No issues found!`);
 					} else {
+						// allow-any-unicode-next-line
 						notificationService.info(`📋 ${fileName}: ${result.summary}`);
 					}
 				} catch (error) {
@@ -136,10 +139,11 @@ registerAction2(class extends Action2 {
 
 		try {
 			// Create a chat session for the editing session
-			const chatModel = chatService.startSession(ChatAgentLocation.Chat, CancellationToken.None, false);
+			const chatModelRef = chatService.startNewLocalSession(ChatAgentLocation.Chat, { debugOwner: 'codeReviewCommands' });
+			const chatModel = chatModelRef.object as ChatModel;
 
 			// Create editing session
-			const editingSession = await chatEditingService.createEditingSession(chatModel);
+			const editingSession = chatEditingService.createEditingSession(chatModel);
 
 			// Open ComposerPanel to show the diff
 			const composerPanel = await viewsService.openView(ComposerPanel.ID) as ComposerPanel | undefined;

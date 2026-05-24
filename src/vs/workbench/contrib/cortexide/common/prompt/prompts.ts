@@ -27,7 +27,8 @@ export const MAX_CHILDREN_URIs_PAGE = 500
 
 // terminal tool info
 export const MAX_TERMINAL_CHARS = 100_000
-export const MAX_TERMINAL_INACTIVE_TIME = 8 // seconds
+// allow-any-unicode-next-line
+export const MAX_TERMINAL_INACTIVE_TIME = 60 // seconds — enough for npm install, cargo build, etc.
 export const MAX_TERMINAL_BG_COMMAND_TIME = 5
 
 
@@ -430,8 +431,38 @@ export const builtinTools: {
 		}
 	},
 
-	// go_to_definition
-	// go_to_usages
+	// --- fast grep + workspace diagnostics ---
+
+	grep_search: {
+		name: 'grep_search',
+		description: `Fast text/regex search across all files in the workspace. Returns matching lines with file path and line number. Prefer this over search_for_files when you need to find WHERE a specific string, symbol, or pattern appears in the codebase — not just which files contain it.`,
+		params: {
+			query: { description: 'The text or regex pattern to search for.' },
+			include_pattern: { description: 'Optional. Glob pattern to limit search scope (e.g., "**/*.ts", "src/**/*.tsx"). Leave empty to search all files.' },
+			exclude_pattern: { description: 'Optional. Glob pattern to exclude (e.g., "**/node_modules/**", "**/*.test.ts").' },
+			is_regex: { description: 'Optional. Default false. Whether the query is a regex pattern.' },
+			case_sensitive: { description: 'Optional. Default false. Whether the search is case-sensitive.' },
+		}
+	},
+
+	get_diagnostics: {
+		name: 'get_diagnostics',
+		description: `Returns all TypeScript, ESLint, and other diagnostic errors and warnings. Use this after editing files to verify your changes introduced no new errors, or to enumerate all errors before starting a fix.`,
+		params: {
+			uri: { description: `Optional. The FULL path to a specific file. Leave empty to get diagnostics for ALL files in the workspace.` },
+		}
+	},
+
+	// --- explicit completion signal ---
+
+	attempt_completion: {
+		name: 'attempt_completion',
+		description: `Signal that you have FULLY completed the assigned task. Call this ONLY after: (1) verifying edited files are correct with read_file, (2) confirming no new diagnostic errors with get_diagnostics, and (3) running any relevant tests/builds. Provide a clear, specific summary of what was accomplished.`,
+		params: {
+			result: { description: 'A clear, specific summary of what was accomplished. List every file changed and what change was made.' },
+			command: { description: 'Optional. A shell command the user can run to verify or demonstrate the result (e.g., "npm test", "npm run build"). Only provide if meaningful.' },
+		}
+	},
 
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
@@ -449,15 +480,20 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
+// Tools restricted to agent/plan modes only (not available in gather)
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion'])
+
 export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
-		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
-			: chatMode === 'agent' ? Object.keys(builtinTools) as BuiltinToolName[]
+		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
+			!(toolName in approvalTypeOfBuiltinToolName) && !AGENT_ONLY_TOOLS.has(toolName)
+		)
+			: (chatMode === 'agent' || chatMode === 'plan') ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = chatMode === 'agent' ? mcpTools : undefined
+	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') ? mcpTools : undefined
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -549,12 +585,13 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string }) => {
-	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
-			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
-				: mode === 'normal' ? `to assist the user with their coding tasks.`
-					: ''}
+			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
+				: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
+					: mode === 'normal' ? `to assist the user with their coding tasks.`
+						: ''}
 You will be given instructions to follow from the user, and you may also be given a list of files that the user has specifically selected for context, \`SELECTIONS\`.
 Please assist the user with their query.`)
 
@@ -571,17 +608,18 @@ ${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}
 ${activeURI}
 
 - Open files:
-${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'agent' && persistentTerminalIDs.length !== 0 ? `
+${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${(mode === 'agent' || mode === 'plan') && persistentTerminalIDs.length !== 0 ? `
 
 - Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
 </system_info>`)
 
 
-	// Truncate directoryStr if too long (optimize for token budget)
-	// Further reduced for better TTFS - directory info can be fetched via tools if needed
-	const MAX_DIRSTR_LENGTH = mode === 'agent' ? 10_000 : 8_000; // More aggressive truncation for normal mode
+	// allow-any-unicode-next-line
+	// Truncate directoryStr if too long. Agent mode gets more context — it needs to plan across files.
+	const MAX_DIRSTR_LENGTH = (mode === 'agent' || mode === 'plan') ? 20_000 : 8_000;
 	const truncatedDirStr = directoryStr.length > MAX_DIRSTR_LENGTH
-		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated - use tools to explore more)'
+		// allow-any-unicode-next-line
+		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated — use get_dir_tree or ls_dir to explore further)'
 		: directoryStr;
 
 	const fsInfo = (`Here is an overview of the user's file system:
@@ -599,19 +637,28 @@ ${truncatedDirStr}
 
 	// Image analysis - ultra-concise
 	if (mode !== 'agent') {
+		// allow-any-unicode-next-line
 		details.push('🖼️ Images: Analyze in detail. Use file tools only if requested.')
 	}
 
-	// Mode-specific instructions - further condensed
-	if (mode === 'agent') {
-		details.push('⚠️ AGENT: Use tools for questions/actions.')
-		details.push('Codebase Qs: search_for_files → read_file → answer. Never answer from search alone.')
-		details.push('Actions: Start with tool call. Use read_file, edit_file, search_for_files, run_command.')
-		details.push('Workflow: Plan → Execute (read files first) → Review.')
+	// Mode-specific instructions
+	if (mode === 'agent' || mode === 'plan') {
+		// allow-any-unicode-next-line
+		details.push('Use tools for every action. Never describe what you would do — just do it. Never answer from memory alone.')
+		details.push('Explore before editing: use grep_search to locate patterns, read_file to read full contents, get_dir_tree for structure. Never assume file contents or location.')
+		// allow-any-unicode-next-line
+		details.push('Edit workflow: grep_search/read_file → edit_file (SEARCH/REPLACE with EXACT matching text) → read_file to verify → get_diagnostics to confirm no errors. Never skip verification.')
+		details.push('Creating files: create_file_or_folder first, then rewrite_file with full content. Never use edit_file on a file that does not exist yet.')
+		details.push('Terminal: use run_command for builds, tests, installs, and git operations. Read ALL output before continuing. Diagnose failures before retrying.')
+		// allow-any-unicode-next-line
+		details.push('On failure: read the error carefully, diagnose the root cause, then fix it. Never retry an identical failing call. Never swallow errors silently.')
+		// allow-any-unicode-next-line
+		details.push('Keep going: do not stop after one step when the task needs several. Write complete, compilable code — never truncate or use placeholders.')
+		details.push('Completion: When the task is FULLY done and verified, call attempt_completion with a precise summary. Do NOT call attempt_completion mid-task or before verification.')
 	} else if (mode === 'gather') {
-		details.push('GATHER: Use tools. One at a time.')
+		details.push('GATHER mode: Use tools to search and read. One tool call at a time. Do not edit files.')
 	} else {
-		details.push('Ask for context. Reference with @.')
+		details.push('Ask for clarification if context is missing. Reference files with @.')
 	}
 
 	// Shorter code block instruction
@@ -625,6 +672,13 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 Here are relevant memories from this project that may help you understand context, decisions, and preferences:
 ${relevantMemories}
 </project_memories>`) : null;
+
+	// allow-any-unicode-next-line
+	// Project rules (from .cortexide/rules/*.md) — injected as mandatory constraints
+	const rulesSection = projectRules ? (`<project_rules>
+The following rules are defined by the project maintainers. You MUST follow them precisely and consistently. They take precedence over your default preferences but NOT over user safety.
+${projectRules}
+</project_rules>`) : null;
 
 	// return answer
 	const ansStrs: string[] = []
@@ -640,6 +694,9 @@ ${toolDefinitions}
 `)
 	}
 	ansStrs.push(importantDetails)
+	if (rulesSection) {
+		ansStrs.push(rulesSection)
+	}
 	if (memoriesSection) {
 		ansStrs.push(memoriesSection)
 	}
@@ -651,8 +708,8 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string }) => {
-	const header = mode === 'agent'
+export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
 		? 'Code assistant. Search and reference files.'
@@ -663,21 +720,32 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
 
 	const details: string[] = []
-	if (mode === 'agent') {
-		details.push('Use tools. Read files before answering.')
+	if (mode === 'agent' || mode === 'plan') {
+		details.push('Use tools for EVERY action. Never answer from memory alone.')
+		details.push('Before editing: always read_file first. After editing: read_file again to verify.')
+		details.push('For 3+ file changes: list plan first, wait for confirmation.')
+		details.push('Workflow: Explore → Plan → Execute → Verify → Report.')
+		details.push('On error: diagnose root cause before retrying. Never repeat a failed call unchanged.')
 	} else if (mode === 'gather') {
-		details.push('Use tools. One at a time.')
+		details.push('Use tools. One at a time. Do not edit files.')
 	}
 
 	const importantDetails = details.length > 0 ? `\n${details.join('\n')}` : ''
 
 	const memoriesSection = relevantMemories ? `\n\n<memories>\n${relevantMemories.slice(0, 500)}${relevantMemories.length > 500 ? '...' : ''}\n</memories>` : ''
 
+	// allow-any-unicode-next-line
+	// Project rules — keep short for local models (token budget)
+	const rulesSection = projectRules ? `\n\n<rules>\n${projectRules.slice(0, 1000)}${projectRules.length > 1000 ? '...' : ''}\n</rules>` : ''
+
 	const ansStrs: string[] = [header, sysInfo]
 	if (toolDefinitions) {
 		ansStrs.push(`\n<tools>\n${toolDefinitions}\n</tools>`)
 	}
 	ansStrs.push(importantDetails)
+	if (rulesSection) {
+		ansStrs.push(rulesSection)
+	}
 	if (memoriesSection) {
 		ansStrs.push(memoriesSection)
 	}

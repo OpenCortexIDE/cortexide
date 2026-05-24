@@ -4,16 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import path from 'path';
-import es from 'event-stream';
+import es from '../lib/event-stream-compat.ts';
 import Vinyl from 'vinyl';
 import vfs from 'vinyl-fs';
-import * as util from '../lib/util';
-import { getProductionDependencies } from '../lib/dependencies';
+import * as util from '../lib/util.ts';
+import { getProductionDependencies } from '../lib/dependencies.ts';
 import { ClientAssertionCredential } from '@azure/identity';
 import Stream from 'stream';
-const azure = require('gulp-azure-storage');
+import azure from 'gulp-azure-storage';
 
-const root = path.dirname(path.dirname(__dirname));
+const root = path.dirname(path.dirname(import.meta.dirname));
 const commit = process.env['BUILD_SOURCEVERSION'];
 const credential = new ClientAssertionCredential(process.env['AZURE_TENANT_ID']!, process.env['AZURE_CLIENT_ID']!, () => Promise.resolve(process.env['AZURE_ID_TOKEN']!));
 
@@ -65,7 +65,7 @@ function main(): Promise<void> {
 				prefix: `sourcemaps/${commit}/`
 			}))
 			.on('end', () => c())
-			.on('error', (err: any) => e(err));
+			.on('error', (err) => e(err));
 	});
 }
 
