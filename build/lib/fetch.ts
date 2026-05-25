@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from './event-stream-compat.ts';
+import es, { type ThroughStream } from './event-stream-compat.ts';
 import VinylFile from 'vinyl';
 import log from 'fancy-log';
 import ansiColors from 'ansi-colors';
@@ -18,7 +18,7 @@ export interface IFetchOptions {
 	checksumSha256?: string;
 }
 
-export function fetchUrls(urls: string[] | string, options: IFetchOptions): es.ThroughStream {
+export function fetchUrls(urls: string[] | string, options: IFetchOptions): ThroughStream {
 	if (options === undefined) {
 		options = {};
 	}

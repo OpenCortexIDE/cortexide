@@ -5,7 +5,7 @@
 
 import path from 'path';
 import fs from 'fs';
-import eventStream from './event-stream-compat.ts';
+import eventStream, { type ThroughStream } from './event-stream-compat.ts';
 import jsonMerge from 'gulp-merge-json';
 import File from 'vinyl';
 import xml2js from 'xml2js';
@@ -329,7 +329,7 @@ function stripComments(content: string): string {
 	return result;
 }
 
-function processCoreBundleFormat(base: string, fileHeader: string, languages: Language[], json: NLSKeysFormat, emitter: eventStream.ThroughStream) {
+function processCoreBundleFormat(base: string, fileHeader: string, languages: Language[], json: NLSKeysFormat, emitter: ThroughStream) {
 	const languageDirectory = path.join(REPO_ROOT_PATH, '..', 'vscode-loc', 'i18n');
 	if (!fs.existsSync(languageDirectory)) {
 		log(`No VS Code localization repository found. Looking at ${languageDirectory}`);
@@ -369,8 +369,8 @@ globalThis._VSCODE_NLS_LANGUAGE=${JSON.stringify(language.id)};`),
 	});
 }
 
-export function processNlsFiles(opts: { out: string; fileHeader: string; languages: Language[] }): eventStream.ThroughStream {
-	return eventStream.through(function (this: eventStream.ThroughStream, file: File) {
+export function processNlsFiles(opts: { out: string; fileHeader: string; languages: Language[] }): ThroughStream {
+	return eventStream.through(function (this: ThroughStream, file: File) {
 		const fileName = path.basename(file.path);
 		if (fileName === 'nls.keys.json') {
 			try {
@@ -428,8 +428,8 @@ export function getResource(sourceFile: string): Resource {
 }
 
 
-export function createXlfFilesForCoreBundle(): eventStream.ThroughStream {
-	return eventStream.through(function (this: eventStream.ThroughStream, file: File) {
+export function createXlfFilesForCoreBundle(): ThroughStream {
+	return eventStream.through(function (this: ThroughStream, file: File) {
 		const basename = path.basename(file.path);
 		if (basename === 'nls.metadata.json') {
 			if (file.isBuffer()) {
@@ -544,11 +544,11 @@ export const EXTERNAL_EXTENSIONS = [
 	'ms-vscode.vscode-js-profile-table',
 ];
 
-export function createXlfFilesForExtensions(): eventStream.ThroughStream {
+export function createXlfFilesForExtensions(): ThroughStream {
 	let counter: number = 0;
 	let folderStreamEnded: boolean = false;
 	let folderStreamEndEmitted: boolean = false;
-	return eventStream.through(function (this: eventStream.ThroughStream, extensionFolder: File) {
+	return eventStream.through(function (this: ThroughStream, extensionFolder: File) {
 		const folderStream = this;
 		const stat = fs.statSync(extensionFolder.path);
 		if (!stat.isDirectory()) {
@@ -629,8 +629,8 @@ export function createXlfFilesForExtensions(): eventStream.ThroughStream {
 	});
 }
 
-export function createXlfFilesForIsl(): eventStream.ThroughStream {
-	return eventStream.through(function (this: eventStream.ThroughStream, file: File) {
+export function createXlfFilesForIsl(): ThroughStream {
+	return eventStream.through(function (this: ThroughStream, file: File) {
 		let projectName: string,
 			resourceFile: string;
 		if (path.basename(file.path) === 'messages.en.isl') {
@@ -736,7 +736,7 @@ export function prepareI18nPackFiles(resultingTranslationPaths: TranslationPath[
 	const mainPack: I18nPack = { version: i18nPackVersion, contents: {} };
 	const extensionsPacks: Record<string, I18nPack> = {};
 	const errors: unknown[] = [];
-	return eventStream.through(function (this: eventStream.ThroughStream, xlf: File) {
+	return eventStream.through(function (this: ThroughStream, xlf: File) {
 		let project = path.basename(path.dirname(path.dirname(xlf.relative)));
 		// strip `-new` since vscode-extensions-loc uses the `-new` suffix to indicate that it's from the new loc pipeline
 		const resource = path.basename(path.basename(xlf.relative, '.xlf'), '-new');
@@ -798,10 +798,10 @@ export function prepareI18nPackFiles(resultingTranslationPaths: TranslationPath[
 	});
 }
 
-export function prepareIslFiles(language: Language, innoSetupConfig: InnoSetup): eventStream.ThroughStream {
+export function prepareIslFiles(language: Language, innoSetupConfig: InnoSetup): ThroughStream {
 	const parsePromises: Promise<l10nJsonDetails[]>[] = [];
 
-	return eventStream.through(function (this: eventStream.ThroughStream, xlf: File) {
+	return eventStream.through(function (this: ThroughStream, xlf: File) {
 		const stream = this;
 		const parsePromise = XLF.parse(xlf.contents!.toString());
 		parsePromises.push(parsePromise);

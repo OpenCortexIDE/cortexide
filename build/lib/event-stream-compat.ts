@@ -10,3 +10,7 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 const es = _require('event-stream') as typeof import('event-stream');
 export default es;
+
+// Re-exported as a type so consumers can do `import es, { ThroughStream } from './event-stream-compat.ts'`.
+// A default-imported binding cannot be used as a type namespace under newer tsc.
+export type ThroughStream = import('event-stream').ThroughStream;

@@ -13,7 +13,7 @@ import fs from 'fs';
 import VinylFile from 'vinyl';
 import through from 'through';
 import sm from 'source-map';
-import { pathToFileURL, fileURLToPath } from 'url';
+import { pathToFileURL } from 'url';
 import { createRequire } from 'module';
 import ternaryStream from 'ternary-stream';
 import type { Transform } from 'stream';
