@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import es from '../lib/event-stream-compat.ts';
+import es, { type ThroughStream } from '../lib/event-stream-compat.ts';
 import Vinyl from 'vinyl';
 import vfs from 'vinyl-fs';
 import filter from 'gulp-filter';
@@ -68,7 +68,7 @@ const MimeTypesToCompress = new Set([
 	'text/x-java-source'
 ]);
 
-function wait(stream: es.ThroughStream): Promise<void> {
+function wait(stream: ThroughStream): Promise<void> {
 	return new Promise<void>((c, e) => {
 		stream.on('end', () => c());
 		stream.on('error', (err) => e(err));
