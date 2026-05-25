@@ -284,7 +284,6 @@ export const EN_TRANSLATIONS = {
 	'routing.policy.autoCheapest': 'Auto (cheapest viable)',
 	'routing.policy.freeTier': 'Free-tier ladder',
 	'routing.policy.localOnly': 'Local only',
-	'routing.policy.byokPaid': 'BYOK paid models',
 	'routing.statusBar.label': 'Free-tier quota',
 	'routing.statusBar.none': 'No free-tier providers',
 	'routing.statusBar.entry': '{0}: {1}/{2} RPD',

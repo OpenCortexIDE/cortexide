@@ -536,13 +536,12 @@ export type GlobalSettings = {
 	// - 'auto-cheapest': existing behaviour - score-based mixture of rules + learned (default)
 	// - 'free-tier':     prefer free-tier providers in quality-ranked order with quota tracking
 	// - 'local-only':    never dispatch to a cloud provider, even if the model selection points there
-	// - 'byok-paid':     prefer paid BYOK models, skipping free-tier ladders entirely
 	routingPolicy?: RoutingPolicy;
 }
 
 /** User-selectable routing policy for the model router. */
-export type RoutingPolicy = 'auto-cheapest' | 'free-tier' | 'local-only' | 'byok-paid';
-export const routingPolicies: readonly RoutingPolicy[] = ['auto-cheapest', 'free-tier', 'local-only', 'byok-paid'];
+export type RoutingPolicy = 'auto-cheapest' | 'free-tier' | 'local-only';
+export const routingPolicies: readonly RoutingPolicy[] = ['auto-cheapest', 'free-tier', 'local-only'];
 
 export const defaultGlobalSettings: GlobalSettings = {
 	autoRefreshModels: true,

@@ -1943,13 +1943,12 @@ export const Settings = () => {
 													<select
 														className='text-xs bg-void-bg-1 text-void-fg-1 border border-void-border-1 rounded px-1 py-0.5'
 														value={settingsState.globalSettings.routingPolicy ?? 'auto-cheapest'}
-														onChange={(e) => cortexideSettingsService.setGlobalSetting('routingPolicy', e.target.value as ('auto-cheapest' | 'free-tier' | 'local-only' | 'byok-paid'))}
+														onChange={(e) => cortexideSettingsService.setGlobalSetting('routingPolicy', e.target.value as ('auto-cheapest' | 'free-tier' | 'local-only'))}
 														title='Routing policy'
 													>
 														<option value='auto-cheapest'>Auto (cheapest viable)</option>
 														<option value='free-tier'>Free-tier ladder</option>
 														<option value='local-only'>Local only</option>
-														<option value='byok-paid'>BYOK paid models</option>
 													</select>
 												</div>
 											</div>
