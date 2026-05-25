@@ -113,6 +113,9 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 		// allow-any-unicode-next-line
 		return { title: 'Moonshot AI (Kimi)', desc: 'Kimi K2 — #1 SWE-bench agentic coding. Free tier available.' }
 	}
+	else if (providerName === 'cerebras') {
+		return { title: 'Cerebras', desc: 'Free tier: 1M tokens/day, ~2,600 tok/s, 8K context cap.' }
+	}
 
 	throw new Error(`descOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -137,6 +140,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 	if (providerName === 'liteLLM') return 'Read more about endpoints [here](https://docs.litellm.ai/docs/providers/openai_compatible).'
 	if (providerName === 'pollinations') return 'Get your [API Key here](https://enter.pollinations.ai/). [API Docs](https://enter.pollinations.ai/api/docs).'
 	if (providerName === 'moonshot') return 'Get your free [API Key here](https://platform.moonshot.ai/console/api-keys). Kimi K2 has a generous free tier. [Pricing](https://platform.moonshot.ai/docs/pricing).'
+	if (providerName === 'cerebras') return 'Get your free [API Key here](https://cloud.cerebras.ai/). Free tier includes 1M tokens/day with no card required. [Docs](https://inference-docs.cerebras.ai/).'
 
 	throw new Error(`subTextMdOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -167,7 +171,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'pollinations' ? 'sk-... or pk-...' :
 																	providerName === 'moonshot' ? 'sk-key...' :
-																		'',
+																		providerName === 'cerebras' ? 'csk-key...' :
+																			'',
 
 			isPasswordField: true,
 		}
@@ -373,6 +378,12 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...defaultCustomSettings,
 		...defaultProviderSettings.moonshot,
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.moonshot),
+		_didFillInProviderSettings: undefined,
+	},
+	cerebras: {
+		...defaultCustomSettings,
+		...defaultProviderSettings.cerebras,
+		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.cerebras),
 		_didFillInProviderSettings: undefined,
 	},
 }

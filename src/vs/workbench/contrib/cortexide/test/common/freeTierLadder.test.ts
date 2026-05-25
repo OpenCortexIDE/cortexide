@@ -125,4 +125,38 @@ suite('FreeTierLadder', () => {
 		assert.strictEqual(ladder.length, 0);
 		assert.strictEqual(pickTopFromLadder(ladder), null);
 	});
+
+	test('cerebras outranks groq when both have quota (quality rank 100 vs 80)', () => {
+		const configured: ModelSelection[] = [
+			{ providerName: 'groq', modelName: 'llama-3.3-70b-versatile' },
+			{ providerName: 'cerebras', modelName: 'llama-4-scout-17b-16e-instruct' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [snap('cerebras'), snap('groq')],
+			privacyMode: false,
+		});
+		assert.strictEqual(ladder.length, 2);
+		assert.strictEqual(ladder[0].providerId, 'cerebras', 'cerebras should win on quality rank');
+		assert.strictEqual(ladder[1].providerId, 'groq');
+		const top = pickTopFromLadder(ladder);
+		assert.deepStrictEqual(top, { providerName: 'cerebras', modelName: 'llama-4-scout-17b-16e-instruct' });
+	});
+
+	test('cerebras exhausted -> groq becomes top of ladder', () => {
+		const configured: ModelSelection[] = [
+			{ providerName: 'cerebras', modelName: 'qwen-3-32b' },
+			{ providerName: 'groq', modelName: 'llama-3.3-70b-versatile' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [
+				snap('cerebras', { exhausted: true, resetAt: Date.now() + 30_000 }),
+				snap('groq'),
+			],
+			privacyMode: false,
+		});
+		assert.strictEqual(ladder.length, 1);
+		assert.strictEqual(ladder[0].providerId, 'groq');
+	});
 });

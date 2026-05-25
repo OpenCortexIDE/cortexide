@@ -25,11 +25,6 @@ import { ProviderName } from '../cortexideSettingsTypes.js';
 
 /**
  * Free-tier-routable provider names.
- *
- * NOTE: Cerebras is intentionally absent because it is not yet wired into
- * `modelCapabilities.ts` / `cortexideSettingsTypes.ts` - see PR body.  It is
- * still represented in this constants file so the ladder is ready to pick it
- * up the moment a Cerebras provider exists.
  */
 export type FreeTierProviderId =
 	| 'cerebras'
@@ -64,7 +59,7 @@ export interface FreeTierQuota {
 export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuota } = {
 	cerebras: {
 		providerId: 'cerebras',
-		cortexProviderName: null,
+		cortexProviderName: 'cerebras',
 		qualityRank: 100,
 		rpd: null,
 		rpm: 30,
