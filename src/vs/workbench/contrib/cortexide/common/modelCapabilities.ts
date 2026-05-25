@@ -92,6 +92,9 @@ export const defaultProviderSettings = {
 	moonshot: { // Kimi K2 — free tier available at platform.moonshot.ai
 		apiKey: '',
 	},
+	cerebras: { // Cerebras Cloud - OpenAI-compatible, 1M tokens/day free tier, 8K context cap
+		apiKey: '',
+	},
 
 } as const
 
@@ -300,6 +303,14 @@ export const defaultModelsOfProvider = {
 		'moonshot-v1-8k',        // Fast 8k context model
 		'moonshot-v1-32k',       // 32k context model
 		'moonshot-v1-128k',      // Long context (128k tokens)
+	],
+	cerebras: [ // https://inference-docs.cerebras.ai/introduction
+		// Cerebras Cloud free tier: 1M tokens/day, ~2,600 tok/s, 8K context cap.
+		// Reference: https://inference-docs.cerebras.ai/api-reference/models (checked 2026-05)
+		'llama-4-scout-17b-16e-instruct', // Llama 4 Scout 17B 16E
+		'qwen-3-32b',                     // Qwen 3 32B reasoning model
+		'deepseek-r1-distill-llama-70b',  // DeepSeek R1 distilled into Llama 70B
+		'llama-3.3-70b',                  // Llama 3.3 70B
 	],
 
 
@@ -1799,6 +1810,72 @@ const moonshotSettings: VoidStaticProviderInfo = {
 	},
 }
 
+// ---------------- CEREBRAS ----------------
+// Cerebras Cloud is OpenAI-compatible. Free tier: 1M tokens/day, ~2,600 tok/s,
+// 8K context cap. Reference: https://inference-docs.cerebras.ai
+// Per Cerebras docs, the documented models support tool calling via the
+// standard OpenAI-style `tools` parameter.
+const cerebrasModelOptions = {
+	'llama-4-scout-17b-16e-instruct': {
+		contextWindow: 8_192,
+		reservedOutputTokenSpace: 2_048,
+		cost: { input: 0, output: 0 }, // free tier
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+	'qwen-3-32b': {
+		contextWindow: 8_192,
+		reservedOutputTokenSpace: 2_048,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'deepseek-r1-distill-llama-70b': {
+		contextWindow: 8_192,
+		reservedOutputTokenSpace: 2_048,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'llama-3.3-70b': {
+		contextWindow: 8_192,
+		reservedOutputTokenSpace: 2_048,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+} as const satisfies { [s: string]: CortexideStaticModelInfo }
+
+const cerebrasSettings: VoidStaticProviderInfo = {
+	modelOptions: cerebrasModelOptions,
+	modelOptionsFallback: (modelName) => {
+		// Conservative fallback: assume the 8K context-cap free-tier behaviour
+		// rather than letting an unknown model claim 128K. Tool calling is
+		// supported by the documented models so default to openai-style.
+		const fallback = extensiveModelOptionsFallback(modelName, { contextWindow: 8_192 });
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
 // ---------------- OPENROUTER ----------------
 const openRouterModelOptions_assumingOpenAICompat = {
 	'qwen/qwen3-235b-a22b': {
@@ -2028,6 +2105,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 
 	pollinations: pollinationsSettings,
 	moonshot: moonshotSettings,
+	cerebras: cerebrasSettings,
 
 	googleVertex: googleVertexSettings,
 	microsoftAzure: microsoftAzureSettings,

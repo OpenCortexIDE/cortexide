@@ -373,6 +373,25 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 			if (!validChatModes.includes(readS.globalSettings.chatMode as ChatMode)) {
 				readS.globalSettings.chatMode = defaultGlobalSettings.chatMode;
 			}
+
+			// Migrate the removed 'byok-paid' routing policy: it was never wired
+			// to a distinct code path and the use case is already covered by
+			// 'auto-cheapest' (score-based selection). Silently coerce so older
+			// installs don't surface an invalid value.
+			const persistedRoutingPolicy = readS.globalSettings.routingPolicy as string | undefined;
+			if (persistedRoutingPolicy === 'byok-paid') {
+				readS.globalSettings.routingPolicy = 'auto-cheapest';
+			}
+
+			// Migrate the deprecated `localFirstAI` flag into `routingPolicy`.
+			// `localFirstAI` is being retired in favour of the unified routing
+			// policy. We only translate when the user hasn't explicitly chosen
+			// a policy yet so an explicit selection always wins.
+			if (readS.globalSettings.routingPolicy === undefined) {
+				readS.globalSettings.routingPolicy = readS.globalSettings.localFirstAI === true
+					? 'local-only'
+					: 'auto-cheapest';
+			}
 		}
 		catch (e) {
 			readS = defaultState()

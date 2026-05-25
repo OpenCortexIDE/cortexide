@@ -113,6 +113,9 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 		// allow-any-unicode-next-line
 		return { title: 'Moonshot AI (Kimi)', desc: 'Kimi K2 — #1 SWE-bench agentic coding. Free tier available.' }
 	}
+	else if (providerName === 'cerebras') {
+		return { title: 'Cerebras', desc: 'Free tier: 1M tokens/day, ~2,600 tok/s, 8K context cap.' }
+	}
 
 	throw new Error(`descOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -137,6 +140,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 	if (providerName === 'liteLLM') return 'Read more about endpoints [here](https://docs.litellm.ai/docs/providers/openai_compatible).'
 	if (providerName === 'pollinations') return 'Get your [API Key here](https://enter.pollinations.ai/). [API Docs](https://enter.pollinations.ai/api/docs).'
 	if (providerName === 'moonshot') return 'Get your free [API Key here](https://platform.moonshot.ai/console/api-keys). Kimi K2 has a generous free tier. [Pricing](https://platform.moonshot.ai/docs/pricing).'
+	if (providerName === 'cerebras') return 'Get your free [API Key here](https://cloud.cerebras.ai/). Free tier includes 1M tokens/day with no card required. [Docs](https://inference-docs.cerebras.ai/).'
 
 	throw new Error(`subTextMdOfProviderName: Unknown provider name: "${providerName}"`)
 }
@@ -167,7 +171,8 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'pollinations' ? 'sk-... or pk-...' :
 																	providerName === 'moonshot' ? 'sk-key...' :
-																		'',
+																		providerName === 'cerebras' ? 'csk-key...' :
+																			'',
 
 			isPasswordField: true,
 		}
@@ -375,6 +380,12 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.moonshot),
 		_didFillInProviderSettings: undefined,
 	},
+	cerebras: {
+		...defaultCustomSettings,
+		...defaultProviderSettings.cerebras,
+		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.cerebras),
+		_didFillInProviderSettings: undefined,
+	},
 }
 
 
@@ -530,19 +541,25 @@ export type GlobalSettings = {
 		indexerParallelism?: number; // Indexer parallelism limit (default: 2)
 		routerCacheTtlMs?: number; // Router cache TTL in ms (default: 2000)
 	};
-	// Local-First AI: When enabled, heavily bias router toward local models
-	localFirstAI?: boolean; // Prefer local models over cloud models (default: false)
+	/**
+	 * @deprecated Use `routingPolicy === 'local-only'` instead. Retained for
+	 * backward compatibility with stored settings and to keep the VS Code
+	 * configuration key `cortexide.global.localFirstAI` readable. The settings
+	 * service migrates `localFirstAI: true` -> `routingPolicy: 'local-only'`
+	 * on load when `routingPolicy` is unset. Will be removed after a few
+	 * releases.
+	 */
+	localFirstAI?: boolean;
 	// Routing policy: controls how the model router selects between configured providers.
 	// - 'auto-cheapest': existing behaviour - score-based mixture of rules + learned (default)
 	// - 'free-tier':     prefer free-tier providers in quality-ranked order with quota tracking
 	// - 'local-only':    never dispatch to a cloud provider, even if the model selection points there
-	// - 'byok-paid':     prefer paid BYOK models, skipping free-tier ladders entirely
 	routingPolicy?: RoutingPolicy;
 }
 
 /** User-selectable routing policy for the model router. */
-export type RoutingPolicy = 'auto-cheapest' | 'free-tier' | 'local-only' | 'byok-paid';
-export const routingPolicies: readonly RoutingPolicy[] = ['auto-cheapest', 'free-tier', 'local-only', 'byok-paid'];
+export type RoutingPolicy = 'auto-cheapest' | 'free-tier' | 'local-only';
+export const routingPolicies: readonly RoutingPolicy[] = ['auto-cheapest', 'free-tier', 'local-only'];
 
 export const defaultGlobalSettings: GlobalSettings = {
 	autoRefreshModels: true,

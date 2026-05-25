@@ -334,6 +334,11 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://api.moonshot.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
 	}
+	else if (providerName === 'cerebras') {
+		// Cerebras Cloud - OpenAI-compatible endpoint, 1M tokens/day free tier
+		const thisConfig = settingsOfProvider[providerName]
+		return new OpenAI({ baseURL: 'https://api.cerebras.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
+	}
 
 	else throw new Error(`CortexIDE providerName was invalid: ${providerName}.`)
 }
@@ -1623,6 +1628,11 @@ export const sendLLMMessageToProviderImplementation = {
 		list: null,
 	},
 	moonshot: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendFIM: null,
+		list: null,
+	},
+	cerebras: {
 		sendChat: (params) => _sendOpenAICompatibleChat(params),
 		sendFIM: null,
 		list: null,

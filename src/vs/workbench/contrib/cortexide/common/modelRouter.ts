@@ -156,7 +156,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Pre-compute config to avoid repeated lookups
 		const settingsState = this.settingsService.state;
 		const perfSettings = settingsState.globalSettings.perf;
-		const localFirstAI = settingsState.globalSettings.localFirstAI ?? false;
+		// migrated from localFirstAI: 'local-only' policy is the canonical signal
+		// to bias toward local models. We continue to honour the deprecated
+		// `localFirstAI` flag for installs that haven't migrated yet.
+		const localFirstAI = (settingsState.globalSettings.routingPolicy === 'local-only')
+			|| (settingsState.globalSettings.localFirstAI ?? false);
 
 		// Fast path: Check cache for identical contexts
 		const cacheKey = this.getCacheKey(context);
@@ -812,7 +816,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		// Check Local-First AI setting
 		// PERFORMANCE: Use pre-computed value if provided, otherwise lookup (for backward compatibility)
-		const localFirstAICached = localFirstAI !== undefined ? localFirstAI : (settingsState.globalSettings.localFirstAI ?? false);
+		// migrated from localFirstAI: also honour `routingPolicy === 'local-only'`.
+		const localFirstAICached = localFirstAI !== undefined
+			? localFirstAI
+			: ((settingsState.globalSettings.routingPolicy === 'local-only')
+				|| (settingsState.globalSettings.localFirstAI ?? false));
 
 		let score = 0; // Start from 0, build up based on quality and fit
 
@@ -1543,7 +1551,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Score local models using mixture policy
 		// Note: hasOnlineModels is false here since we're in privacy/offline mode
 		// PERFORMANCE: Pre-compute localFirstAI to pass to scoreModel
-		const localFirstAI = settingsState.globalSettings.localFirstAI ?? false;
+		// migrated from localFirstAI: also honour `routingPolicy === 'local-only'`.
+		const localFirstAI = (settingsState.globalSettings.routingPolicy === 'local-only')
+			|| (settingsState.globalSettings.localFirstAI ?? false);
 		const scored = localModels.map(model => {
 			const ruleScore = this.scoreModel(model, context, settingsState, false, localFirstAI);
 			const learnedScore = this.getLearnedScore(model, context);
