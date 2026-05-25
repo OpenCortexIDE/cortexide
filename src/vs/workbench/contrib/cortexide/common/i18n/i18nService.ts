@@ -276,6 +276,23 @@ export const EN_TRANSLATIONS = {
 	'common.copy': 'Copy',
 	'common.copied': 'Copied!',
 	'common.open': 'Open',
+
+	// allow-any-unicode-next-line
+	// ── Routing / free-tier router ───────────────────────────────────────────
+	'routing.policy.label': 'Routing policy',
+	'routing.policy.description': 'Controls how CortexIDE picks between configured model providers.',
+	'routing.policy.autoCheapest': 'Auto (cheapest viable)',
+	'routing.policy.freeTier': 'Free-tier ladder',
+	'routing.policy.localOnly': 'Local only',
+	'routing.policy.byokPaid': 'BYOK paid models',
+	'routing.statusBar.label': 'Free-tier quota',
+	'routing.statusBar.none': 'No free-tier providers',
+	'routing.statusBar.entry': '{0}: {1}/{2} RPD',
+	'routing.statusBar.entryRpm': '{0}: {1}/{2} RPM',
+	'routing.statusBar.exhausted': '{0}: exhausted',
+	'routing.statusBar.uncapped': '{0}: uncapped',
+	'routing.statusBar.tooltipTitle': 'Free-tier provider quotas',
+	'routing.statusBar.tooltipNoProviders': 'No free-tier providers are configured. Add a free-tier API key (Groq, Gemini, OpenRouter, Mistral) to see live quota tracking.',
 } as const;
 
 // allow-any-unicode-next-line

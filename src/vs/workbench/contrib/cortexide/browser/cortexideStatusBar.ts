@@ -13,6 +13,9 @@ import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/
 import { IChatThreadService } from './chatThreadService.js';
 import { localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ProviderName } from '../common/cortexideSettingsTypes.js';
+import { IFreeTierQuotaService, FreeTierRemaining } from '../common/routing/freeTierQuotaService.js';
+import { freeTierIdOfProviderName, FREE_TIER_QUOTAS } from '../common/routing/freeTierConstants.js';
+import { ICortexideI18nService } from '../common/i18n/i18nService.js';
 
 export class CortexideStatusBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.cortexideStatusBar';
@@ -20,12 +23,15 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 	private modelEntry: IStatusbarEntryAccessor | undefined;
 	private latencyEntry: IStatusbarEntryAccessor | undefined;
 	private privacyEntry: IStatusbarEntryAccessor | undefined;
+	private freeTierEntry: IStatusbarEntryAccessor | undefined;
 	private readonly updateDisposables = this._register(new MutableDisposable());
 
 	constructor(
 		@IStatusbarService private readonly statusbarService: IStatusbarService,
 		@ICortexideSettingsService private readonly cortexideSettingsService: ICortexideSettingsService,
 		@IChatThreadService private readonly chatThreadService: IChatThreadService,
+		@IFreeTierQuotaService private readonly freeTierQuotaService: IFreeTierQuotaService,
+		@ICortexideI18nService private readonly i18nService: ICortexideI18nService,
 	) {
 		super();
 		this.create();
@@ -56,6 +62,14 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 			StatusbarAlignment.RIGHT,
 			{ location: { id: 'status.editor.mode', priority: 100.4 }, alignment: StatusbarAlignment.RIGHT }
 		);
+
+		// Free-tier quota widget
+		this.freeTierEntry = this.statusbarService.addEntry(
+			this.getFreeTierEntryProps(),
+			'cortexide.freeTier',
+			StatusbarAlignment.RIGHT,
+			{ location: { id: 'status.editor.mode', priority: 100.5 }, alignment: StatusbarAlignment.RIGHT }
+		);
 	}
 
 	private registerListeners(): void {
@@ -76,6 +90,20 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 		}, 500);
 
 		this._register({ dispose: () => clearInterval(latencyUpdateInterval) });
+
+		// Refresh free-tier widget on every quota mutation (recordCall, markExhausted)
+		this._register(this.freeTierQuotaService.onQuotaChange(() => {
+			this.freeTierEntry?.update(this.getFreeTierEntryProps());
+		}));
+		// Also refresh on settings changes so newly-added providers appear immediately
+		this._register(this.cortexideSettingsService.onDidChangeState(() => {
+			this.freeTierEntry?.update(this.getFreeTierEntryProps());
+		}));
+		// Slow tick to keep window rollovers visible to the user
+		const quotaTick = setInterval(() => {
+			this.freeTierEntry?.update(this.getFreeTierEntryProps());
+		}, 15_000);
+		this._register({ dispose: () => clearInterval(quotaTick) });
 	}
 
 	private getModelEntryProps(): IStatusbarEntry {
@@ -229,14 +257,109 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 		};
 	}
 
+	/**
+	 * Free-tier quota widget.  Hides itself when no free-tier providers are
+	 * configured; otherwise shows the most-constrained remaining metric for
+	 * the top-quality provider, with a multiline tooltip listing every
+	 * provider's status.
+	 */
+	private getFreeTierEntryProps(): IStatusbarEntry {
+		const t = (key: Parameters<typeof this.i18nService.t>[0], fallback?: string) => this.i18nService.t(key, fallback);
+		const configuredFreeTierProviders = this.collectConfiguredFreeTierProviders();
+		if (configuredFreeTierProviders.length === 0) {
+			return {
+				name: t('routing.statusBar.label', 'Free-tier quota'),
+				text: '',
+				ariaLabel: '',
+				tooltip: t('routing.statusBar.tooltipNoProviders', 'No free-tier providers configured.'),
+			};
+		}
+
+		// Build display text from the highest-quality configured provider.
+		// Sort by quality rank descending and use the first usable entry.
+		const enriched = configuredFreeTierProviders
+			.map(p => ({ ...p, remaining: this.freeTierQuotaService.getRemaining(p.providerId, p.modelName) }))
+			.sort((a, b) => b.qualityRank - a.qualityRank);
+
+		const top = enriched[0];
+		let text: string;
+		if (top.remaining.exhausted) {
+			text = `$(warning) ${this.formatProviderStatus(top.remaining)}`;
+		} else if (top.remaining.rpd !== null && top.remaining.limits.rpd !== null) {
+			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
+		} else if (top.remaining.rpm !== null && top.remaining.limits.rpm !== null) {
+			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
+		} else {
+			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
+		}
+
+		// Multiline tooltip listing every provider's status.
+		const lines: string[] = [t('routing.statusBar.tooltipTitle', 'Free-tier provider quotas')];
+		for (const p of enriched) {
+			lines.push(this.formatProviderStatus(p.remaining));
+		}
+		const tooltip = lines.join('\n');
+
+		return {
+			name: t('routing.statusBar.label', 'Free-tier quota'),
+			text,
+			ariaLabel: text,
+			tooltip,
+		};
+	}
+
+	/**
+	 * Inspect settings to find configured free-tier providers with at least
+	 * one visible model.  Returns provider id + first visible model name.
+	 */
+	private collectConfiguredFreeTierProviders(): Array<{ providerId: NonNullable<ReturnType<typeof freeTierIdOfProviderName>>; providerName: ProviderName; modelName: string; qualityRank: number }> {
+		const settings = this.cortexideSettingsService.state;
+		const out: Array<{ providerId: NonNullable<ReturnType<typeof freeTierIdOfProviderName>>; providerName: ProviderName; modelName: string; qualityRank: number }> = [];
+		for (const providerName of Object.keys(settings.settingsOfProvider) as ProviderName[]) {
+			const ps = settings.settingsOfProvider[providerName];
+			if (!ps._didFillInProviderSettings) continue;
+			const ftId = freeTierIdOfProviderName(providerName);
+			if (ftId === null) continue;
+			const firstModel = ps.models.find(m => !m.isHidden);
+			if (!firstModel) continue;
+			out.push({
+				providerId: ftId,
+				providerName,
+				modelName: firstModel.modelName,
+				qualityRank: FREE_TIER_QUOTAS[ftId].qualityRank,
+			});
+		}
+		return out;
+	}
+
+	private formatProviderStatus(remaining: FreeTierRemaining): string {
+		const t = (key: Parameters<typeof this.i18nService.t>[0], ...args: string[]) =>
+			args.reduce((acc, arg, i) => acc.replace(`{${i}}`, arg), this.i18nService.t(key));
+		const name = remaining.providerId;
+		if (remaining.exhausted) {
+			return t('routing.statusBar.exhausted', name);
+		}
+		if (remaining.rpd !== null && remaining.limits.rpd !== null) {
+			const used = remaining.limits.rpd - remaining.rpd;
+			return t('routing.statusBar.entry', name, String(used), String(remaining.limits.rpd));
+		}
+		if (remaining.rpm !== null && remaining.limits.rpm !== null) {
+			const used = remaining.limits.rpm - remaining.rpm;
+			return t('routing.statusBar.entryRpm', name, String(used), String(remaining.limits.rpm));
+		}
+		return t('routing.statusBar.uncapped', name);
+	}
+
 	override dispose(): void {
 		super.dispose();
 		this.modelEntry?.dispose();
 		this.latencyEntry?.dispose();
 		this.privacyEntry?.dispose();
+		this.freeTierEntry?.dispose();
 		this.modelEntry = undefined;
 		this.latencyEntry = undefined;
 		this.privacyEntry = undefined;
+		this.freeTierEntry = undefined;
 	}
 }
 
