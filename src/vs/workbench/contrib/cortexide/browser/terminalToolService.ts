@@ -297,7 +297,9 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 
 			const cmdCap = await this._waitForCommandDetectionCapability(terminal)
-			// if (!cmdCap) throw new Error(`There was an error using the terminal: CommandDetection capability did not mount yet. Please try again in a few seconds or report this to the Void team.`)
+			if (!cmdCap) {
+				throw new Error(`Terminal CommandDetection capability did not mount within 10s. The command output cannot be detected reliably. Try again in a few seconds — if this persists, the shell integration may not be enabled.`)
+			}
 
 			// Prefer the structured command-detection capability when available
 
