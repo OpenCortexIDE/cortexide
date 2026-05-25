@@ -530,8 +530,15 @@ export type GlobalSettings = {
 		indexerParallelism?: number; // Indexer parallelism limit (default: 2)
 		routerCacheTtlMs?: number; // Router cache TTL in ms (default: 2000)
 	};
-	// Local-First AI: When enabled, heavily bias router toward local models
-	localFirstAI?: boolean; // Prefer local models over cloud models (default: false)
+	/**
+	 * @deprecated Use `routingPolicy === 'local-only'` instead. Retained for
+	 * backward compatibility with stored settings and to keep the VS Code
+	 * configuration key `cortexide.global.localFirstAI` readable. The settings
+	 * service migrates `localFirstAI: true` -> `routingPolicy: 'local-only'`
+	 * on load when `routingPolicy` is unset. Will be removed after a few
+	 * releases.
+	 */
+	localFirstAI?: boolean;
 	// Routing policy: controls how the model router selects between configured providers.
 	// - 'auto-cheapest': existing behaviour - score-based mixture of rules + learned (default)
 	// - 'free-tier':     prefer free-tier providers in quality-ranked order with quota tracking

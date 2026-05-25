@@ -382,6 +382,16 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 			if (persistedRoutingPolicy === 'byok-paid') {
 				readS.globalSettings.routingPolicy = 'auto-cheapest';
 			}
+
+			// Migrate the deprecated `localFirstAI` flag into `routingPolicy`.
+			// `localFirstAI` is being retired in favour of the unified routing
+			// policy. We only translate when the user hasn't explicitly chosen
+			// a policy yet so an explicit selection always wins.
+			if (readS.globalSettings.routingPolicy === undefined) {
+				readS.globalSettings.routingPolicy = readS.globalSettings.localFirstAI === true
+					? 'local-only'
+					: 'auto-cheapest';
+			}
 		}
 		catch (e) {
 			readS = defaultState()
