@@ -140,6 +140,35 @@ export const EN_TRANSLATIONS = {
 	'onboarding.headline': 'Build with the editor AI actually ships in',
 
 	// allow-any-unicode-next-line
+	// ── Express onboarding (zero-friction path) ───────────────────────────────
+	'express.title': 'Setting up local AI…',
+	'express.subtitle': 'CortexIDE is preparing your private, on-device coding assistant.',
+	'express.detecting': 'Detecting your hardware…',
+	'express.detected': 'Detected {0} GB of GPU memory.',
+	'express.detectedNoGPU': 'No discrete GPU detected — using a small model.',
+	'express.installPromptTitle': 'Install Ollama?',
+	'express.installPromptBody': 'CortexIDE will install Ollama, the local AI runtime, to run models privately on your computer. No data leaves your device.',
+	'express.installConfirm': 'Install Ollama',
+	'express.installDecline': 'Use a free cloud key instead',
+	'express.installing': 'Installing Ollama…',
+	'express.pulling': 'Downloading {0}…',
+	'express.pullingPercent': 'Downloading {0} ({1}%)',
+	'express.ready': 'Ready! Local AI is set up.',
+	'express.startChatting': 'Start chatting',
+	'express.customize': 'Customize setup',
+	'express.fallbackTitle': 'Use a free cloud model',
+	'express.fallbackBody': 'No local install needed. Groq offers a free API tier with fast Llama models. Get a key (takes 60 seconds), paste it below, and you are ready.',
+	'express.openGroqKeyPage': 'Open Groq key page',
+	'express.pasteKeyPlaceholder': 'Paste your Groq API key here (starts with gsk_…)',
+	'express.useGroqKey': 'Continue with Groq',
+	'express.invalidKey': 'That key does not look right. Groq keys start with "gsk_".',
+	'express.error.installFailed': 'Ollama install failed. You can use a free cloud key instead.',
+	'express.error.pullFailed': 'Model download failed. You can retry or use a free cloud key instead.',
+	'express.retry': 'Retry',
+	'express.useCloudInstead': 'Use a free cloud key instead',
+	'express.dismiss': 'Skip for now',
+
+	// allow-any-unicode-next-line
 	// ── Chat / Sidebar ───────────────────────────────────────────────────────
 	'chat.placeholder': 'Ask CortexIDE anything…',
 	'chat.placeholderAgent': 'Describe a task for the agent…',

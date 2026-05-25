@@ -15,6 +15,7 @@ import { ColorScheme } from '../../../../../../../platform/theme/common/theme.js
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { FileAccess } from '../../../../../../../base/common/network.js';
 import { LocalSetupWizard } from './LocalSetupWizard.js';
+import { ExpressOnboardingFlow } from './ExpressOnboardingFlow.js';
 
 const OVERRIDE_VALUE = false
 
@@ -34,12 +35,37 @@ const welcomeStats = [
 	{ label: 'Agent tools', value: '27 built-ins', detail: 'File edits, terminal, web search, LSP navigation, code review, and more' },
 ];
 
+// Returns true if the user has configured at least one provider with a complete
+// set of fields. Used to decide whether to show the express path (no provider yet)
+// or fall back to the full multi-step wizard (user has started configuring providers).
+const userHasAnyProvider = (state: ReturnType<typeof useSettingsState>): boolean => {
+	const providers = state.settingsOfProvider as Record<string, { _didFillInProviderSettings?: boolean }>;
+	for (const key of Object.keys(providers)) {
+		if (providers[key]?._didFillInProviderSettings) return true;
+	}
+	return false;
+}
+
 export const VoidOnboarding = () => {
+
+	const accessor = useAccessor()
+	const settingsService = accessor.get('ICortexideSettingsService')
 
 	const voidSettingsState = useSettingsState()
 	const isOnboardingComplete = voidSettingsState.globalSettings.isOnboardingComplete || OVERRIDE_VALUE
 
 	const isDark = useIsDark()
+
+	// "Use the full guided wizard" escape hatch — flips the express UI off
+	// for power users who want the legacy multi-step flow.
+	const [useExpressFlow, setUseExpressFlow] = useState<boolean>(true)
+
+	const hasAnyProvider = userHasAnyProvider(voidSettingsState)
+	// Express path is the default when:
+	//   - onboarding is incomplete, AND
+	//   - no provider is configured yet (i.e. genuine first-launch), AND
+	//   - the user has not opted into the legacy wizard.
+	const showExpressFlow = useExpressFlow && !isOnboardingComplete && !hasAnyProvider
 
 	return (
 		<div className={`@@void-scope ${isDark ? 'dark' : ''}`}>
@@ -58,7 +84,19 @@ export const VoidOnboarding = () => {
 			>
 				<ErrorBoundary>
 					<div className="w-full max-w-[1200px] py-6">
-						<VoidOnboardingContent />
+						{showExpressFlow ? (
+							<ExpressOnboardingFlow
+								onCustomize={() => setUseExpressFlow(false)}
+								onDismiss={() => {
+									// "Skip for now" / "Start chatting" - mark onboarding complete so
+									// the overlay closes. The full settings pane remains reachable
+									// for later configuration.
+									settingsService.setGlobalSetting('isOnboardingComplete', true)
+								}}
+							/>
+						) : (
+							<VoidOnboardingContent />
+						)}
 					</div>
 				</ErrorBoundary>
 			</div>
