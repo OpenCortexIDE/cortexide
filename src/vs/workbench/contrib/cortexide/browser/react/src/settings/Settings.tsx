@@ -1932,6 +1932,29 @@ export const Settings = () => {
 											</div>
 										</div>
 
+										{/* Routing Policy Section */}
+										<ErrorBoundary>
+											<div>
+												<h4 className={`text-base`}>Routing policy</h4>
+												<div className='text-sm text-void-fg-3 mt-1'>
+													Controls how CortexIDE picks between configured model providers. Free-tier ladder tracks per-provider quotas and auto-fails-over on 429.
+												</div>
+												<div className='my-2'>
+													<select
+														className='text-xs bg-void-bg-1 text-void-fg-1 border border-void-border-1 rounded px-1 py-0.5'
+														value={settingsState.globalSettings.routingPolicy ?? 'auto-cheapest'}
+														onChange={(e) => cortexideSettingsService.setGlobalSetting('routingPolicy', e.target.value as ('auto-cheapest' | 'free-tier' | 'local-only' | 'byok-paid'))}
+														title='Routing policy'
+													>
+														<option value='auto-cheapest'>Auto (cheapest viable)</option>
+														<option value='free-tier'>Free-tier ladder</option>
+														<option value='local-only'>Local only</option>
+														<option value='byok-paid'>BYOK paid models</option>
+													</select>
+												</div>
+											</div>
+										</ErrorBoundary>
+
 										{/* YOLO Mode Section */}
 										<ErrorBoundary>
 											<div>

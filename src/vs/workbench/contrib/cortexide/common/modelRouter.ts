@@ -5,7 +5,7 @@
 
 import { ProviderName, ModelSelection } from './cortexideSettingsTypes.js';
 import { getModelCapabilities, CortexideStaticModelInfo } from './modelCapabilities.js';
-import { ICortexideSettingsService } from './cortexideSettingsService.js';
+import { ICortexideSettingsService, CortexideSettingsState } from './cortexideSettingsService.js';
 import { localProviderNames } from './cortexideSettingsTypes.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -14,6 +14,8 @@ import { RoutingEvaluationService } from './routingEvaluation.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
+import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
+import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
 
 /**
  * Task types for automatic model selection
@@ -90,7 +92,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 	constructor(
 		@ICortexideSettingsService private readonly settingsService: ICortexideSettingsService,
-		@IStorageService private readonly storageService: IStorageService
+		@IStorageService private readonly storageService: IStorageService,
+		@IFreeTierQuotaService private readonly freeTierQuotaService: IFreeTierQuotaService,
 	) {
 		super();
 		this.evaluationService = new RoutingEvaluationService(this.storageService);
@@ -196,6 +199,34 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (localFirstAI) {
 			// In Local-First mode, prefer local models but allow cloud as fallback
 			// This is handled in scoreModel by applying heavy bonuses to local models
+		}
+
+		// Routing policy: 'free-tier' -> consult the smart free-tier router first.
+		// If the ladder is empty (no configured free-tier providers, all exhausted,
+		// or privacy gate engaged), fall through to the standard scoring path so
+		// the user is never stranded.
+		const routingPolicy = settingsState.globalSettings.routingPolicy ?? 'auto-cheapest';
+		if (routingPolicy === 'free-tier') {
+			const ladderDecision = this.routeViaFreeTierLadder(context, settingsState);
+			if (ladderDecision) {
+				this.routingCache.set(cacheKey, { decision: ladderDecision, timestamp: Date.now() });
+				return ladderDecision;
+			}
+		} else if (routingPolicy === 'local-only') {
+			// Hard local-only: refuse to dispatch to any cloud provider.
+			const localDecision = this.routeToLocalModel(context);
+			if (localDecision) {
+				this.routingCache.set(cacheKey, { decision: localDecision, timestamp: Date.now() });
+				return localDecision;
+			}
+			return {
+				modelSelection: { providerName: 'auto', modelName: 'auto' },
+				confidence: 0.0,
+				reasoning: 'Routing policy is local-only but no local models are configured.',
+				qualityTier: 'abstain',
+				shouldAbstain: true,
+				abstainReason: 'No local models for local-only routing policy',
+			};
 		}
 
 		// Quality gate: pre-flight quality estimate
@@ -1438,6 +1469,53 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 * Route to a local model (privacy/offline mode)
 	 * Returns null if no local models are available (caller must handle fallback)
 	 */
+	/**
+	 * Route via the smart free-tier ladder.  Returns `null` when no free-tier
+	 * provider is currently usable (caller should fall through to standard
+	 * scoring or local fallback).
+	 *
+	 * Cloud providers are only considered when the privacy gate is NOT engaged
+	 * - `requiresPrivacy` short-circuits to `null` here so callers can route
+	 * to local.
+	 */
+	private routeViaFreeTierLadder(
+		context: TaskContext,
+		settingsState: CortexideSettingsState,
+	): RoutingDecision | null {
+		if (context.requiresPrivacy) {
+			return null;
+		}
+
+		const configured = this.getAvailableModels(settingsState);
+		const quotas = this.freeTierQuotaService.getAllRemaining();
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas,
+			privacyMode: !!context.requiresPrivacy,
+		});
+
+		const top = pickTopFromLadder(ladder);
+		if (!top) {
+			return null;
+		}
+
+		const fallbackChain: ModelSelection[] = ladder.slice(1, 4).map(c => ({
+			providerName: c.providerName,
+			modelName: c.modelName,
+		}));
+
+		const timeoutMs = this.getModelTimeout(top, context, settingsState);
+
+		return {
+			modelSelection: top,
+			confidence: 0.75,
+			reasoning: `Free-tier ladder selected ${top.providerName}/${top.modelName} (next: ${fallbackChain.map(m => m.providerName).join(', ') || 'none'})`,
+			fallbackChain,
+			qualityTier: 'cheap_fast',
+			timeoutMs,
+		};
+	}
+
 	private routeToLocalModel(context: TaskContext): RoutingDecision | null {
 		const settingsState = this.settingsService.state;
 		const localModels: ModelSelection[] = [];

@@ -18,6 +18,8 @@ import { ISecretDetectionService } from './secretDetectionService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { isWeb } from '../../../../base/common/platform.js';
+import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
+import { freeTierIdOfProviderName } from './routing/freeTierConstants.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -69,6 +71,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@IMCPService private readonly mcpService: IMCPService,
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@ILogService private readonly logService: ILogService,
+		@IFreeTierQuotaService private readonly freeTierQuotaService: IFreeTierQuotaService,
 	) {
 		super()
 
@@ -236,9 +239,42 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		// add state for request id
 		const requestId = generateUuid();
+
+		// Free-tier quota tracking: wrap success/error callbacks so we update
+		// the in-process quota service whenever a call completes or hits 429.
+		// Wrapping happens here (common/ layer) rather than electron-main to
+		// keep the quota service strictly in common/ - the impl has no way to
+		// reach back to common/ services.
+		const freeTierId = freeTierIdOfProviderName(modelSelection.providerName);
+		const wrappedOnFinalMessage = freeTierId === null
+			? onFinalMessage
+			: (params: EventLLMMessageOnFinalMessageParams) => {
+				try {
+					// Cheap proxy for tokens until SDK responses expose real usage.
+					// Output tokens ~ chars/4 is the standard approximation.
+					const estTokens = Math.ceil((params.fullText?.length ?? 0) / 4);
+					this.freeTierQuotaService.recordCall(freeTierId, modelSelection.modelName, estTokens);
+				} catch (err) {
+					this.logService.warn('[FreeTierQuota] recordCall failed', err);
+				}
+				onFinalMessage(params);
+			};
+		const wrappedOnError = freeTierId === null
+			? onError
+			: (params: EventLLMMessageOnErrorParams) => {
+				try {
+					if (isRateLimitError(params)) {
+						this.freeTierQuotaService.markExhausted(freeTierId, parseRetryAt(params));
+					}
+				} catch (err) {
+					this.logService.warn('[FreeTierQuota] markExhausted failed', err);
+				}
+				onError(params);
+			};
+
 		this.llmMessageHooks.onText[requestId] = onText
-		this.llmMessageHooks.onFinalMessage[requestId] = onFinalMessage
-		this.llmMessageHooks.onError[requestId] = onError
+		this.llmMessageHooks.onFinalMessage[requestId] = wrappedOnFinalMessage
+		this.llmMessageHooks.onError[requestId] = wrappedOnError
 		this.llmMessageHooks.onAbort[requestId] = onAbort // used internally only
 
 		// params will be stripped of all its functions over the IPC channel
@@ -307,6 +343,60 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		delete this.listHooks.openAICompat.success[requestId]
 		delete this.listHooks.openAICompat.error[requestId]
 	}
+}
+
+/**
+ * Detect 429 / rate-limit errors from the provider error payload.  The
+ * underlying impl normalises a wide range of provider-specific shapes into a
+ * single `message` string, plus an opaque `fullError`.  We sniff both.
+ */
+function isRateLimitError(params: EventLLMMessageOnErrorParams): boolean {
+	const msg = (params.message || '').toLowerCase();
+	if (msg.includes('rate limit') || msg.includes('rate-limit') || msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota')) {
+		return true;
+	}
+	const full = params.fullError as unknown;
+	if (full && typeof full === 'object') {
+		const candidate = full as { status?: unknown; code?: unknown };
+		if (candidate.status === 429 || candidate.code === 429) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Best-effort: extract a retry-at timestamp from a rate-limit error.  If
+ * nothing is parseable, returns `null` - the quota service applies a
+ * conservative 60s default.
+ */
+function parseRetryAt(params: EventLLMMessageOnErrorParams): number | null {
+	const full = params.fullError as unknown;
+	if (full && typeof full === 'object') {
+		const candidate = full as { headers?: Record<string, string>; retryAfter?: unknown };
+		const headers = candidate.headers;
+		if (headers && typeof headers === 'object') {
+			const retryAfter = headers['retry-after'] || headers['Retry-After'];
+			if (retryAfter) {
+				const seconds = Number(retryAfter);
+				if (Number.isFinite(seconds) && seconds > 0) {
+					return Date.now() + seconds * 1000;
+				}
+			}
+		}
+		if (typeof candidate.retryAfter === 'number' && candidate.retryAfter > 0) {
+			return Date.now() + candidate.retryAfter * 1000;
+		}
+	}
+	// Try to parse "...retry in 57s..." patterns from the message
+	const m = (params.message || '').match(/retry in\s+(\d+(?:\.\d+)?)\s*s/i);
+	if (m) {
+		const seconds = Number(m[1]);
+		if (Number.isFinite(seconds) && seconds > 0) {
+			return Date.now() + seconds * 1000;
+		}
+	}
+	return null;
 }
 
 registerSingleton(ILLMMessageService, LLMMessageService, InstantiationType.Eager);

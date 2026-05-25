@@ -532,7 +532,17 @@ export type GlobalSettings = {
 	};
 	// Local-First AI: When enabled, heavily bias router toward local models
 	localFirstAI?: boolean; // Prefer local models over cloud models (default: false)
+	// Routing policy: controls how the model router selects between configured providers.
+	// - 'auto-cheapest': existing behaviour - score-based mixture of rules + learned (default)
+	// - 'free-tier':     prefer free-tier providers in quality-ranked order with quota tracking
+	// - 'local-only':    never dispatch to a cloud provider, even if the model selection points there
+	// - 'byok-paid':     prefer paid BYOK models, skipping free-tier ladders entirely
+	routingPolicy?: RoutingPolicy;
 }
+
+/** User-selectable routing policy for the model router. */
+export type RoutingPolicy = 'auto-cheapest' | 'free-tier' | 'local-only' | 'byok-paid';
+export const routingPolicies: readonly RoutingPolicy[] = ['auto-cheapest', 'free-tier', 'local-only', 'byok-paid'];
 
 export const defaultGlobalSettings: GlobalSettings = {
 	autoRefreshModels: true,
@@ -589,6 +599,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 		routerCacheTtlMs: 2000, // 2 second cache TTL (caching enabled)
 	},
 	localFirstAI: false, // Local-First AI disabled by default (users can enable for privacy/performance)
+	routingPolicy: 'auto-cheapest', // Existing scoring behaviour remains the default
 }
 
 export type GlobalSettingName = keyof GlobalSettings
