@@ -208,10 +208,6 @@ export const builtinTools: {
 		}
 	},
 
-	// pathname_search: {
-	// 	name: 'pathname_search',
-	// 	description: `Returns all pathnames that match a given \`find\`-style query over the entire workspace. ONLY searches file names. ONLY searches the current workspace. You should use this when looking for a file with a specific name or path. ${paginationHelper.desc}`,
-
 	search_pathnames_only: {
 		name: 'search_pathnames_only',
 		description: `Returns all pathnames that match a given query (searches ONLY file names). You should use this when looking for a file with a specific name or path.`,
@@ -451,6 +447,38 @@ export const builtinTools: {
 		params: {
 			uri: { description: `Optional. The FULL path to a specific file. Leave empty to get diagnostics for ALL files in the workspace.` },
 		}
+	},
+
+	// --- multi-block atomic edit ---
+
+	multi_edit: {
+		name: 'multi_edit',
+		description: `Apply multiple text replacements to a single file in one atomic operation. Pre-checks every old_string is found before applying anything; if any miss, no edits are applied. Prefer this over multiple edit_file calls when changing 2+ places in the same file.`,
+		params: {
+			...uriParam('file'),
+			edits: { description: 'Array of edits. Each item: { "old_string": "...", "new_string": "...", "replace_all": false }. old_string MUST match the file exactly (whitespace included). Set replace_all=true to replace every occurrence; default false replaces only the first.' },
+		},
+	},
+
+	// --- glob pattern file listing (mtime-sorted) ---
+
+	glob_files: {
+		name: 'glob_files',
+		description: `Returns file paths matching a glob pattern, sorted by modification time (newest first). Use this when you want files of a certain type or in a certain area, recently-changed-first — e.g. "src/**/*.ts" or "**/test_*.py". For substring filename matching, use search_pathnames_only instead.`,
+		params: {
+			pattern: { description: 'Glob pattern. Examples: "**/*.ts", "src/**/*.{tsx,ts}", "test/**/test_*.py".' },
+			limit: { description: 'Optional. Max files to return (default 100, max 1000).' },
+		},
+	},
+
+	// --- model-managed task list (per-session) ---
+
+	todo_write: {
+		name: 'todo_write',
+		description: `Record or update your task list for the current session. Use this at the START of a multi-step task to plan, and after EACH step to mark progress. Replaces the entire list each call — include all tasks every time. Status values: "pending", "in_progress" (only ONE at a time), "completed".`,
+		params: {
+			todos: { description: 'Array of { "content": "task description", "status": "pending" | "in_progress" | "completed" }. Order matters — list in execution order.' },
+		},
 	},
 
 	// --- explicit completion signal ---
