@@ -23,7 +23,7 @@ import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js'
 import { timeout } from '../../../../base/common/async.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
-import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
+import { DIVIDER, FINAL, MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, ORIGINAL } from '../common/prompt/prompts.js'
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
 import { INotificationService } from '../../../../platform/notification/common/notification.js'
@@ -200,6 +200,10 @@ export class ToolsService implements IToolsService {
 	private readonly _browseCache = new LRUCache<string, { content: string, title?: string, url: string, metadata?: { publishedDate?: string }, timestamp: number }>(100);
 	private readonly _cacheTTL = 60 * 60 * 1000; // 1 hour
 	private readonly _offlineGate: OfflinePrivacyGate;
+	private _latestTodos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
+	public getLatestTodos(): ReadonlyArray<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> {
+		return this._latestTodos;
+	}
 
 	constructor(
 		@IFileService fileService: IFileService,
@@ -494,6 +498,76 @@ export class ToolsService implements IToolsService {
 				const { uri: uriUnknown } = params;
 				const uri = validateOptionalURI(uriUnknown, workspaceContextService);
 				return { uri };
+			},
+
+			multi_edit: (params: RawToolParamsObj) => {
+				const { uri: uriUnknown, edits: editsUnknown } = params;
+				const uri = validateURI(uriUnknown, workspaceContextService, true);
+
+				let editsRaw: unknown = editsUnknown;
+				if (typeof editsUnknown === 'string') {
+					try { editsRaw = JSON.parse(editsUnknown); }
+					catch (e) { throw new Error(`multi_edit: edits must be a JSON array. Parse error: ${e}`); }
+				}
+				if (!Array.isArray(editsRaw)) {
+					throw new Error(`multi_edit: edits must be an array of { old_string, new_string, replace_all? } objects, got ${typeof editsRaw}.`);
+				}
+				if (editsRaw.length === 0) {
+					throw new Error(`multi_edit: edits array must contain at least one entry.`);
+				}
+				if (editsRaw.length > 50) {
+					throw new Error(`multi_edit: edits array capped at 50 entries per call (got ${editsRaw.length}). Split into multiple calls or use rewrite_file.`);
+				}
+
+				const edits = editsRaw.map((e: unknown, i: number) => {
+					if (typeof e !== 'object' || e === null) throw new Error(`multi_edit: edits[${i}] must be an object.`);
+					const obj = e as Record<string, unknown>;
+					const oldString = validateStr(`edits[${i}].old_string`, obj.old_string ?? obj.oldString);
+					const newString = validateStr(`edits[${i}].new_string`, obj.new_string ?? obj.newString);
+					if (oldString === newString) throw new Error(`multi_edit: edits[${i}] old_string and new_string are identical (no-op).`);
+					if (oldString === '') throw new Error(`multi_edit: edits[${i}] old_string is empty — use rewrite_file or create_file_or_folder for new content.`);
+					const replaceAll = validateBoolean(obj.replace_all ?? obj.replaceAll, { default: false });
+					return { oldString, newString, replaceAll };
+				});
+
+				return { uri, edits };
+			},
+
+			glob_files: (params: RawToolParamsObj) => {
+				const { pattern: patternUnknown, limit: limitUnknown } = params;
+				const pattern = validateStr('pattern', patternUnknown);
+				if (!pattern.trim()) throw new Error('glob_files: pattern cannot be empty.');
+				const limitRaw = validateNumber(limitUnknown, { default: 100 });
+				const limit = Math.max(1, Math.min(limitRaw ?? 100, 1000));
+				return { pattern, limit };
+			},
+
+			todo_write: (params: RawToolParamsObj) => {
+				const { todos: todosUnknown } = params;
+				let todosRaw: unknown = todosUnknown;
+				if (typeof todosUnknown === 'string') {
+					try { todosRaw = JSON.parse(todosUnknown); }
+					catch (e) { throw new Error(`todo_write: todos must be a JSON array. Parse error: ${e}`); }
+				}
+				if (!Array.isArray(todosRaw)) {
+					throw new Error(`todo_write: todos must be an array of { content, status } objects, got ${typeof todosRaw}.`);
+				}
+				if (todosRaw.length > 50) {
+					throw new Error(`todo_write: todos array capped at 50 entries (got ${todosRaw.length}).`);
+				}
+				const validStatuses = new Set(['pending', 'in_progress', 'completed']);
+				let inProgressCount = 0;
+				const todos = todosRaw.map((t: unknown, i: number) => {
+					if (typeof t !== 'object' || t === null) throw new Error(`todo_write: todos[${i}] must be an object.`);
+					const obj = t as Record<string, unknown>;
+					const content = validateStr(`todos[${i}].content`, obj.content);
+					const status = validateStr(`todos[${i}].status`, obj.status);
+					if (!validStatuses.has(status)) throw new Error(`todo_write: todos[${i}].status must be one of pending/in_progress/completed, got "${status}".`);
+					if (status === 'in_progress') inProgressCount++;
+					return { content, status: status as 'pending' | 'in_progress' | 'completed' };
+				});
+				if (inProgressCount > 1) throw new Error(`todo_write: only one task may be in_progress at a time (got ${inProgressCount}).`);
+				return { todos };
 			},
 
 			attempt_completion: (params: RawToolParamsObj) => {
@@ -1566,6 +1640,88 @@ export class ToolsService implements IToolsService {
 				return { result: { diagnostics } };
 			},
 
+			multi_edit: async ({ uri, edits }) => {
+				await cortexideModelService.initializeModel(uri);
+				const { model } = await cortexideModelService.getModelSafe(uri);
+				if (model === null) throw new Error(`File does not exist: ${uri.fsPath}`);
+
+				const streamState = this.commandBarService.getStreamState(uri);
+				if (streamState === 'streaming') {
+					throw new Error(`Cannot edit file ${uri.fsPath}: another operation is currently streaming changes to this file.`);
+				}
+
+				// Pre-check: every old_string must appear at least once in the file content.
+				// This makes the operation atomic — if any block won't match, we don't apply ANY of them.
+				const content = model.getValue(EndOfLinePreference.LF);
+				for (let i = 0; i < edits.length; i++) {
+					if (!content.includes(edits[i].oldString)) {
+						const preview = edits[i].oldString.length > 80
+							? edits[i].oldString.slice(0, 80) + '…'
+							: edits[i].oldString;
+						throw new Error(`multi_edit: edits[${i}] old_string not found in ${uri.fsPath}. No edits applied. Search snippet: ${JSON.stringify(preview)}`);
+					}
+				}
+
+				// Build a single SEARCH/REPLACE-blocks string from all edits. For replaceAll=true edits,
+				// emit one block per occurrence so the existing apply engine handles each match.
+				const blocks: string[] = [];
+				for (const edit of edits) {
+					if (edit.replaceAll) {
+						const occurrences = content.split(edit.oldString).length - 1;
+						for (let n = 0; n < occurrences; n++) {
+							blocks.push(`${ORIGINAL}\n${edit.oldString}\n${DIVIDER}\n${edit.newString}\n${FINAL}`);
+						}
+					} else {
+						blocks.push(`${ORIGINAL}\n${edit.oldString}\n${DIVIDER}\n${edit.newString}\n${FINAL}`);
+					}
+				}
+				const searchReplaceBlocks = blocks.join('\n\n');
+
+				await editCodeService.callBeforeApplyOrEdit(uri);
+				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks });
+
+				const appliedCount = edits.length;
+				const lintErrorsPromise = Promise.resolve().then(async () => {
+					await timeout(2000);
+					const { lintErrors } = this._getLintErrors(uri);
+					return { lintErrors, appliedCount };
+				});
+				return { result: lintErrorsPromise };
+			},
+
+			glob_files: async ({ pattern, limit }) => {
+				const folders = workspaceContextService.getWorkspace().folders.map(f => f.uri);
+				const query = queryBuilder.file(folders, {
+					filePattern: pattern,
+					sortByScore: false,
+				});
+				const data = await searchService.fileSearch(query, CancellationToken.None);
+				const allResults = data.results.slice(0, Math.max(limit * 5, 500)); // cap pre-stat work
+
+				// Fetch stat for each result to get mtime; ignore failures (file may have moved)
+				const stated: Array<{ uri: URI; mtime: number; size: number }> = [];
+				for (const r of allResults) {
+					try {
+						const stat = await fileService.stat(r.resource);
+						stated.push({ uri: r.resource, mtime: stat.mtime ?? 0, size: stat.size ?? 0 });
+					} catch { /* file may have moved between search and stat — skip */ }
+				}
+
+				// Sort newest first by mtime
+				stated.sort((a, b) => b.mtime - a.mtime);
+				const truncated = stated.length > limit;
+				const files = stated.slice(0, limit);
+				return { result: { files, truncated } };
+			},
+
+			todo_write: async ({ todos }) => {
+				// Latest list replaces any prior list for this session.
+				// Storage in chatThreadService thread state is a follow-up; for now the
+				// echoed result is what the model and (eventually) the UI consume.
+				this._latestTodos = todos;
+				return { result: { acknowledged: true as const, count: todos.length } };
+			},
+
 			attempt_completion: async ({ result, command }) => {
 				// No side effects — signals the agent loop to terminate.
 				return { result: { acknowledged: true as const } };
@@ -1785,6 +1941,29 @@ export class ToolsService implements IToolsService {
 				});
 				const scope = params.uri ? params.uri.fsPath : 'workspace';
 				return `Diagnostics for ${scope} — ${result.diagnostics.length} issue(s):\n${lines.join('\n')}`;
+			},
+
+			multi_edit: (params, result) => {
+				const lintStr = result.lintErrors && result.lintErrors.length > 0
+					? `\n\nLint errors after applying ${result.appliedCount} edits:\n${stringifyLintErrors(result.lintErrors)}`
+					: `\n\n${result.appliedCount} edit(s) applied. No new lint errors.`;
+				return `${params.uri.fsPath}: applied ${result.appliedCount} atomic edit(s).${lintStr}`;
+			},
+
+			glob_files: (params, result) => {
+				if (result.files.length === 0) {
+					return `glob_files matched 0 files for pattern "${params.pattern}".`;
+				}
+				const lines = result.files.map(f => {
+					const date = new Date(f.mtime).toISOString().slice(0, 19).replace('T', ' ');
+					return `${date}  ${f.size.toString().padStart(8)}  ${f.uri.fsPath}`;
+				});
+				const truncStr = result.truncated ? `\n(truncated to ${params.limit} — increase \`limit\` for more)` : '';
+				return `glob_files matched ${result.files.length} file(s) for "${params.pattern}", newest first:\n${lines.join('\n')}${truncStr}`;
+			},
+
+			todo_write: (_params, result) => {
+				return `Recorded ${result.count} task(s).`;
 			},
 
 			attempt_completion: (params, _result) => {

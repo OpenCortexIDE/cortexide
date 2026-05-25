@@ -28,6 +28,7 @@ export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: '
 	'delete_file_or_folder': 'edits',
 	'rewrite_file': 'edits',
 	'edit_file': 'edits',
+	'multi_edit': 'edits',
 	'run_command': 'terminal',
 	'run_nl_command': 'terminal',
 	'run_persistent_command': 'terminal',
@@ -81,6 +82,12 @@ export type BuiltinToolCallParams = {
 	// --- fast grep + workspace diagnostics ---
 	'grep_search': { query: string; includePattern: string | null; excludePattern: string | null; isRegex: boolean; caseSensitive: boolean },
 	'get_diagnostics': { uri: URI | null },
+	// --- multi-block atomic edit ---
+	'multi_edit': { uri: URI, edits: Array<{ oldString: string; newString: string; replaceAll: boolean }> },
+	// --- glob pattern file listing (mtime-sorted) ---
+	'glob_files': { pattern: string; limit: number },
+	// --- model-managed task list (per-session) ---
+	'todo_write': { todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> },
 	// --- explicit completion signal ---
 	'attempt_completion': { result: string; command: string | null },
 }
@@ -119,6 +126,12 @@ export type BuiltinToolResultType = {
 	// --- fast grep + workspace diagnostics ---
 	'grep_search': { matches: Array<{ uri: URI; lineNumber: number; lineContent: string }>; totalMatches: number },
 	'get_diagnostics': { diagnostics: Array<{ uri: URI; message: string; severity: 'error' | 'warning'; startLine: number; endLine: number; source: string | null; code: string | null }> },
+	// --- multi-block atomic edit ---
+	'multi_edit': Promise<{ lintErrors: LintErrorItem[] | null; appliedCount: number }>,
+	// --- glob pattern file listing (mtime-sorted) ---
+	'glob_files': { files: Array<{ uri: URI; mtime: number; size: number }>; truncated: boolean },
+	// --- model-managed task list (per-session) ---
+	'todo_write': { acknowledged: true; count: number },
 	// --- explicit completion signal ---
 	'attempt_completion': { acknowledged: true },
 }
