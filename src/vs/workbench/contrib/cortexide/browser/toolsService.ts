@@ -254,7 +254,7 @@ export class ToolsService implements IToolsService {
 			search_pathnames_only: (params: RawToolParamsObj) => {
 				const {
 					query: queryUnknown,
-					search_in_folder: includeUnknown,
+					include_pattern: includeUnknown,
 					page_number: pageNumberUnknown
 				} = params
 
