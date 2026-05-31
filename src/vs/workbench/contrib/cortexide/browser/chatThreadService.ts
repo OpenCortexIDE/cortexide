@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/cortexideSettingsTypes.js';
+import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
@@ -42,6 +42,7 @@ import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
+import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -57,6 +58,7 @@ const CHAT_RETRIES = 3
 const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
 const MAX_AGENT_LOOP_ITERATIONS = 100 // Hard cap; most tasks complete well under 30 iterations
+const MAX_LOCAL_AGENT_LOOP_ITERATIONS = 30 // Tighter cap for weak/local models, which tend to ramble rather than converge
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
 
@@ -731,7 +733,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const isDocumentationTask = this._detectDocumentationTask(lowerMessage)
 		const isPerformanceTask = this._detectPerformanceTask(lowerMessage)
 		const isSecurityTask = this._detectSecurityTask(lowerMessage)
-		const isSimpleQuestion = this._detectSimpleQuestion(userMessage, lowerMessage)
+		const isSimpleQuestion = this._detectSimpleQuestion(userMessage)
 		const isMathTask = this._detectMathTask(lowerMessage)
 		const isMultiLanguageTask = this._detectMultiLanguageTask(lowerMessage)
 		const isMultiStepTask = this._detectMultiStepTask(lowerMessage)
@@ -1074,49 +1076,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * Detect simple/quick questions
 	 * More aggressive detection to enable low-latency routing for better UX
 	 */
-	private _detectSimpleQuestion(message: string, lowerMessage: string): boolean {
-		// Exclude complex tasks first
-		if (lowerMessage.includes('codebase') ||
-			lowerMessage.includes('repository') ||
-			lowerMessage.includes('architecture') ||
-			lowerMessage.includes('analyze') ||
-			lowerMessage.includes('refactor') ||
-			lowerMessage.includes('implement') ||
-			lowerMessage.includes('debug') ||
-			lowerMessage.includes('error') ||
-			lowerMessage.includes('fix') ||
-			lowerMessage.includes('review')) {
-			return false
-		}
-
-		// Simple questions are typically:
-		// 1. Short to medium length (< 200 chars)
-		// 2. Start with question words
-		// 3. Don't require codebase analysis
-		if (message.length < 200) {
-			const simpleQuestionStarters = [
-				'what is', 'what does', 'what are', 'what do',
-				'how do i', 'how to', 'how does', 'how can',
-				'explain', 'tell me', 'describe',
-				'when', 'where', 'why', 'who',
-				'can you', 'could you', 'would you'
-			]
-			const isQuestion = simpleQuestionStarters.some(starter => lowerMessage.startsWith(starter))
-
-			// Also check for simple question patterns
-			const simplePatterns = [
-				/^what\s+(is|does|are|do)\s+/,
-				/^how\s+(do|does|can|to)\s+/,
-				/^explain\s+/,
-				/^tell\s+me\s+/,
-				/^describe\s+/
-			]
-			const matchesPattern = simplePatterns.some(pattern => pattern.test(lowerMessage))
-
-			return (isQuestion || matchesPattern) && message.length < 200
-		}
-
-		return false
+	private _detectSimpleQuestion(message: string): boolean {
+		// Canonical implementation lives in common/routing/simpleQuestionGate.ts (pure + unit-tested).
+		return looksLikeSimpleQuestion(message)
 	}
 
 	/**
@@ -2690,6 +2652,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 
 
+	/**
+	 * Per-turn override of the user's chat mode. For weak/local models, a trivial
+	 * general-knowledge question is answered directly (returns 'normal' → NO tools)
+	 * instead of running the agent tool-loop, which weak models tend to ramble through.
+	 * Only relaxes full 'agent' mode; the user's selected mode is unchanged in the UI.
+	 * Conservative: attachments, or anything referencing the workspace / wanting an
+	 * action, keep the full agent toolset.
+	 */
+	private _effectiveChatModeForTurn(threadId: string, userChatMode: ChatMode, modelSelection: ModelSelection | null): ChatMode {
+		if (userChatMode !== 'agent' || !modelSelection) { return userChatMode }
+		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
+		if (!isLocal) { return userChatMode } // scoped to local/weak models first
+		const msgs = this.state.allThreads[threadId]?.messages ?? []
+		let lastUser: (ChatMessage & { role: 'user' }) | undefined
+		for (let i = msgs.length - 1; i >= 0; i--) {
+			const m = msgs[i]
+			if (m.role === 'user') { lastUser = m; break }
+		}
+		if (!lastUser) { return userChatMode }
+		if ((lastUser.images?.length ?? 0) > 0 || (lastUser.pdfs?.length ?? 0) > 0) { return userChatMode } // attachments need agent/vision
+		const text = lastUser.content || lastUser.displayContent || ''
+		return isTriviaQuestion(text) ? 'normal' : userChatMode
+	}
+
 	private async _runChatAgent({
 		threadId,
 		modelSelection,
@@ -2771,7 +2757,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
-		const { chatMode } = this._settingsService.state.globalSettings // should not change as we loop even if user changes it, so it goes here
+		const { chatMode: userChatMode } = this._settingsService.state.globalSettings // user's mode (shown in UI); frozen for the loop
+		// Per-turn gate: a trivial general-knowledge question on a weak/local model answers directly
+		// instead of running the agent tool-loop. `chatMode` below is the EFFECTIVE mode for this turn
+		// (may be relaxed to 'normal'); the user's selected mode is unchanged. It then flows to tool
+		// gating + system message + the send call, so the whole turn is consistently tool-less.
+		const chatMode = this._effectiveChatModeForTurn(threadId, userChatMode, modelSelection)
+		const isLocalModel = !!modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
+		const maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
 		const { overridesOfModel } = this._settingsService.state
 
 		let nMessagesSent = 0
@@ -2966,8 +2959,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// tool use loop
 		while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops
-			if (nMessagesSent >= MAX_AGENT_LOOP_ITERATIONS) {
-				this._notificationService.warn(`Agent loop reached maximum iterations (${MAX_AGENT_LOOP_ITERATIONS}). Stopping to prevent infinite loop.`)
+			if (nMessagesSent >= maxAgentIterations) {
+				this._notificationService.warn(`Agent stopped after ${maxAgentIterations} tool iterations.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`)
 				this._setStreamState(threadId, { isRunning: undefined })
 				return
 			}

@@ -749,7 +749,7 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 
 	const details: string[] = []
 	if (mode === 'agent' || mode === 'plan') {
-		details.push('Use tools for EVERY action. Never answer from memory alone.')
+		details.push('Use tools to read/edit files, run commands, or fetch current/web info. Answer general-knowledge or conceptual questions directly, without tools.')
 		details.push('Before editing: always read_file first. After editing: read_file again to verify.')
 		details.push('For 3+ file changes: list plan first, wait for confirmation.')
 		details.push('Workflow: Explore → Plan → Execute → Verify → Report.')
