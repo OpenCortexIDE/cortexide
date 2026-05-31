@@ -41,6 +41,7 @@ import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
+import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -692,21 +693,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const reasoningKeywords = ['explain why', 'analyze', 'compare and contrast', 'evaluate', 'critique', 'reasoning', 'logical', 'deduce', 'infer', 'conclusion', 'argument', 'thesis', 'hypothesis', 'theoretical', 'conceptual']
 		const complexAnalysisKeywords = ['complex', 'sophisticated', 'nuanced', 'detailed analysis', 'deep understanding', 'comprehensive', 'thorough']
 
-		// Codebase questions require complex reasoning (understanding structure, relationships, etc.)
-		// Use the same detection logic as _detectTaskType for consistency
-		const codebaseQuestionPatterns = [
-			/\b(codebase|code base|repository|repo|project)\b/,
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/\bhow\s+many\s+(endpoint|endpoints|api|apis|route|routes|file|files|function|functions|class|classes|component|components|module|modules|service|services|controller|controllers)\b/i,
-			/^(summarize|explain|describe|overview|analyze)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-		]
-		const codebaseIndicators = ['codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture', 'endpoint', 'api', 'route']
-		const questionStarters = ['what is', 'what does', 'how many', 'summarize', 'explain', 'describe', 'overview']
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage))
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator))
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter))
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion)
+		// Codebase questions require complex reasoning (understanding structure, relationships, etc.).
+		// Shared, word-boundary-aware detector (see codebaseQuestionDetector.ts) so a word like
+		// "capital" (contains "api") or "report" (prefix "repo") is no longer mis-detected.
+		const isCodebaseQuestion = looksLikeCodebaseQuestion(userMessage)
 
 		const requiresComplexReasoning = isCodebaseQuestion || // Codebase questions need reasoning
 			reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
@@ -888,51 +878,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return 'vision'
 		}
 
-		// Codebase/repository questions - comprehensive detection
-		// These questions require understanding the entire codebase structure
-		const codebaseQuestionPatterns = [
-			// Direct codebase/repo references
-			/\b(codebase|code base|repository|repo|project)\b/,
-			// Questions about structure/architecture
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/\b(project|codebase|repo|code)\b.*\b(architecture|structure|organization|layout)\b/,
-			// "What is" questions about the project
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+\w+\s+(codebase|repo|project)/,
-			// "How many" questions (endpoints, files, routes, etc.)
-			/\bhow\s+many\s+(endpoint|api|route|file|function|class|component|module|service|controller)\b/i,
-			// Summary/explanation requests
-			/^(summarize|explain|describe|overview|analyze|break down)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-			// Questions about features/capabilities
-			/\b(what|which|how)\s+(feature|capability|functionality|endpoint|api|route)\s+(does|has|supports?)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-			// Questions about dependencies/tech stack
-			/\b(what|which)\s+(technology|framework|library|dependency|package|stack)\s+(does|uses?|has)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-		]
-
-		const codebaseIndicators = [
-			'codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture',
-			'endpoint', 'endpoints', 'api', 'apis', 'route', 'routes',
-			'file structure', 'code organization', 'project layout',
-		]
-
-		const questionStarters = [
-			'what is', 'what does', 'what are', 'what do',
-			'how many', 'how does', 'how do',
-			'summarize', 'explain', 'describe', 'overview', 'analyze',
-			'which', 'where',
-		]
-
-		// Check if it matches codebase question patterns
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage))
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator))
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter))
-
-		// Codebase question if:
-		// 1. Matches a pattern, OR
-		// 2. Has codebase indicator AND starts with a question word
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion)
-
-		if (isCodebaseQuestion) {
+		// Codebase/repository questions — shared, word-boundary-aware detector
+		// (codebaseQuestionDetector.ts). These need to understand the whole repo.
+		if (looksLikeCodebaseQuestion(userMessage)) {
 			return 'code' // Use 'code' task type but we'll enhance scoring for codebase questions
 		}
 
