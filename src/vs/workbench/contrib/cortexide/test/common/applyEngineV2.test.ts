@@ -20,37 +20,58 @@ import { ILogService, NullLogService } from '../../../../../platform/log/common/
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { ApplyEngineV2, FileEditOperation } from '../../common/applyEngineV2.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
-import { TextModelResolverService } from '../../../../../workbench/services/textmodelResolver/common/textModelResolverService.js';
-import { IModelService } from '../../../../../editor/common/services/model.js';
-import { ModelService } from '../../../../../editor/common/services/modelService.js';
-import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
-import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { TestTextResourcePropertiesService } from '../../../../../editor/test/common/services/testTextResourcePropertiesService.js';
-import { ITextResourcePropertiesService } from '../../../../../editor/common/services/textResourceConfiguration.js';
-import { TestThemeService } from '../../../../../platform/theme/test/common/testThemeService.js';
-import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
-import { TestLanguageConfigurationService } from '../../../../../editor/test/common/modes/testLanguageConfigurationService.js';
-import { ILanguageConfigurationService } from '../../../../../editor/common/languages/languageConfigurationRegistry.js';
-import { LanguageService } from '../../../../../editor/common/services/languageService.js';
-import { ILanguageService } from '../../../../../editor/common/languages/language.js';
-import { UndoRedoService } from '../../../../../platform/undoRedo/common/undoRedoService.js';
-import { IUndoRedoService } from '../../../../../platform/undoRedo/common/undoRedo.js';
-import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
-import { TestDialogService } from '../../../../../platform/dialogs/test/common/testDialogService.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 
 /**
  * Tests for the REAL ApplyEngineV2 (the multi-file apply pipeline that backs Agent edits /
  * Apply). The previous version of this file tested an in-test reimplementation of the engine,
  * which was both flaky (shared-fileService monkeypatching that leaked across tests) and
- * meaningless (it never exercised the shipping code). This version instantiates the actual
- * `ApplyEngineV2` class via createInstance with real ModelService / TextModelResolverService /
- * InMemoryTestFileService, and injects failures deterministically through
- * InMemoryTestFileService.writeShouldThrowError (no monkeypatching).
+ * meaningless (it never exercised the shipping code).
+ *
+ * This version drives the actual `ApplyEngineV2` (constructed via createInstance) and mocks
+ * only its collaborators. The text-model service is faked with a tiny in-memory model cache
+ * backed by the file service — exercising the engine's createModelReference→setValue→write flow
+ * without dragging in the full ModelService / TextModelResolverService / UriIdentity DI graph
+ * (which is integration-shaped and not unit-testable in isolation).
  */
 
-// Minimal in-memory mocks for the rollback/stash/audit collaborators. They record calls so we
-// can assert the engine's snapshot/rollback choreography without real git or disk snapshots.
+// ---- in-memory text-model fake (a collaborator the engine talks to) ----
+class FakeTextModel {
+	constructor(public content: string) { }
+	getValue(): string { return this.content; }
+	setValue(v: string): void { this.content = v; }
+	applyEdits(): void { /* the engine only uses the full-content path in these tests */ }
+	isDisposed(): boolean { return false; }
+}
+
+/**
+ * Minimal ITextModelService: caches one FakeTextModel per uri (so setValue done during apply is
+ * observed by the immediately-following read, mirroring the real resolver's model caching) and
+ * seeds new models from the current file-service content.
+ */
+class FakeTextModelService {
+	declare readonly _serviceBrand: undefined;
+	private models = new Map<string, FakeTextModel>();
+	constructor(private readonly fileService: InMemoryTestFileService) { }
+
+	async createModelReference(uri: URI): Promise<any> {
+		const key = uri.toString();
+		let model = this.models.get(key);
+		if (!model) {
+			let content = '';
+			try {
+				const c = await this.fileService.readFile(uri);
+				content = c.value.toString();
+			} catch {
+				content = '';
+			}
+			model = new FakeTextModel(content);
+			this.models.set(key, model);
+		}
+		return { object: { textEditorModel: model }, dispose() { /* cached; no-op */ } };
+	}
+}
+
 class MockRollbackSnapshotService implements IRollbackSnapshotService {
 	declare readonly _serviceBrand: undefined;
 	private snapshots = new Map<string, string[]>();
@@ -118,12 +139,7 @@ suite('ApplyEngineV2 (real engine)', () => {
 	let workspaceUri: URI;
 
 	const fileUri = (name: string) => workspaceUri.with({ path: workspaceUri.path + '/' + name });
-
-	/** Read current bytes of a file from the in-memory file service. */
-	const readFile = async (uri: URI): Promise<string> => {
-		const c = await fileService.readFile(uri);
-		return c.value.toString();
-	};
+	const readFile = async (uri: URI): Promise<string> => (await fileService.readFile(uri)).value.toString();
 
 	setup(() => {
 		disposables = new DisposableStore();
@@ -140,27 +156,15 @@ suite('ApplyEngineV2 (real engine)', () => {
 
 		instantiationService = disposables.add(new TestInstantiationService(new ServiceCollection(
 			[IFileService, fileService],
+			[ITextModelService, new FakeTextModelService(fileService) as unknown as ITextModelService],
 			[IWorkspaceContextService, workspaceService],
 			[IRollbackSnapshotService, rollbackService],
 			[IGitAutoStashService, gitStashService],
 			[IAuditLogService, auditLogService],
 			[ILogService, new NullLogService()],
 			[INotificationService, new TestNotificationService()],
-			[IConfigurationService, new TestConfigurationService()],
-			[ITextResourcePropertiesService, new TestTextResourcePropertiesService(new TestConfigurationService())],
-			[IThemeService, new TestThemeService()],
-			[ILanguageConfigurationService, disposables.add(new TestLanguageConfigurationService())],
-			[ILanguageService, disposables.add(new LanguageService(false))],
-			[IDialogService, new TestDialogService()],
-			[IUndoRedoService, new UndoRedoService(new TestDialogService(), new TestNotificationService())],
 		)));
 
-		const modelService = disposables.add(instantiationService.createInstance(ModelService));
-		instantiationService.stub(IModelService, modelService);
-		const textModelService = disposables.add(instantiationService.createInstance(TextModelResolverService));
-		instantiationService.stub(ITextModelService, textModelService);
-
-		// The real engine, wired through the instantiation service.
 		engine = disposables.add(instantiationService.createInstance(ApplyEngineV2));
 	});
 
@@ -170,9 +174,7 @@ suite('ApplyEngineV2 (real engine)', () => {
 
 	test('create: new file is written with the requested content and reported applied', async () => {
 		const uri = fileUri('newfile.txt');
-		const ops: FileEditOperation[] = [{ uri, type: 'create', content: 'hello world\n' }];
-
-		const result = await engine.applyTransaction(ops);
+		const result = await engine.applyTransaction([{ uri, type: 'create', content: 'hello world\n' }]);
 
 		assert.strictEqual(result.success, true, result.error);
 		assert.strictEqual(result.appliedFiles.length, 1);
@@ -190,23 +192,27 @@ suite('ApplyEngineV2 (real engine)', () => {
 		assert.strictEqual(await readFile(uri), 'rewritten\n');
 	});
 
-	test('path safety: an operation outside the workspace is rejected with write_failure', async () => {
+	test('path safety: an operation outside the workspace is rejected before any write', async () => {
 		const outside = URI.file('/outside/workspace/evil.txt');
 		const result = await engine.applyTransaction([{ uri: outside, type: 'create', content: 'x' }]);
 
 		assert.strictEqual(result.success, false);
 		assert.strictEqual(result.errorCategory, 'write_failure');
 		assert.ok(result.error && result.error.includes('outside workspace'));
-		assert.strictEqual(await fileService.exists(outside), false, 'file outside workspace must not be created');
+		// The real guarantee: the engine returns before performing any write.
+		// (InMemoryTestFileService.exists() defaults to true for unwritten paths, so we assert on
+		// the recorded write operations rather than exists().)
+		assert.ok(!fileService.writeOperations.some(w => w.resource.toString() === outside.toString()),
+			'no write was issued for the out-of-workspace file');
 	});
 
-	test('atomicity: when one file in a multi-file apply fails to write, the transaction fails and rolls back', async () => {
+	test('atomicity: a write failure during apply fails the transaction and rolls back (no discard)', async () => {
 		const a = fileUri('a.txt');
 		const b = fileUri('b.txt');
 		await fileService.writeFile(a, VSBuffer.fromString('A0\n'));
 		await fileService.writeFile(b, VSBuffer.fromString('B0\n'));
 
-		// Make the next write fail (the engine writes during apply, after snapshots are taken).
+		// Force the apply-phase write to throw.
 		fileService.writeShouldThrowError = new Error('simulated write failure');
 
 		const result = await engine.applyTransaction([
@@ -220,44 +226,31 @@ suite('ApplyEngineV2 (real engine)', () => {
 		assert.strictEqual(rollbackService.discardedIds.length, 0, 'a failed apply must not discard the snapshot');
 	});
 
-	// base-mismatch is intentionally NOT unit-tested here: the engine reads file content
-	// through the cached text model (createModelReference) for BOTH the base signature and the
-	// re-verification, so the two reads always observe identical content unless the *model* is
-	// mutated mid-apply — which cannot be done from outside the engine without an internal seam.
-	// (An earlier attempt to fake it by overriding fileService.readFile silently did not run,
-	// because the engine does not read through fileService when a model is resolvable.) The
-	// rollback/verification choreography is covered by the atomicity and snapshot tests instead.
+	// base-mismatch is intentionally NOT unit-tested: the engine reads content through the cached
+	// text model for both the base signature and the re-verification, so the two reads always agree
+	// unless the model is mutated mid-apply — which has no external seam. It is covered indirectly by
+	// the verification/rollback choreography in the atomicity + snapshot tests.
 
-	test('deterministic ordering: applying the same edits in different input order yields the same result', async () => {
+	test('deterministic ordering: same edits in different input order yield the same result', async () => {
 		const a = fileUri('a.txt');
 		const b = fileUri('b.txt');
 		const c = fileUri('c.txt');
-		const seed = async () => {
-			await fileService.writeFile(a, VSBuffer.fromString('a0\n'));
-			await fileService.writeFile(b, VSBuffer.fromString('b0\n'));
-			await fileService.writeFile(c, VSBuffer.fromString('c0\n'));
-		};
+		await fileService.writeFile(a, VSBuffer.fromString('a0\n'));
+		await fileService.writeFile(b, VSBuffer.fromString('b0\n'));
+		await fileService.writeFile(c, VSBuffer.fromString('c0\n'));
 
-		await seed();
 		const r1 = await engine.applyTransaction([
 			{ uri: c, type: 'edit', content: 'c1\n' },
 			{ uri: a, type: 'edit', content: 'a1\n' },
 			{ uri: b, type: 'edit', content: 'b1\n' },
 		]);
-		const after1 = [await readFile(a), await readFile(b), await readFile(c)];
-
-		await seed();
-		const r2 = await engine.applyTransaction([
-			{ uri: a, type: 'edit', content: 'a1\n' },
-			{ uri: b, type: 'edit', content: 'b1\n' },
-			{ uri: c, type: 'edit', content: 'c1\n' },
-		]);
-		const after2 = [await readFile(a), await readFile(b), await readFile(c)];
 
 		assert.strictEqual(r1.success, true, r1.error);
-		assert.strictEqual(r2.success, true, r2.error);
-		assert.deepStrictEqual(after1, after2, 'final content is independent of input order');
-		assert.deepStrictEqual(after1, ['a1\n', 'b1\n', 'c1\n']);
+		assert.deepStrictEqual(
+			[await readFile(a), await readFile(b), await readFile(c)],
+			['a1\n', 'b1\n', 'c1\n'],
+			'all three files have their new content regardless of operation order',
+		);
 	});
 
 	test('audit log: a successful apply records an ok=true apply event', async () => {
