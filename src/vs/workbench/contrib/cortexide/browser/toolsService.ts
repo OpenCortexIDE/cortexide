@@ -179,6 +179,63 @@ const checkIfIsFolder = (uriStr: string) => {
 	return false
 }
 
+
+/**
+ * Reject URLs whose hostname is a loopback / private / link-local literal.
+ * Blocks the most common SSRF vectors without doing DNS resolution:
+ *   - localhost / *.localhost
+ *   - IPv4 0.0.0.0, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16 (incl. cloud metadata)
+ *   - IPv6 ::, ::1, fc00::/7, fe80::/10, and IPv4-mapped equivalents
+ *
+ * DNS-based bypasses (hostname that resolves to a private IP) are not caught here —
+ * that needs an async preflight and is queued as a follow-up.
+ */
+export const assertNotSSRF = (url: string) => {
+	let parsed: URL
+	try { parsed = new URL(url) } catch { return } // malformed URLs are rejected elsewhere
+	let host = parsed.hostname.toLowerCase()
+	if (!host) throw new Error(`Blocked: URL has no hostname.`)
+
+	// localhost variants
+	if (host === 'localhost' || host.endsWith('.localhost')) {
+		throw new Error(`Blocked: ${host} is a loopback hostname. browse_url cannot target local/private network resources.`)
+	}
+
+	// IPv6 literals are bracketed in URL.hostname only for the [::1]-style form;
+	// URL strips the brackets, so host is the bare IPv6 string here.
+	if (host.includes(':')) {
+		// IPv4-mapped IPv6: ::ffff:127.0.0.1 — extract the trailing IPv4 and re-check
+		const v4MappedMatch = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+		if (v4MappedMatch) { host = v4MappedMatch[1] /* fall through to IPv4 checks below */ }
+		else {
+			const compact = host.replace(/^\[|\]$/g, '')
+			if (compact === '::' || compact === '::1') {
+				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 loopback/unspecified address.`)
+			}
+			// fe80::/10 — link-local
+			if (/^fe[89ab][0-9a-f]?:/i.test(compact)) {
+				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 link-local address.`)
+			}
+			// fc00::/7 — unique-local (fc.. and fd..)
+			if (/^f[cd][0-9a-f]{2}:/i.test(compact)) {
+				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 unique-local address.`)
+			}
+			return // other IPv6 — assume public
+		}
+	}
+
+	// IPv4 literal checks
+	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+	if (v4) {
+		const [a, b] = [Number(v4[1]), Number(v4[2])]
+		if (a === 0 || a === 127) throw new Error(`Blocked: ${host} is in the loopback/unspecified range.`)
+		if (a === 10) throw new Error(`Blocked: ${host} is in the 10.0.0.0/8 private range.`)
+		if (a === 192 && b === 168) throw new Error(`Blocked: ${host} is in the 192.168.0.0/16 private range.`)
+		if (a === 172 && b >= 16 && b <= 31) throw new Error(`Blocked: ${host} is in the 172.16.0.0/12 private range.`)
+		if (a === 169 && b === 254) throw new Error(`Blocked: ${host} is in the 169.254.0.0/16 link-local range (includes cloud metadata services).`)
+	}
+}
+
 export interface IToolsService {
 	readonly _serviceBrand: undefined;
 	validateParams: ValidateBuiltinParams;
@@ -473,6 +530,7 @@ export class ToolsService implements IToolsService {
 				} catch (e) {
 					throw new Error(`Invalid URL format: ${url}. Error: ${e}`);
 				}
+				assertNotSSRF(url);
 				let refresh = false;
 				if (refreshUnknown && typeof refreshUnknown === 'string') {
 					refresh = refreshUnknown.toLowerCase() === 'true';
@@ -1509,6 +1567,10 @@ export class ToolsService implements IToolsService {
 			},
 
 			browse_url: async ({ url, refresh }) => {
+				// Re-check at the impl boundary so redirect re-entry (which skips the validator)
+				// and any future internal callers don't bypass the SSRF guard.
+				assertNotSSRF(url);
+
 				// Check offline/privacy mode (centralized gate)
 				this._offlineGate.ensureNotOfflineOrPrivacy('URL browsing', false);
 
