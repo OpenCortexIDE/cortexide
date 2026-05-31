@@ -1,0 +1,33 @@
+# CortexIDE smoke harness
+
+Lightweight launch + smoke verification for the CortexIDE dev build, driven over the
+Chrome DevTools Protocol (CDP). Used to confirm the editor actually boots and its core
++ CortexIDE-specific UI render — see `../../CORTEXIDE-TEST-STATUS.md` for results.
+
+## Files
+- `launch-dev.sh` — launches the built dev app (`.build/electron/...`) with
+  `--remote-debugging-port`, stripping the inherited `ELECTRON_RUN_AS_NODE` that
+  otherwise makes Electron run as plain Node. Uses throwaway user-data/extensions dirs.
+- `cdp-smoke.mjs` — connects with Playwright `connectOverCDP`, finds the workbench page
+  (`workbench-dev.html` in dev builds), and asserts core + CortexIDE surfaces exist.
+
+## Usage
+```bash
+# (rebuild React UI only if you touched browser/react/src/*.tsx)
+npm run buildreact
+
+# Terminal A — launch and leave running:
+test/cortexide-smoke/launch-dev.sh 9222 /tmp/cx-ws-cdp
+
+# Terminal B — run the smoke test:
+node test/cortexide-smoke/cdp-smoke.mjs --port 9222
+```
+Exit code 0 = all checks passed. A screenshot is written to the OS temp dir.
+
+## Why CDP and not Playwright `_electron.launch()`
+VS Code / CortexIDE manages its own (re)launching, so Playwright's stdout-handshake
+Electron launcher fails with "Process failed to launch!". Launching the app ourselves
+with a debug port and attaching over CDP is the supported path (mirrors upstream VS Code
+`test/automation`). Note: once a debugger is attached to a page, `/json/list` may drop
+that page's `webSocketDebuggerUrl`; Playwright's `connectOverCDP` handles this, a hand-
+rolled raw-WebSocket client does not — so prefer `cdp-smoke.mjs`.

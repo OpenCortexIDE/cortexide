@@ -43,6 +43,13 @@ function code() {
 	export ELECTRON_ENABLE_STACK_DUMPING=1
 	export ELECTRON_ENABLE_LOGGING=1
 
+	# When this script is launched from a terminal inside a VS Code-family editor
+	# (VS Code, Cursor, CortexIDE itself), ELECTRON_RUN_AS_NODE=1 is inherited
+	# from the parent. That flag makes our Electron binary run as plain Node, so
+	# out/main.js fails with: "module 'electron' does not provide an export named
+	# 'Menu'". Clear it so the dev build boots as a real Electron app.
+	unset ELECTRON_RUN_AS_NODE
+
 	DISABLE_TEST_EXTENSION="--disable-extension=vscode.vscode-api-tests"
 	if [[ "$@" == *"--extensionTestsPath"* ]]; then
 		DISABLE_TEST_EXTENSION=""
