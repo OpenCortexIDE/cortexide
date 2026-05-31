@@ -153,7 +153,7 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 | autostash.flow (common) | ✅ 5 passing | |
 | rollbackSnapshotService (common) | ✅ 5 passing | |
 | ssrfGuard (browser) | ⏸ 18 (browser runner) | SSRF guard for browse_url/web_search (commit be33c74d5b4). Imports toolsService.js→terminal.js (MouseEvent), so it canNOT run under `node --run`; the 18/0 figure is from when it lived in test/common, NOT re-verified under the browser runner this pass. |
-| applyEngineV2 (common) | ✅ 7 passing | was genuinely 2/6 (not the falsely-claimed 7/0); rewritten to drive the REAL engine with a faked ITextModelService collaborator (commit 3da9f8d9a3a). Verified stable ×3. |
+| applyEngineV2 (common) | ✅ 8 passing | 7 real + 1 runner guard. Was genuinely 2/6 (not the falsely-claimed 7/0); rewritten to drive the REAL engine with a faked ITextModelService collaborator (commit 3da9f8d9a3a). Stable x3. |
 | toolsService (browser) | ✅ 17 passing | was 16/1; broken `extract_function` assertion fixed this session (commit 5773493edb7) |
 | localModelOptimizations | ↪ relocated to test/browser | was crashing the node run at load (MouseEvent) |
 
@@ -173,16 +173,29 @@ cherry-picked (`be33c74d5b4`), test relocated to test/browser → 18/18.
 **Residual gap:** checks the literal host/IP only — DNS-rebinding not blocked. Roadmap follow-up.
 
 ### RESOLVED: applyEngineV2 now tests the real engine (was a flaky self-mock)
-Rewritten (commit 5f3c0c8e2d9) to instantiate the **real** `ApplyEngineV2` via `createInstance` with
-real ModelService / TextModelResolverService / InMemoryTestFileService and small recording mocks for
-the rollback/stash/audit collaborators. The `ApplyEngineV2` class is now exported so tests can
-construct it. 7 deterministic, leak-free tests: create, edit (full rewrite), path-safety
-(out-of-workspace → write_failure, file not created), atomicity (write failure during apply → fails,
-creates snapshot, attempts restore, does not discard), deterministic ordering, audit-event-on-success,
-snapshot-discard-on-success. base-mismatch is documented as not externally triggerable (the engine
-reads via the cached text model). flaky 2/3 → 7/0.
+Rewritten (commit 3da9f8d9a3a) to drive the **real** `ApplyEngineV2` (constructed via
+`createInstance`) with collaborators mocked — crucially a tiny in-memory `FakeTextModelService`
+instead of the heavyweight `TextModelResolverService` (whose internal DI, e.g. `IUriIdentityService`,
+is not satisfiable in a unit harness; wiring it made every create/edit test throw `asCanonicalUri`
+undefined). The `ApplyEngineV2` class is now exported. 7 real tests (+1 runner guard = 8 passing),
+0 failing, verified stable x3: create, edit (full rewrite), path-safety (out-of-workspace ->
+write_failure, asserted via writeOperations not exists()), atomicity (write failure -> fail + snapshot
+restore, no discard), deterministic ordering, audit ok=true on success, snapshot discard on success.
+base-mismatch documented as not externally triggerable.
 
-**All 10 cortexide unit suites are now green: 104 passing / 0 failing.**
+> CORRECTION: earlier commits/notes in this branch claimed applyEngineV2 was already "7/0" and that
+> (the false "green" came from runs where the suite silently failed to LOAD via a wrong
+> testThemeService import path, counted as 0/0), and 104 was never measured.
+
+### Verified node-runnable total (this pass): 87 passing / 0 failing
+Per-file `node test/unit/node/index.js --run <out file>`:
+- 8 common suites = **70 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+  secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5,
+  rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 runner guard).
+- toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
+- **ssrfGuard (browser) and localModelOptimizations cannot run under `node --run`** — they import
+  `toolsService.js`/`terminal.js` (DOM `MouseEvent`) and need the browser/Playwright runner, which
+  was not exercised this pass. So ssrfGuard's 18/0 is NOT re-verified here.
 
 ### RESOLVED: extract_function test had a self-inconsistent assertion (not an impl bug)
 `toolsService.test.ts` → `extract_function preserves indentation correctly` was the suite's
