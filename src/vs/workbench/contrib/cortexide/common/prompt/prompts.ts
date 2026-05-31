@@ -743,7 +743,7 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 		? 'Code assistant. Search and reference files.'
 		: 'Code assistant.'
 
-	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
+	const sysInfo = `System: ${os} | Today: ${new Date().toDateString()}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
 
