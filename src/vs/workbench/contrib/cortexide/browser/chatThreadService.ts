@@ -3741,7 +3741,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
-						this._setStreamState(threadId, { isRunning: undefined, error })
+						this._setStreamState(threadId, { isRunning: undefined, error: this._exhaustionAwareError(error) })
 						this._addUserCheckpoint({ threadId })
 						return
 					}
@@ -3770,7 +3770,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
-						this._setStreamState(threadId, { isRunning: undefined, error })
+						this._setStreamState(threadId, { isRunning: undefined, error: this._exhaustionAwareError(error) })
 						this._addUserCheckpoint({ threadId })
 						return
 					}
@@ -4558,6 +4558,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		return { voidFileSnapshotOfURI }
 	}
 
+
+	/**
+	 * If every configured free-tier provider is currently exhausted, replace a
+	 * raw provider error with an actionable "all free quotas exhausted" message
+	 * (offer local / BYO). Otherwise return the original error unchanged.
+	 */
+	private _exhaustionAwareError(error?: { message: string; fullError: Error | null }): { message: string; fullError: Error | null } | undefined {
+		try {
+			const exhaustion = this._modelRouter.getFreeTierExhaustion()
+			if (exhaustion.allExhausted) {
+				return { message: exhaustion.message, fullError: error?.fullError ?? null }
+			}
+		} catch (err) {
+			console.error('[ChatThreadService] getFreeTierExhaustion failed', err)
+		}
+		return error
+	}
 
 	private _addUserCheckpoint({ threadId }: { threadId: string }) {
 		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {}

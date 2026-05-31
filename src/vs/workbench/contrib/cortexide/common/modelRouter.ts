@@ -16,6 +16,7 @@ import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
+import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
 
 /**
  * Task types for automatic model selection
@@ -74,6 +75,8 @@ export interface ITaskAwareModelRouter {
 	route(context: TaskContext): Promise<RoutingDecision>;
 	getQualityReport(): import('./routingEvaluation.js').RoutingQualityReport;
 	getRoutingExplanation(context: TaskContext): Promise<string>;
+	/** Verdict on whether all configured free-tier providers are currently exhausted. */
+	getFreeTierExhaustion(): FreeTierExhaustionResult;
 }
 
 export const ITaskAwareModelRouter = createDecorator<ITaskAwareModelRouter>('TaskAwareModelRouter');
@@ -1486,6 +1489,20 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 * - `requiresPrivacy` short-circuits to `null` here so callers can route
 	 * to local.
 	 */
+	/**
+	 * Public verdict on free-tier exhaustion, computed from live settings +
+	 * quota state. Used by the chat UI to show an actionable "all free quotas
+	 * exhausted" message (offer local / BYO) instead of a raw provider 429.
+	 */
+	getFreeTierExhaustion(): FreeTierExhaustionResult {
+		const settingsState = this.settingsService.state;
+		return describeFreeTierExhaustion({
+			configuredModels: this.getAvailableModels(settingsState),
+			quotas: this.freeTierQuotaService.getAllRemaining(),
+			now: Date.now(),
+		});
+	}
+
 	private routeViaFreeTierLadder(
 		context: TaskContext,
 		settingsState: CortexideSettingsState,
