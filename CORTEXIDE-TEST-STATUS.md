@@ -126,10 +126,26 @@ keep agent-default, local/weak models first):
   keeps full tools (e.g. "what is failing in my build?" is NOT gated).
 - **Softened** the local tool mandate (prompts.ts:752) to answer general-knowledge directly.
 - **Lower iteration cap** for local models (30 vs 100) with an actionable "try Ask/Normal mode" hint.
-- Unit + tsc verified. **Live (CDP) verification of the gate still pending** — needs a rebuild+relaunch
-  (deferred so as not to interrupt active manual testing).
-Follow-ups (not done): curated small tool-set for weak models, bounded tool-call repair, optionally
-extend the gate/softening to cloud models.
+- Unit + tsc verified, and **live-confirmed**: a local model in Agent mode answers "What is the capital
+  of France?" directly (no tool-loop), while codebase/workspace questions still use tools.
+### ✅ ADDRESSED (more weak-model robustness, found via live testing)
+- **Date hallucination** (commit on local prompt): a local model answered "what is the date today?"
+  with a stale 2023 guess because the **local** system prompt lacked the date the cloud prompt already
+  injects. Added `Today: <date>` to the local sysInfo (parity).
+- **Hallucinated/invalid tool calls surfaced as raw errors**: an unknown tool name threw
+  "MCP tool X not found" and a bogus terminal id threw "Unexpected internal error: Terminal with ID 123…".
+  Now both return clear, **recoverable** tool_errors the model can self-correct from (the unknown-tool
+  case lists available tools; the terminal case lists existing ids). No control-flow change.
+- **Curated tool-set for local models** (commit, decisions: keep run_command, local-only): a local
+  model is offered only `COMPACT_LOCAL_TOOLSET` (read/search/edit + diagnostics + todo +
+  attempt_completion + run_command) and no MCP — so it can't be tempted by terminal/MCP/web/refactor
+  tools. Threaded through the local XML tool catalog. compactLocalToolset 7/7. (Native-format builders +
+  the XML parser still expose the full set → follow-up; graceful handling covers the rare gap.)
+- **Consecutive-error cap**: stop after 3 (local) / 6 (cloud) failed tool calls in a row (reset on any
+  success), with an actionable message, instead of thrashing to the iteration cap.
+
+Remaining follow-ups: extend curation to native-format builders + the XML parser; bounded tool-call
+*repair* (coerce common param aliases); optionally extend the trivia-gate/softening to cloud models.
 
 ## ❓ NOT yet tested (next sessions)
 
@@ -248,14 +264,14 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 135 passing / 0 failing across 14 suites (node + browser, both exercised)
+### Verified total: 142 passing / 0 failing across 15 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 11 common suites = **96 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
-  freeTierExhaustion 9, codebaseQuestionDetector 7, simpleQuestionGate 10, secretDetection 19,
-  applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5, rollbackSnapshotService 5,
-  applyEngineV2 8 (7 real + 1 guard).
+- 12 common suites = **103 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+  freeTierExhaustion 9, codebaseQuestionDetector 7, simpleQuestionGate 10, compactLocalToolset 7,
+  secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5,
+  rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **113 passing / 0 failing**.
+- Node subtotal = **120 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
