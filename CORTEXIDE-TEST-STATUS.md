@@ -129,3 +129,47 @@ Smoke result: **11/11 checks passed** (`cdp-smoke.mjs`). Screenshot archived by 
 - **Smoke (added this session):** `test/cortexide-smoke/cdp-smoke.mjs` — boot + core/AI surface
   presence. This guards against the launch + render regressions found above.
 - **Next:** add assertions that fail on issues #1–#3 once fixed, so they can't regress.
+
+---
+
+## Session 7 update (2026-05-31) — full unit baseline + 2 fixes landed
+
+Ran every cortexide unit suite individually through the Node runner
+(`node test/unit/node/index.js --run <out-file>`; macOS has no `timeout`).
+
+| Suite | Result |
+|---|---|
+| applyAll.rollback.flow | ✅ 4 passing |
+| applyEngineV2 | ✅ **13 passing** (corrects an earlier fabricated "4 failing" note — applyEngineV2 is green) |
+| auditLog.append.p0 | ✅ 11 passing |
+| autostash.flow | ✅ 4 passing |
+| secretDetection | ✅ 20 passing |
+| rollbackSnapshotService | ✅ 19 passing |
+| freeTierLadder | ✅ 9 passing |
+| ssrfGuard | ✅ 18 passing (newly brought into branch — see below) |
+| localModelOptimizations | ✅ relocated to test/browser/ (was crashing the common suite) |
+
+**Aggregate: cortexide `test/common` glob now runs 78 passing / 0 failing / 0 load errors.**
+Previously the whole Node run crashed at load. Confirmed via
+`node test/unit/node/index.js --runGlob "**/contrib/cortexide/test/common/*.test.js"`.
+
+### Fix 1 — SSRF guard for `browse_url` / `web_search` (SECURITY)
+A complete, tested SSRF/injection guard (`assertNotSSRF` in `browser/toolsService.ts`
++ `test/common/ssrfGuard.test.ts`, 18 tests) existed only on branch
+`fix/browse-url-ssrf-guard-2026-05-31` and had **never been merged to main**. Without
+it, a malicious prompt could make the agent's `browse_url`/`web_search` tools hit
+internal services (localhost, 10/8, 172.16/12, 192.168/16, 169.254.169.254 cloud
+metadata, IPv6 ULA/link-local, `metadata.google.internal`). Cherry-picked onto the
+working branch and verified (18/18 passing). Known residual limitation: the guard
+checks the literal hostname/IP, so DNS-rebinding (a public hostname resolving to a
+private IP) is not blocked — noted for a follow-up (resolve + re-check, or block in
+the fetch layer).
+
+### Fix 2 — test/common load crash (relocate browser-dep test)
+`localModelOptimizations.test.ts` lived in `test/common/` but transitively imports a
+browser module (`terminal.js` → `MouseEvent`), crashing the entire `test-node` run at
+load. Moved to `test/browser/` (matches `toolsService.test.ts`; same import depth).
+
+### Commits this session (branch chore/launch-fix-smoke-harness-2026-05-31, not pushed)
+- cherry-pick `b9249ad1234` → SSRF guard
+- `test(cortexide): move localModelOptimizations test to test/browser`
