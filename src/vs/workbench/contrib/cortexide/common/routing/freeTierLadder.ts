@@ -51,7 +51,7 @@ export interface FreeTierLadderInput {
  *   - providers not on the free-tier table
  *   - providers without configured models
  *   - providers marked exhausted (429)
- *   - providers with zero remaining RPD or RPM
+ *   - providers with zero remaining RPD, RPM, or TPM
  * then sorts the remainder by descending `qualityRank`.
  *
  * If `privacyMode` is true, returns `[]`.
@@ -89,6 +89,12 @@ export function buildFreeTierLadder(input: FreeTierLadderInput): readonly FreeTi
 				continue;
 			}
 			if (remaining.rpm !== null && remaining.rpm <= 0) {
+				continue;
+			}
+			// Drop providers that have exhausted their per-minute token budget;
+			// otherwise they stay on the ladder and the very next call earns an
+			// avoidable 429 — exactly the stall that breaks "free models out of the box".
+			if (remaining.tpm !== null && remaining.tpm <= 0) {
 				continue;
 			}
 		}

@@ -101,6 +101,25 @@ suite('FreeTierLadder', () => {
 		assert.strictEqual(ladder[0].providerId, 'gemini');
 	});
 
+	test('zero remaining TPM removes provider from ladder', () => {
+		// groq carries a finite tokens-per-minute cap; once it is used up the provider
+		// must drop off the ladder rather than be offered and earn an avoidable 429.
+		const configured: ModelSelection[] = [
+			{ providerName: 'groq', modelName: 'llama-3.3-70b-versatile' },
+			{ providerName: 'gemini', modelName: 'gemini-2.5-flash' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [
+				snap('groq', { tpm: 0 }),
+				snap('gemini'),
+			],
+			privacyMode: false,
+		});
+		assert.strictEqual(ladder.length, 1);
+		assert.strictEqual(ladder[0].providerId, 'gemini');
+	});
+
 	test('non-free-tier providers (e.g. anthropic, openAI) are silently ignored', () => {
 		const configured: ModelSelection[] = [
 			{ providerName: 'anthropic', modelName: 'claude-3-5-sonnet-20241022' },
