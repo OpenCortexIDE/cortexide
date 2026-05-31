@@ -11,7 +11,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, isABuiltinToolName, builtinToolNames } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
@@ -2536,7 +2536,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			else {
 				const mcpTools = this._mcpService.getMCPTools()
 				const mcpTool = mcpTools?.find(t => t.name === toolName)
-				if (!mcpTool) { throw new Error(`MCP tool ${toolName} not found`) }
+				if (!mcpTool) {
+					// Weak models often hallucinate tool names. Return a clear, recoverable error
+					// (the catch below records it as a tool_error the model can self-correct from)
+					// instead of the misleading raw "MCP tool X not found".
+					const available = [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])].join(', ')
+					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${available}`)
+				}
 
 				resolveInterruptor(() => { })
 

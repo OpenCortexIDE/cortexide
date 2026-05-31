@@ -172,7 +172,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 	async killPersistentTerminal(terminalId: string) {
 		const terminal = this.persistentTerminalInstanceOfId[terminalId]
-		if (!terminal) throw new Error(`Kill Terminal: Terminal with ID ${terminalId} did not exist.`);
+		if (!terminal) throw new Error(`No background terminal with id "${terminalId}". Existing ids: [${this.listPersistentTerminalIds().join(', ')}]. Open one first with open_persistent_terminal.`);
 		terminal.dispose()
 		delete this.persistentTerminalInstanceOfId[terminalId]
 		return
@@ -270,7 +270,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 		if (isPersistent) { // BG process
 			const { persistentTerminalId } = params
 			terminal = this.persistentTerminalInstanceOfId[persistentTerminalId];
-			if (!terminal) throw new Error(`Unexpected internal error: Terminal with ID ${persistentTerminalId} did not exist.`);
+			if (!terminal) throw new Error(`No background terminal with id "${persistentTerminalId}". Existing ids: [${this.listPersistentTerminalIds().join(', ')}]. Open one first with open_persistent_terminal.`);
 		}
 		else {
 			const { cwd } = params
