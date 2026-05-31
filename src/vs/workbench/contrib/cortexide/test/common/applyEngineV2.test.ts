@@ -27,7 +27,7 @@ import { TestConfigurationService } from '../../../../../platform/configuration/
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { TestTextResourcePropertiesService } from '../../../../../editor/test/common/services/testTextResourcePropertiesService.js';
 import { ITextResourcePropertiesService } from '../../../../../editor/common/services/textResourceConfiguration.js';
-import { TestThemeService } from '../../../../../platform/theme/common/testThemeService.js';
+import { TestThemeService } from '../../../../../platform/theme/test/common/testThemeService.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
 import { TestLanguageConfigurationService } from '../../../../../editor/test/common/modes/testLanguageConfigurationService.js';
 import { ILanguageConfigurationService } from '../../../../../editor/common/languages/languageConfigurationRegistry.js';
