@@ -83,13 +83,39 @@ Smoke result: **11/11 checks passed** (`cdp-smoke.mjs`). Screenshot archived by 
 
 ---
 
+## ✅ E2E AI-flow verification (2026-05-31, live dev build over CDP)
+
+First real end-to-end test of the AI path (not just code/units), driving the running dev build
+over CDP against a local Ollama (no API key). **The out-of-box free-model chat path WORKS:**
+
+- Sent chats in the CortexIDE chat sidebar; **got real streamed responses** (e.g. "Reply with one
+  word: pong" → `pong`). Independently confirmed a genuine provider request: Ollama's keep-alive
+  `UNTIL` reset and a new model (`llama3.2:3b`) loaded during the send. The auto-router resolves
+  `auto` → a local Ollama model with **zero key / zero setup** when Ollama is present.
+- **Keyless reality (verified):** the zero-setup path is **local Ollama** (Express onboarding
+  auto-pulls a hw-matched model). The cloud free-tier ladder (groq/gemini/cerebras/…) is *free but
+  needs a pasted key* — there is **no keyless cloud path**. The "no key / no login" moat is true
+  only via local models. (Express's only cloud fallback wires Groq behind a `gsk_` key paste.)
+
+### ❌→✅ BUG FOUND + FIXED: weak-model invalid tool call crashed the chat render
+A free/small model (auto-routed `llama3.2:3b`) emitted an unexpected tool call; `getTitle` in
+`SidebarChat.tsx` did `titleOfBuiltinToolName[name].proposed` where the name passed the runtime
+`builtinToolNames.includes()` check but had no title-map entry → `TypeError: ...reading 'proposed'`
+→ ErrorBoundary blanked the whole assistant message. Fixed with a defensive fallback title
+(commit 8dd9783eeaf). Re-verified live: same prompt renders fully, no pageerror/ErrorBoundary.
+
+### 🟡 Routing-quality issue (not a crash; P1 small-model tuning)
+The auto-router classified a trivial "What is the capital of France?" as a **codebase/code question,
+contextSize 20000** and even logged `WARNING: Local model selected for codebase question!`, then ran
+the agent tool-loop on it (the small model rambled / searched files). Mis-classification +
+agent-mode-by-default on weak models = poor answers. Tracked under roadmap P1 #5.
+
 ## ❓ NOT yet tested (next sessions)
 
-- Onboarding "Express Setup" actually configuring a free model end-to-end (needs network + a real free provider key/keyless path).
-- Sending a chat message and getting a streamed response.
+- Onboarding "Express Setup" end-to-end with a *fresh* profile (auto-pull a model pack; ~4GB download).
 - Ctrl+K inline quick edit; Apply; multi-file composer; diff accept/reject.
 - Autocomplete (FIM) with a local model (Ollama).
-- Agent mode tool calls (read_file/edit_file/grep_search/run_command/etc.).
+- Cloud free-tier path with a real key (429 fallover + graceful exhaustion live).
 - MCP server connection.
 - Repo indexing / RAG.
 - Windows and Linux launch.
