@@ -20,6 +20,8 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { isWeb } from '../../../../base/common/platform.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
 import { freeTierIdOfProviderName } from './routing/freeTierConstants.js';
+import { describeFreeTierExhaustion } from './routing/freeTierExhaustion.js';
+import { ModelSelection, ProviderName } from './cortexideSettingsTypes.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -265,6 +267,19 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				try {
 					if (isRateLimitError(params)) {
 						this.freeTierQuotaService.markExhausted(freeTierId, parseRetryAt(params));
+						// Centralized graceful exhaustion: if every configured free-tier
+						// provider is now unusable, replace the raw provider 429 with an
+						// actionable message so NO feature (chat, apply, ctrl+k, commit,
+						// codeReview, ...) ever strands the user on a bare rate-limit error.
+						const exhaustion = describeFreeTierExhaustion({
+							configuredModels: this._configuredModels(),
+							quotas: this.freeTierQuotaService.getAllRemaining(),
+							now: Date.now(),
+						});
+						if (exhaustion.allExhausted) {
+							onError({ ...params, message: exhaustion.message });
+							return;
+						}
 					}
 				} catch (err) {
 					this.logService.warn('[FreeTierQuota] markExhausted failed', err);
@@ -330,6 +345,22 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			requestId: requestId_,
 		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>)
+	}
+
+	/** Configured + visible models across all filled-in providers (mirrors the router's getAvailableModels). */
+	private _configuredModels(): ModelSelection[] {
+		const models: ModelSelection[] = [];
+		const { settingsOfProvider } = this.cortexideSettingsService.state;
+		for (const providerName of Object.keys(settingsOfProvider) as ProviderName[]) {
+			const ps = settingsOfProvider[providerName];
+			if (!ps._didFillInProviderSettings) continue;
+			for (const m of ps.models) {
+				if (!m.isHidden) {
+					models.push({ providerName, modelName: m.modelName });
+				}
+			}
+		}
+		return models;
 	}
 
 	private _clearChannelHooks(requestId: string) {
