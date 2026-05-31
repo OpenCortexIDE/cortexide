@@ -145,7 +145,8 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 
 | Suite | Result | Notes |
 |---|---|---|
-| freeTierLadder (common) | ✅ 9 passing | free-model routing ladder — stable |
+| freeTierLadder (common) | ✅ 10 passing | +1 this session — now also drops TPM-exhausted providers (commit 08c91e87a3a) |
+| freeTierQuotaService (common) | ✅ 15 passing | NEW this session — the per-provider quota service (moat core) had zero coverage (commit 598036aa2ad) |
 | secretDetection (common) | ✅ 19 passing | was 12/7; fixed this session (commit 03c70bbafe1) |
 | applyAll.rollback.flow (common) | ✅ 4 passing | |
 | auditLog.append.p0 (common) | ✅ 4 passing | |
