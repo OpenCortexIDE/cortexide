@@ -43,6 +43,7 @@ import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
+import { parseJsonToolCallFromText } from '../common/parseJsonToolCall.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -1893,64 +1894,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * Example: {"name": "delete_file_or_folder", "arguments": {"uri": "/path", "is_recursive": true}}
 	 */
 	private _parseJSONToolCallFromText(text: string): { toolName: ToolName, toolParams: RawToolParamsObj } | null {
-		try {
-			// Try to find JSON object in text (may be wrapped in markdown code blocks or plain text)
-			let jsonStr = text.trim()
-
-			// Remove markdown code blocks if present
-			const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-			if (codeBlockMatch) {
-				jsonStr = codeBlockMatch[1].trim()
-			}
-
-			// Try to find JSON object pattern - be more flexible with whitespace
-			// Look for opening brace, then try to find matching closing brace
-			const openBraceIdx = jsonStr.indexOf('{')
-			if (openBraceIdx === -1) {
-				return null
-			}
-
-			// Find matching closing brace
-			let braceCount = 0
-			let closeBraceIdx = -1
-			for (let i = openBraceIdx; i < jsonStr.length; i++) {
-				if (jsonStr[i] === '{') braceCount++
-				if (jsonStr[i] === '}') {
-					braceCount--
-					if (braceCount === 0) {
-						closeBraceIdx = i
-						break
-					}
-				}
-			}
-
-			if (closeBraceIdx === -1) {
-				return null
-			}
-
-			const jsonSubstring = jsonStr.substring(openBraceIdx, closeBraceIdx + 1)
-			const parsed = JSON.parse(jsonSubstring)
-
-			// Check if it's a tool call format
-			if (typeof parsed === 'object' && parsed !== null && 'name' in parsed) {
-				const toolName = parsed.name
-				const toolParams = parsed.arguments || parsed.params || {}
-
-				// Validate tool name is a valid ToolName
-				// Note: We'll validate this when we try to use it
-				if (typeof toolName === 'string' && typeof toolParams === 'object' && toolParams !== null) {
-					return {
-						toolName: toolName as ToolName,
-						toolParams: toolParams as RawToolParamsObj
-					}
-				}
-			}
-		} catch (error) {
-			// Not valid JSON or not a tool call format
-			return null
-		}
-
-		return null
+		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the
+		// JSON tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input).
+		const r = parseJsonToolCallFromText(text)
+		return r ? { toolName: r.toolName as ToolName, toolParams: r.toolParams as RawToolParamsObj } : null
 	}
 
 	/**
