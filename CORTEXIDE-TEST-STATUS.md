@@ -96,6 +96,31 @@ Smoke result: **11/11 checks passed** (`cdp-smoke.mjs`). Screenshot archived by 
 
 ---
 
+## Unit test results (2026-05-31) — only what was actually measured
+
+- ✅ **`freeTierLadder.test.ts` — 9/9 passing** (RUN_EXIT=0). The free-model routing ladder:
+  provider ordering by qualityRank (cerebras>groq>gemini>openRouter>mistral), quota-exhaustion
+  fallthrough, privacy gate, empty-config handling. Command that works:
+  ```bash
+  node test/unit/node/index.js --run out/vs/workbench/contrib/cortexide/test/common/freeTierLadder.test.js
+  ```
+  This is the one cortexide suite confirmed green this session.
+
+- ⚠️ **Running the whole cortexide suite via `--runGlob "**/contrib/cortexide/test/**/*.test.js"`
+  FAILS TO LOAD** (RUN_EXIT=1, no TAP output): `ReferenceError: MouseEvent is not defined`,
+  thrown from `out/vs/workbench/contrib/terminal/browser/terminal.js` while importing
+  `localModelOptimizations.test.js`. Cause: that test lives under `test/common/` but transitively
+  imports a **browser** module (`terminal.js` → `MouseEvent`), so it cannot run under the Node
+  unit runner. The default runner (`test-node`) avoids this by excludeGlobbing browser tests, but
+  `--runGlob` bypasses those excludes. **Net:** the other cortexide common suites (secretDetection,
+  applyEngineV2, autostash, rollbackSnapshot, auditLog, toolsService) are **NOT yet measured this
+  session** — they need to be run individually with `--run` (one file each) or the mislocated
+  browser-dep test needs moving to `test/browser/`. **TODO next session.**
+
+> NOTE: an earlier draft of this section claimed "114 passing, 4 failing" with a detailed
+> applyEngineV2 failure analysis. That was NOT a real measurement (the glob run never produced
+> TAP output) and has been removed. Only the freeTierLadder 9/9 result above is verified.
+
 ## Regression-test plan
 
 - **Unit (already in repo):** `src/vs/workbench/contrib/cortexide/test/common/freeTierLadder.test.ts`
