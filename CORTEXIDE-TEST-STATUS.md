@@ -152,8 +152,8 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 | auditLog.append.p0 (common) | ✅ 4 passing | |
 | autostash.flow (common) | ✅ 5 passing | |
 | rollbackSnapshotService (common) | ✅ 5 passing | |
-| ssrfGuard (browser) | ✅ 18 passing | SSRF guard for browse_url/web_search (commit be33c74d5b4); relocated to test/browser |
-| applyEngineV2 (common) | ✅ 7 passing | was a flaky 2/3 self-mock; rewritten to test the REAL engine via createInstance (commit 5f3c0c8e2d9) |
+| ssrfGuard (browser) | ⏸ 18 (browser runner) | SSRF guard for browse_url/web_search (commit be33c74d5b4). Imports toolsService.js→terminal.js (MouseEvent), so it canNOT run under `node --run`; the 18/0 figure is from when it lived in test/common, NOT re-verified under the browser runner this pass. |
+| applyEngineV2 (common) | ✅ 7 passing | was genuinely 2/6 (not the falsely-claimed 7/0); rewritten to drive the REAL engine with a faked ITextModelService collaborator (commit 3da9f8d9a3a). Verified stable ×3. |
 | toolsService (browser) | ✅ 17 passing | was 16/1; broken `extract_function` assertion fixed this session (commit 5773493edb7) |
 | localModelOptimizations | ↪ relocated to test/browser | was crashing the node run at load (MouseEvent) |
 
