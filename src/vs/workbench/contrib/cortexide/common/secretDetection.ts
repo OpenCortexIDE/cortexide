@@ -53,7 +53,11 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'openai-key',
 		name: 'OpenAI API Key',
-		pattern: /\b(sk-[a-zA-Z0-9]{20,})\b/gi,
+		// Matches both modern prefixed keys (sk-proj-…, sk-svcacct-…, sk-admin-…),
+		// whose bodies contain hyphens, and legacy bare sk-XXXXXXXX… keys. The old
+		// /sk-[a-zA-Z0-9]{20,}/ stopped at the first hyphen, so it never matched the
+		// now-default sk-proj- format and those keys leaked unredacted.
+		pattern: /\b(sk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{4,}|sk-[a-zA-Z0-9]{20,})\b/gi,
 		enabled: true,
 		priority: 100,
 	},
@@ -109,7 +113,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'github-token',
 		name: 'GitHub Token',
-		pattern: /\b(ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ghu_[a-zA-Z0-9]{36}|ghs_[a-zA-Z0-9]{36}|ghr_[a-zA-Z0-9]{36})\b/g,
+		pattern: /\b(ghp_[a-zA-Z0-9]{36,}|gho_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|ghs_[a-zA-Z0-9]{36,}|ghr_[a-zA-Z0-9]{36,})\b/g,
 		enabled: true,
 		priority: 100,
 	},
