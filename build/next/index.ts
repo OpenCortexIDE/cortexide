@@ -535,7 +535,28 @@ async function compileStandaloneFiles(outDir: string, doMinify: boolean, target:
  * Used for development/transpile builds only - production bundles use
  * copyResources() with curated per-target patterns instead.
  */
+// codicon.ttf is shipped via node_modules, not committed to src/. The gulp `copy-codicons`
+// task normally stages it into src/ before transpile runs — but `watch-client-transpile`
+// (this entry point) doesn't depend on gulp, so a dev who only runs the transpile watcher
+// ends up with no icon font and the workbench renders every glyph as a tofu box. Ensure
+// the file is in src/ here so the glob below picks it up.
+function ensureCodiconFontStaged(): void {
+	const fontSrc = path.join(REPO_ROOT, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.ttf');
+	const fontDest = path.join(REPO_ROOT, SRC_DIR, 'vs', 'base', 'browser', 'ui', 'codicons', 'codicon', 'codicon.ttf');
+	if (fs.existsSync(fontDest)) {
+		return;
+	}
+	if (!fs.existsSync(fontSrc)) {
+		console.warn(`[codicons] codicon.ttf missing from node_modules — run "npm install" to fix icon rendering.`);
+		return;
+	}
+	fs.mkdirSync(path.dirname(fontDest), { recursive: true });
+	fs.copyFileSync(fontSrc, fontDest);
+	console.log(`[codicons] Staged codicon.ttf into ${path.relative(REPO_ROOT, fontDest)}`);
+}
+
 async function copyAllNonTsFiles(outDir: string, excludeTests: boolean): Promise<void> {
+	ensureCodiconFontStaged();
 	console.log(`[resources] Copying all non-TS files to ${outDir}...`);
 
 	const ignorePatterns = [
