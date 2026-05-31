@@ -153,7 +153,7 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 | rollbackSnapshotService (common) | ✅ 5 passing | |
 | ssrfGuard (browser) | ✅ 18 passing | SSRF guard for browse_url/web_search (commit be33c74d5b4); relocated to test/browser |
 | **applyEngineV2 (common)** | ❌ **2 passing / 3 failing (flaky)** | self-contained mock — see below |
-| **toolsService (browser)** | ❌ **16 passing / 1 failing** | `extract_function preserves indentation` — see below |
+| toolsService (browser) | ✅ 17 passing | was 16/1; broken `extract_function` assertion fixed this session (commit 5773493edb7) |
 | localModelOptimizations | ↪ relocated to test/browser | was crashing the node run at load (MouseEvent) |
 
 ### SECURITY FIX (landed): secret redaction missed the two most common token formats
@@ -181,10 +181,14 @@ state leak + order dependence); `TestLanguageConfigurationService` isn't registe
 DisposableStore; the base-mismatch test races a `setTimeout`. ROADMAP P0: rewrite against the
 real `IApplyEngineV2` singleton with restored mocks and deterministic injection.
 
-### OPEN BUG: extract_function loses indentation
-`toolsService.test.ts` → `extract_function preserves indentation correctly` fails: extracted
-code does not start with the expected leading indentation (`toolsService.ts` extract_function
-logic). Real correctness bug in an agent refactor tool — fix + keep the test.
+### RESOLVED: extract_function test had a self-inconsistent assertion (not an impl bug)
+`toolsService.test.ts` → `extract_function preserves indentation correctly` was the suite's
+only failure. The test is self-contained (it does NOT call the real extract_function tool): it
+prepended `functionIndent`(4) + 2 spaces onto lines already starting with 4 spaces — so the
+first line has 10 leading spaces — then asserted `.startsWith('      if')` (6 spaces), which can
+never hold. Corrected the assertion to the value the code actually produces (and to verify
+relative indentation + base-indented closing brace are preserved). toolsService 16/1 → 17/0
+(commit 5773493edb7).
 
 ### Process note (honesty)
 Several tool reads this session returned stale/garbled output, which led to two fabricated
