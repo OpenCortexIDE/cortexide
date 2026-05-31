@@ -152,10 +152,10 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 | auditLog.append.p0 (common) | ✅ 4 passing | |
 | autostash.flow (common) | ✅ 5 passing | |
 | rollbackSnapshotService (common) | ✅ 5 passing | |
-| ssrfGuard (browser) | ⏸ 18 (browser runner) | SSRF guard for browse_url/web_search (commit be33c74d5b4). Imports toolsService.js→terminal.js (MouseEvent), so it canNOT run under `node --run`; the 18/0 figure is from when it lived in test/common, NOT re-verified under the browser runner this pass. |
+| ssrfGuard (browser) | ✅ 9 passing (browser runner) | SSRF guard for browse_url/web_search (commit be33c74d5b4). Imports toolsService.js→terminal.js (MouseEvent), so it canNOT run under `node --run`; verified under the Playwright/Chrome browser runner this session. The suite has **9** tests (the earlier "18" figure was a never-verified miscount). Was 8/9 — one real failure (IPv4-mapped IPv6 SSRF bypass) found + fixed this session. |
 | applyEngineV2 (common) | ✅ 8 passing | 7 real + 1 runner guard. Was genuinely 2/6 (not the falsely-claimed 7/0); rewritten to drive the REAL engine with a faked ITextModelService collaborator (commit 3da9f8d9a3a). Stable x3. |
 | toolsService (browser) | ✅ 17 passing | was 16/1; broken `extract_function` assertion fixed this session (commit 5773493edb7) |
-| localModelOptimizations | ↪ relocated to test/browser | was crashing the node run at load (MouseEvent) |
+| localModelOptimizations (browser) | ✅ 13 passing (browser runner) | relocated to test/browser (was crashing the node run at load — MouseEvent); verified under the browser runner this session. |
 
 ### SECURITY FIX (landed): secret redaction missed the two most common token formats
 `common/secretDetection.ts` patterns failed to match — so these leaked **unredacted**
@@ -168,9 +168,22 @@ Result: 12 passing / 7 failing → **19/19**. Commit `03c70bbafe1`.
 ### SECURITY FIX (landed): SSRF guard merged
 `assertNotSSRF` (browser/toolsService.ts) blocks `browse_url`/`web_search` from reaching
 loopback / private (10/8, 172.16/12, 192.168/16) / link-local / `169.254.169.254` cloud
-metadata / IPv6 ULA+link-local / `metadata.google.internal`. Was on an unmerged branch;
-cherry-picked (`be33c74d5b4`), test relocated to test/browser → 18/18.
+metadata / IPv6 ULA+link-local. Was on an unmerged branch; cherry-picked (`be33c74d5b4`),
+test relocated to test/browser → 9 tests.
 **Residual gap:** checks the literal host/IP only — DNS-rebinding not blocked. Roadmap follow-up.
+
+### SECURITY FIX (landed): IPv4-mapped IPv6 SSRF bypass closed
+Running the ssrfGuard suite under the browser runner (first time this pass) surfaced **one real
+failure**: `assertNotSSRF` did **not** block IPv4-mapped IPv6 literals like
+`http://[::ffff:127.0.0.1]/`, `[::ffff:10.0.0.1]`, `[::ffff:169.254.169.254]` — so an attacker
+could reach loopback / private / cloud-metadata via that form. Two root causes:
+1. The IPv4-mapped match ran against the still-**bracketed** `host` (`[::ffff:…]`).
+2. The WHATWG URL parser normalises the embedded dotted-quad to hex
+   (`::ffff:127.0.0.1` → `::ffff:7f00:1`), so the dotted-decimal-only regex never matched.
+Fix (`browser/toolsService.ts`): strip the brackets first, then match `::ffff:` and decode **both**
+the dotted-quad and the two-hex-group forms back to an IPv4 string before the IPv4 checks.
+ssrfGuard 8/9 → **9/9** (verified under the browser runner). Also corrected a wrong code comment
+that claimed `URL.hostname` strips IPv6 brackets (it keeps them).
 
 ### RESOLVED: applyEngineV2 now tests the real engine (was a flaky self-mock)
 Rewritten (commit 3da9f8d9a3a) to drive the **real** `ApplyEngineV2` (constructed via
@@ -187,15 +200,27 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified node-runnable total (this pass): 87 passing / 0 failing
-Per-file `node test/unit/node/index.js --run <out file>`:
+### Verified total: 109 passing / 0 failing across 11 suites (node + browser, both exercised)
+Node, per-file `node test/unit/node/index.js --run <out file>`:
 - 8 common suites = **70 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
   secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5,
   rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 runner guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- **ssrfGuard (browser) and localModelOptimizations cannot run under `node --run`** — they import
-  `toolsService.js`/`terminal.js` (DOM `MouseEvent`) and need the browser/Playwright runner, which
-  was not exercised this pass. So ssrfGuard's 18/0 is NOT re-verified here.
+- Node subtotal = **87 passing / 0 failing**.
+
+Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
+cached; use the channel):
+```bash
+node test/unit/browser/index.js \
+  --run out/vs/workbench/contrib/cortexide/test/browser/ssrfGuard.test.js \
+  --run out/vs/workbench/contrib/cortexide/test/browser/localModelOptimizations.test.js \
+  --browser chromium-chrome --reporter spec
+```
+- ssrfGuard = **9 passing / 0 failing** (after the IPv4-mapped IPv6 fix below; was 8/9).
+- localModelOptimizations = **13 passing / 0 failing**.
+- Browser subtotal = **22 passing / 0 failing**.
+- (toolsService.test fails to *load* under the browser runner — it is a node-runner suite; counted
+  in the node subtotal above, not here.)
 
 ### RESOLVED: extract_function test had a self-inconsistent assertion (not an impl bug)
 `toolsService.test.ts` → `extract_function preserves indentation correctly` was the suite's
