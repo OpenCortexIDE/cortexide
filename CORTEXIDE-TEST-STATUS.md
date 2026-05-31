@@ -147,6 +147,7 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 |---|---|---|
 | freeTierLadder (common) | ✅ 10 passing | +1 this session — now also drops TPM-exhausted providers (commit 08c91e87a3a) |
 | freeTierQuotaService (common) | ✅ 15 passing | NEW this session — the per-provider quota service (moat core) had zero coverage (commit 598036aa2ad) |
+| freeTierExhaustion (common) | ✅ 9 passing | NEW — pure `describeFreeTierExhaustion` helper behind the graceful "all free quotas exhausted" message (commit 1339eab5d67) |
 | secretDetection (common) | ✅ 19 passing | was 12/7; fixed this session (commit 03c70bbafe1) |
 | applyAll.rollback.flow (common) | ✅ 4 passing | |
 | auditLog.append.p0 (common) | ✅ 4 passing | |
@@ -200,13 +201,13 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 109 passing / 0 failing across 11 suites (node + browser, both exercised)
+### Verified total: 118 passing / 0 failing across 12 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 8 common suites = **70 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
-  secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5,
-  rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 runner guard).
+- 9 common suites = **79 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+  freeTierExhaustion 9, secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4,
+  autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 runner guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **87 passing / 0 failing**.
+- Node subtotal = **96 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
@@ -221,6 +222,33 @@ node test/unit/browser/index.js \
 - Browser subtotal = **22 passing / 0 failing**.
 - (toolsService.test fails to *load* under the browser runner — it is a node-runner suite; counted
   in the node subtotal above, not here.)
+
+### P0 FEATURE (landed): graceful "all free quotas exhausted" UX (never strand the user)
+The free-tier router already tracked quota + marked providers exhausted on 429, and chat had an
+auto-mode fallover loop — but when **every** configured free-tier provider was rate-limited, the UI
+showed a raw provider 429 instead of telling the user what to do. The moat ("free models out of the
+box") demands an actionable state, never a bare error.
+
+- **Pure helper** `common/routing/freeTierExhaustion.ts` (`describeFreeTierExhaustion`, 9/9 tests):
+  reuses `buildFreeTierLadder` so its verdict can never disagree with the router. Detects full
+  exhaustion and recommends, in order, a configured **local** model → a configured **BYO** cloud
+  model → adding one; includes the soonest reset time. Exposed via
+  `ITaskAwareModelRouter.getFreeTierExhaustion()`. (commit 1339eab5d67)
+- **Chat** (`chatThreadService`): both rate-limit/fallback error-display paths now route the error
+  through `_exhaustionAwareError` (message-only; no control-flow change). (1339eab5d67)
+- **All features** (`sendLLMMessageService`, commit pending): the central 429 handler now rewrites
+  the error to the actionable message whenever the ladder is exhausted — so Apply, Ctrl+K, commit,
+  codeReview, autocomplete, etc. get the same graceful state, not just chat. Gated on
+  exhausted-only so chat's per-provider fallover loop (which keys off the raw 429 text) is preserved
+  when other free providers still have quota.
+- **Status bar** (`cortexideStatusBar`): the free-tier widget now shows the **currently-active rung**
+  (the provider the router would pick right now) instead of always the top-quality one, marks the
+  active provider in the tooltip, and shows a clear "all exhausted" badge + hint. (1339eab5d67)
+
+> **Follow-up (P0, not yet done):** transparent in-request re-dispatch — on a free-tier 429, retry
+> the next provider so the request *succeeds* (not just a nicer error). Needs an abort-map
+> (public→current requestId), a pre-stream guard (no re-dispatch after text streamed), and a
+> per-caller opt-in so user-**pinned** models don't silently switch.
 
 ### RESOLVED: extract_function test had a self-inconsistent assertion (not an impl bug)
 `toolsService.test.ts` → `extract_function preserves indentation correctly` was the suite's
