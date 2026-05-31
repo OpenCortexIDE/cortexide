@@ -113,13 +113,23 @@ lacked a trailing word boundary ("repo" matched the "repo" prefix of "report", "
 replacing two divergent inline copies in chatThreadService (commit cbbb0e6898f, codebaseQuestionDetector 7/7).
 Verified live: no codebase-routing log fires; context no longer inflated to 20k.
 
-### 🟡 STILL OPEN (P1 #5 small-model agent tuning): agent-mode tool-loop on weak models
-Even with correct routing, a trivial question in **Agent mode** makes a weak local model run the full
-27-tool loop — it searched files, emitted invalid tool calls (now rendered gracefully after the
-getTitle fix, e.g. "Write file / Invalid parameters"), did a web search, and looped to "Step 5". The
-dominant cause of poor free-model answers is agent-mode-by-default + weak tool-call adherence, not the
-(now-fixed) routing. Candidate next: gate the tool-loop for simple questions, or tighten the agent
-prompt / repair tool calls for small models.
+### ✅ ADDRESSED (P1 #5 small-model agent tuning): agent-mode tool-loop on weak models
+Verified cause: in **Agent mode** (the out-of-box default), a weak local model ran the full ~27-tool
+loop on a trivial question — searching files, emitting invalid tool calls, web-searching, looping to
+"Step 5" — driven by agent-default + the "Use tools for EVERY action. Never answer from memory alone."
+mandate + the whole tool catalog injected even for the 3B model. Fix (commit 8d851e603e3, decisions:
+keep agent-default, local/weak models first):
+- **Per-turn gate** (`chatThreadService._effectiveChatModeForTurn`): a trivial general-knowledge
+  question on a LOCAL model runs with effective `chatMode='normal'` (zero tools) so it answers
+  directly and cannot enter the loop. UI mode unchanged. Backed by a pure, unit-tested
+  `isTriviaQuestion` (simpleQuestionGate, 10/10), conservative — any workspace/action/codebase signal
+  keeps full tools (e.g. "what is failing in my build?" is NOT gated).
+- **Softened** the local tool mandate (prompts.ts:752) to answer general-knowledge directly.
+- **Lower iteration cap** for local models (30 vs 100) with an actionable "try Ask/Normal mode" hint.
+- Unit + tsc verified. **Live (CDP) verification of the gate still pending** — needs a rebuild+relaunch
+  (deferred so as not to interrupt active manual testing).
+Follow-ups (not done): curated small tool-set for weak models, bounded tool-call repair, optionally
+extend the gate/softening to cloud models.
 
 ## ❓ NOT yet tested (next sessions)
 
@@ -238,13 +248,14 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 125 passing / 0 failing across 13 suites (node + browser, both exercised)
+### Verified total: 135 passing / 0 failing across 14 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 10 common suites = **86 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
-  freeTierExhaustion 9, codebaseQuestionDetector 7, secretDetection 19, applyAll.rollback.flow 4,
-  auditLog.append.p0 4, autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
+- 11 common suites = **96 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+  freeTierExhaustion 9, codebaseQuestionDetector 7, simpleQuestionGate 10, secretDetection 19,
+  applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5, rollbackSnapshotService 5,
+  applyEngineV2 8 (7 real + 1 guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **103 passing / 0 failing**.
+- Node subtotal = **113 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
