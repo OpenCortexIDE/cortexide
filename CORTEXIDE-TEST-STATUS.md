@@ -104,11 +104,22 @@ A free/small model (auto-routed `llama3.2:3b`) emitted an unexpected tool call; 
 → ErrorBoundary blanked the whole assistant message. Fixed with a defensive fallback title
 (commit 8dd9783eeaf). Re-verified live: same prompt renders fully, no pageerror/ErrorBoundary.
 
-### 🟡 Routing-quality issue (not a crash; P1 small-model tuning)
-The auto-router classified a trivial "What is the capital of France?" as a **codebase/code question,
-contextSize 20000** and even logged `WARNING: Local model selected for codebase question!`, then ran
-the agent tool-loop on it (the small model rambled / searched files). Mis-classification +
-agent-mode-by-default on weak models = poor answers. Tracked under roadmap P1 #5.
+### ✅ FIXED: router mis-detected ordinary questions as codebase questions
+The auto-router classified "What is the capital of France?" as a **codebase/code question,
+contextSize 20000, escalate** (logged `WARNING: Local model selected for codebase question!`). Root
+cause: codebase indicators matched as **substrings** ("api" ⊂ "c·api·tal") and several patterns
+lacked a trailing word boundary ("repo" matched the "repo" prefix of "report", "code"→"coder",
+"app"→"apple"). Fixed via a pure, unit-tested `looksLikeCodebaseQuestion()` (word boundaries),
+replacing two divergent inline copies in chatThreadService (commit cbbb0e6898f, codebaseQuestionDetector 7/7).
+Verified live: no codebase-routing log fires; context no longer inflated to 20k.
+
+### 🟡 STILL OPEN (P1 #5 small-model agent tuning): agent-mode tool-loop on weak models
+Even with correct routing, a trivial question in **Agent mode** makes a weak local model run the full
+27-tool loop — it searched files, emitted invalid tool calls (now rendered gracefully after the
+getTitle fix, e.g. "Write file / Invalid parameters"), did a web search, and looped to "Step 5". The
+dominant cause of poor free-model answers is agent-mode-by-default + weak tool-call adherence, not the
+(now-fixed) routing. Candidate next: gate the tool-loop for simple questions, or tighten the agent
+prompt / repair tool calls for small models.
 
 ## ❓ NOT yet tested (next sessions)
 
@@ -227,13 +238,13 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 118 passing / 0 failing across 12 suites (node + browser, both exercised)
+### Verified total: 125 passing / 0 failing across 13 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 9 common suites = **79 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
-  freeTierExhaustion 9, secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4,
-  autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 runner guard).
+- 10 common suites = **86 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+  freeTierExhaustion 9, codebaseQuestionDetector 7, secretDetection 19, applyAll.rollback.flow 4,
+  auditLog.append.p0 4, autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **96 passing / 0 failing**.
+- Node subtotal = **103 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
