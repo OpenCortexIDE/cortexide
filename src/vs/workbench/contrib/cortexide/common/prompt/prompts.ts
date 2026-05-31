@@ -511,17 +511,34 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 // Tools restricted to agent/plan modes only (not available in gather)
 const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion'])
 
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
+// Curated tool subset offered to weak/local models in agent/plan mode. Excludes the tools a small
+// model tends to hallucinate or misuse — persistent terminals, MCP, web, LSP nav/refactor, multi_edit —
+// while keeping file read/search/edit, diagnostics, todo, and a single run_command. Fewer tools means
+// fewer invalid tool calls and a smaller prompt for tight local context windows.
+export const COMPACT_LOCAL_TOOLSET = new Set<BuiltinToolName>([
+	'read_file', 'ls_dir', 'get_dir_tree', 'search_pathnames_only', 'search_for_files', 'search_in_file',
+	'read_lint_errors', 'grep_search', 'glob_files', 'get_diagnostics',
+	'create_file_or_folder', 'edit_file', 'rewrite_file',
+	'todo_write', 'attempt_completion', 'run_command',
+])
 
-	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
+export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean }) => {
+
+	let builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
 			!(toolName in approvalTypeOfBuiltinToolName) && !AGENT_ONLY_TOOLS.has(toolName)
 		)
 			: (chatMode === 'agent' || chatMode === 'plan') ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
+	// Weak/local models get a curated subset (and no MCP) so they can't hallucinate/misuse the
+	// long tail of tools (persistent terminals, web, refactors). See COMPACT_LOCAL_TOOLSET.
+	if (opts?.isLocal && builtinToolNames) {
+		builtinToolNames = builtinToolNames.filter(toolName => COMPACT_LOCAL_TOOLSET.has(toolName))
+	}
+
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') ? mcpTools : undefined
+	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') && !opts?.isLocal ? mcpTools : undefined
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -554,8 +571,8 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
-const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
-	const tools = availableTools(chatMode, mcpTools)
+const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean) => {
+	const tools = availableTools(chatMode, mcpTools, { isLocal })
 	if (!tools || tools.length === 0) return null
 
 	const toolXMLDefinitions = (`\
@@ -745,7 +762,8 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 
 	const sysInfo = `System: ${os} | Today: ${new Date().toDateString()}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	// Local/weak model → curated tool subset (see COMPACT_LOCAL_TOOLSET).
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true) : null
 
 	const details: string[] = []
 	if (mode === 'agent' || mode === 'plan') {

@@ -59,6 +59,8 @@ const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
 const MAX_AGENT_LOOP_ITERATIONS = 100 // Hard cap; most tasks complete well under 30 iterations
 const MAX_LOCAL_AGENT_LOOP_ITERATIONS = 30 // Tighter cap for weak/local models, which tend to ramble rather than converge
+const MAX_CONSECUTIVE_TOOL_ERRORS = 6 // Stop the agent after this many failed tool calls in a row
+const MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS = 3 // Tighter for weak/local models that thrash on tools
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
 
@@ -2771,9 +2773,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const chatMode = this._effectiveChatModeForTurn(threadId, userChatMode, modelSelection)
 		const isLocalModel = !!modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
 		const maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
+		const maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
 		const { overridesOfModel } = this._settingsService.state
 
 		let nMessagesSent = 0
+		let consecutiveToolErrors = 0 // failed tool calls in a row; resets on any tool success
 		let shouldSendAnotherMessage = true
 		let isRunningWhenEnd: IsRunningType = undefined
 		let filesReadInQuery = 0 // Track number of files read to prevent excessive reads
@@ -4117,6 +4121,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 
 					toolsExecutedInRequest.push(toolCall.name)
+
+					// Stop early if a (weak) model keeps emitting failed tool calls, rather than thrashing up to
+					// the iteration cap. Count consecutive tool errors; reset on any success.
+					const lastToolMsg = this.state.allThreads[threadId]?.messages.slice(-1)[0]
+					if (lastToolMsg?.role === 'tool') {
+						const tt = (lastToolMsg as ToolMessage<ToolName>).type
+						if (tt === 'tool_error' || tt === 'invalid_params') { consecutiveToolErrors += 1 }
+						else if (tt === 'success') { consecutiveToolErrors = 0 }
+					}
+					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} failed tool calls in a row.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
+						this._setStreamState(threadId, { isRunning: undefined })
+						this._addUserCheckpoint({ threadId })
+						return
+					}
 
 					// Only update plan step status if we have an active plan (skip if no plan)
 					if (activePlanTracking?.currentStep) {
