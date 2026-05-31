@@ -153,7 +153,7 @@ Run per-suite: `node test/unit/node/index.js --run out/.../cortexide/test/<dir>/
 | autostash.flow (common) | ✅ 5 passing | |
 | rollbackSnapshotService (common) | ✅ 5 passing | |
 | ssrfGuard (browser) | ✅ 18 passing | SSRF guard for browse_url/web_search (commit be33c74d5b4); relocated to test/browser |
-| **applyEngineV2 (common)** | ❌ **2 passing / 3 failing (flaky)** | self-contained mock — see below |
+| applyEngineV2 (common) | ✅ 7 passing | was a flaky 2/3 self-mock; rewritten to test the REAL engine via createInstance (commit 5f3c0c8e2d9) |
 | toolsService (browser) | ✅ 17 passing | was 16/1; broken `extract_function` assertion fixed this session (commit 5773493edb7) |
 | localModelOptimizations | ↪ relocated to test/browser | was crashing the node run at load (MouseEvent) |
 
@@ -172,15 +172,17 @@ metadata / IPv6 ULA+link-local / `metadata.google.internal`. Was on an unmerged 
 cherry-picked (`be33c74d5b4`), test relocated to test/browser → 18/18.
 **Residual gap:** checks the literal host/IP only — DNS-rebinding not blocked. Roadmap follow-up.
 
-### OPEN BUG: applyEngineV2 test is a flaky self-mock (not a shipping-code bug)
-`applyEngineV2.test.ts` reimplements the apply logic in an in-test `ApplyEngineV2TestImpl`
-class and **never exercises the real `common/applyEngineV2.ts`**. The same compiled binary
-yields different counts across runs (2/3 with an afterEach disposable-leak abort; ~6/5 once
-the leak is fixed and more tests run). Root causes: tests reassign the SHARED
-`fileService.writeFile`/`readFile` to inject failures but never restore them (cross-test
-state leak + order dependence); `TestLanguageConfigurationService` isn't registered with the
-DisposableStore; the base-mismatch test races a `setTimeout`. ROADMAP P0: rewrite against the
-real `IApplyEngineV2` singleton with restored mocks and deterministic injection.
+### RESOLVED: applyEngineV2 now tests the real engine (was a flaky self-mock)
+Rewritten (commit 5f3c0c8e2d9) to instantiate the **real** `ApplyEngineV2` via `createInstance` with
+real ModelService / TextModelResolverService / InMemoryTestFileService and small recording mocks for
+the rollback/stash/audit collaborators. The `ApplyEngineV2` class is now exported so tests can
+construct it. 7 deterministic, leak-free tests: create, edit (full rewrite), path-safety
+(out-of-workspace → write_failure, file not created), atomicity (write failure during apply → fails,
+creates snapshot, attempts restore, does not discard), deterministic ordering, audit-event-on-success,
+snapshot-discard-on-success. base-mismatch is documented as not externally triggerable (the engine
+reads via the cached text model). flaky 2/3 → 7/0.
+
+**All 10 cortexide unit suites are now green: 104 passing / 0 failing.**
 
 ### RESOLVED: extract_function test had a self-inconsistent assertion (not an impl bug)
 `toolsService.test.ts` → `extract_function preserves indentation correctly` was the suite's
