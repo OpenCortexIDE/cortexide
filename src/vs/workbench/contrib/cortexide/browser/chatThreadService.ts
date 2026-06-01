@@ -11,7 +11,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName, builtinToolNames } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
@@ -2258,6 +2258,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		toolId: string,
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
+		isLocal: boolean = false,
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2489,8 +2490,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// Weak models often hallucinate tool names. Return a clear, recoverable error
 					// (the catch below records it as a tool_error the model can self-correct from)
 					// instead of the misleading raw "MCP tool X not found".
-					const available = [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])].join(', ')
-					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${available}`)
+					// List the tools the model was actually OFFERED (curated for local models), so this
+					// error doesn't re-introduce the tools curation deliberately hid from a weak model.
+					const offered = isLocal ? [...COMPACT_LOCAL_TOOLSET] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
+					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${offered.join(', ')}`)
 				}
 
 				resolveInterruptor(() => { })
@@ -4047,7 +4050,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
