@@ -144,8 +144,18 @@ keep agent-default, local/weak models first):
 - **Consecutive-error cap**: stop after 3 (local) / 6 (cloud) failed tool calls in a row (reset on any
   success), with an actionable message, instead of thrashing to the iteration cap.
 
+- **JSON tool-call recognition** (commit): weak models emit tool calls as JSON-in-text with
+  OpenAI-style field names (`function_name`/`action`/`tool_name` + `arguments`/`parameters`/`input`);
+  the parser only accepted `{name, arguments}`, so they rendered as inert text and the model
+  "explained" instead of acting. Extracted to pure `common/parseJsonToolCall.ts` and broadened the
+  accepted fields. A well-named call (e.g. `glob_files`) now executes; a mis-named one becomes a
+  recoverable "no such tool". parseJsonToolCall 8/8.
+
 Remaining follow-ups: extend curation to native-format builders + the XML parser; bounded tool-call
-*repair* (coerce common param aliases); optionally extend the trivia-gate/softening to cloud models.
+*repair* (coerce tool-name/param aliases — `list`→`ls_dir`, `directory`→`uri`); optionally extend the
+trivia-gate/softening to cloud models. NOTE: a 3B general model (e.g. llama3.2:3b) is near the floor
+for agentic tool use regardless of these fixes — a coding-tuned model (qwen2.5-coder:7b/14b, which
+Express onboarding recommends) follows the tool format far better.
 
 ## ❓ NOT yet tested (next sessions)
 
@@ -264,14 +274,14 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 142 passing / 0 failing across 15 suites (node + browser, both exercised)
+### Verified total: 150 passing / 0 failing across 16 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 12 common suites = **103 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+- 13 common suites = **111 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
   freeTierExhaustion 9, codebaseQuestionDetector 7, simpleQuestionGate 10, compactLocalToolset 7,
-  secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4, autostash.flow 5,
-  rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
+  parseJsonToolCall 8, secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4,
+  autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **120 passing / 0 failing**.
+- Node subtotal = **128 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
