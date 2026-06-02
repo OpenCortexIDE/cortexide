@@ -2477,6 +2477,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } })
 
 			if (isBuiltInTool) {
+				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
+				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
+				// weak model can't get distracted by tools it shouldn't use.
+				if (isLocal && !(COMPACT_LOCAL_TOOLSET as Set<string>).has(toolName)) {
+					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...COMPACT_LOCAL_TOOLSET].join(', ')}.`)
+				}
 				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
 				const interruptor = () => { interrupted = true; interruptTool?.() }
 				resolveInterruptor(interruptor)

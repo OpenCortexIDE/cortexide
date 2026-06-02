@@ -141,7 +141,7 @@ export type InternalToolInfo = {
 
 
 const uriParam = (object: string) => ({
-	uri: { description: `The FULL path to the ${object}.` }
+	uri: { description: `Path to the ${object}, RELATIVE to the workspace root (e.g. "src/app.ts" or "notes.md"). An absolute path is accepted only if it is inside the workspace — never invent paths like "/file" or "/workspace/...".` }
 })
 
 const paginationParam = {
