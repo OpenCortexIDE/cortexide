@@ -274,14 +274,25 @@ base-mismatch documented as not externally triggerable.
 > (the false "green" came from runs where the suite silently failed to LOAD via a wrong
 > testThemeService import path, counted as 0/0), and 104 was never measured.
 
-### Verified total: 150 passing / 0 failing across 16 suites (node + browser, both exercised)
+### ✅ FIXED: router sent code/agentic tasks to a weak general model over a coding model
+The auto-router rewarded code-tuned models (FIM +30, "coder"-name +25) only on REGULAR code tasks;
+agentic/complex prompts (`requiresComplexReasoning && !hasCode`) take the "codebase question" branch
+(modelRouter.ts:958-1030) which had NO coder signal — so qwen2.5-coder:7b and llama3.2:3b tied on the
+code axis and a context-window/learned-score coin-flip routed agentic work to the weaker general
+model. Extracted the bonus to pure `codingModelScore.ts` (6/6) and applied it on BOTH code branches
+(regular = behavior-preserving; codebase now gains it). A coder local reliably outranks a general
+local for code/agentic; online models still win when present; chat untouched. (commit 1105404b80d)
+**Precondition:** only helps if a coder model is actually pulled in Ollama (models are autodetected;
+ollama defaults are empty) so it's a candidate.
+
+### Verified total: 156 passing / 0 failing across 17 suites (node + browser, both exercised)
 Node, per-file `node test/unit/node/index.js --run <out file>`:
-- 13 common suites = **111 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
+- 14 common suites = **117 passing / 0 failing**: freeTierLadder 10, freeTierQuotaService 15,
   freeTierExhaustion 9, codebaseQuestionDetector 7, simpleQuestionGate 10, compactLocalToolset 7,
-  parseJsonToolCall 8, secretDetection 19, applyAll.rollback.flow 4, auditLog.append.p0 4,
-  autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
+  parseJsonToolCall 8, codingModelScore 6, secretDetection 19, applyAll.rollback.flow 4,
+  auditLog.append.p0 4, autostash.flow 5, rollbackSnapshotService 5, applyEngineV2 8 (7 real + 1 guard).
 - toolsService (browser dir, self-contained) = **17 passing / 0 failing** (verified in isolation).
-- Node subtotal = **128 passing / 0 failing**.
+- Node subtotal = **134 passing / 0 failing**.
 
 Browser, via the Playwright runner using system Chrome (the bundled chromium build 1194 isn't
 cached; use the channel):
