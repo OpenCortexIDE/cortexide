@@ -33,3 +33,22 @@ export function codingModelScoreBonus(modelNameLower: string, supportsFIM: boole
 	}
 	return bonus;
 }
+
+/**
+ * Small, capped tie-breaker that prefers a LARGER model within the same family for code/agentic
+ * work. Local coders often share identical capability data (e.g. qwen2.5-coder:1.5b and :latest both
+ * report 32k context + FIM), so without this the router can pick a too-small coder. The bonus is
+ * intentionally tiny so it only breaks ties — it never overrides the coder>general or online>local
+ * signals. Apply to LOCAL models only (cloud names rarely carry a parameter count).
+ *
+ * Parses a parameter count like "7b" / "1.5b" / "32b" from the tag; an unnumbered tag (":latest",
+ * ":instruct") is assumed to be the flagship size (capable) rather than the smallest.
+ */
+export function localModelSizeBonus(modelNameLower: string): number {
+	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
+	const params = m ? parseFloat(m[1]) : 8; // unnumbered tag => assume a capable flagship size
+	if (!isFinite(params) || params <= 0) {
+		return 0;
+	}
+	return Math.min(params, 32) * 0.5; // 1.5b->0.75, 3b->1.5, 7b/latest->~4, >=32b->16
+}

@@ -17,7 +17,7 @@ import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
 import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
-import { codingModelScoreBonus } from './routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus } from './routing/codingModelScore.js';
 
 /**
  * Task types for automatic model selection
@@ -1026,6 +1026,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// codebase requests to a worse model. This makes the coder reliably win among locals.
 				score += codingModelScoreBonus(name, capabilities.supportsFIM)
 
+				// Among local coders (which often share identical capability data, e.g. qwen2.5-coder
+				// :1.5b vs :latest both report 32k+FIM), prefer the larger as a tie-breaker.
+				if (isLocal) { score += localModelSizeBonus(name) }
+
 				// Local models struggle more with codebase questions (need to understand many files)
 				if (isLocal) {
 					// If online models are available, strongly prefer them for codebase questions
@@ -1041,6 +1045,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 				// FIM + code-tuned name bonus (shared with the codebase-question branch above).
 				score += codingModelScoreBonus(name, capabilities.supportsFIM)
+				// Among local coders, prefer the larger model as a tie-breaker.
+				if (isLocal) { score += localModelSizeBonus(name) }
 
 				// High-quality models are better at code generation
 				// Claude models are particularly good at understanding requirements and generating code

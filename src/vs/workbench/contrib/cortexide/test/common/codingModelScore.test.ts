@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { codingModelScoreBonus } from '../../common/routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus } from '../../common/routing/codingModelScore.js';
 
 suite('codingModelScoreBonus', () => {
 
@@ -32,5 +32,27 @@ suite('codingModelScoreBonus', () => {
 
 	test('matches the devstral/codestral hints too', () => {
 		assert.strictEqual(codingModelScoreBonus('devstral', false), 25);
+	});
+});
+
+suite('localModelSizeBonus', () => {
+	test('parses param counts and scales (capped)', () => {
+		assert.strictEqual(localModelSizeBonus('qwen2.5-coder:1.5b'), 0.75);
+		assert.strictEqual(localModelSizeBonus('qwen2.5-coder:3b'), 1.5);
+		assert.strictEqual(localModelSizeBonus('qwen2.5-coder:7b'), 3.5);
+		assert.strictEqual(localModelSizeBonus('codestral:22b'), 11);
+		assert.strictEqual(localModelSizeBonus('llama3.1:70b'), 16); // capped at 32*0.5
+	});
+
+	test('is not fooled by the version number (2.5)', () => {
+		// must read the :1.5b tag, not the "2.5" in the family name
+		assert.strictEqual(localModelSizeBonus('qwen2.5-coder:1.5b'), 0.75);
+	});
+
+	test('unnumbered tag (":latest") is treated as a capable flagship, not the smallest', () => {
+		assert.strictEqual(localModelSizeBonus('qwen2.5-coder:latest'), 4); // 8 * 0.5
+		// REGRESSION: :latest (7B) must outrank :1.5b so the router stops preferring the tiny coder
+		assert.ok(localModelSizeBonus('qwen2.5-coder:latest') > localModelSizeBonus('qwen2.5-coder:1.5b'));
+		assert.ok(localModelSizeBonus('qwen2.5-coder:3b') > localModelSizeBonus('qwen2.5-coder:1.5b'));
 	});
 });
