@@ -17,6 +17,7 @@ import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
 import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
+import { codingModelScoreBonus } from './routing/codingModelScore.js';
 
 /**
  * Task types for automatic model selection
@@ -1019,6 +1020,12 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 					score += 10; // Bonus for system message support
 				}
 
+				// Reward code-tuned models here too (not only on regular-code tasks). Without this, a
+				// coding-tuned local (qwen-coder, codestral, ...) and a weak general local tie on the
+				// code axis and a context-window/learned-score coin-flip decides — sending agentic/
+				// codebase requests to a worse model. This makes the coder reliably win among locals.
+				score += codingModelScoreBonus(name, capabilities.supportsFIM)
+
 				// Local models struggle more with codebase questions (need to understand many files)
 				if (isLocal) {
 					// If online models are available, strongly prefer them for codebase questions
@@ -1032,15 +1039,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// Regular code tasks (writing/editing code, implementation tasks)
 				// Implementation tasks need good code generation, not just large context
 
-				// FIM (Fill-in-Middle) is very valuable for code editing
-				if (capabilities.supportsFIM) {
-					score += 30; // FIM is very valuable for code
-				}
-
-				// Code-tuned models are excellent for implementation
-				if (name.includes('code') || name.includes('coder') || name.includes('devstral') || name.includes('codestral')) {
-					score += 25; // Increased bonus for code-tuned models on implementation tasks
-				}
+				// FIM + code-tuned name bonus (shared with the codebase-question branch above).
+				score += codingModelScoreBonus(name, capabilities.supportsFIM)
 
 				// High-quality models are better at code generation
 				// Claude models are particularly good at understanding requirements and generating code
