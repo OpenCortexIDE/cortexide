@@ -21,6 +21,38 @@ export interface ParsedJsonToolCall {
 	readonly toolParams: Record<string, unknown>;
 }
 
+/**
+ * Common tool-name synonyms weak models emit, mapped to the canonical builtin tool name. Ollama
+ * models don't return structured tool_calls (they dump JSON in content), so the model freely invents
+ * names — `create_file` instead of `create_file_or_folder`, `list` instead of `ls_dir`, etc. Mapping
+ * them lets the call actually run instead of bouncing off "no such tool".
+ */
+const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
+	create_file: 'create_file_or_folder', create: 'create_file_or_folder', new_file: 'create_file_or_folder',
+	make_file: 'create_file_or_folder', touch: 'create_file_or_folder', write_new_file: 'create_file_or_folder',
+	write_file: 'rewrite_file', overwrite_file: 'rewrite_file', save_file: 'rewrite_file',
+	edit: 'edit_file', modify_file: 'edit_file', update_file: 'edit_file', apply_edit: 'edit_file', apply_diff: 'edit_file',
+	read: 'read_file', open: 'read_file', open_file: 'read_file', cat: 'read_file', view_file: 'read_file', view: 'read_file',
+	list: 'ls_dir', ls: 'ls_dir', list_files: 'ls_dir', list_dir: 'ls_dir', list_directory: 'ls_dir',
+	list_workspace_folders: 'ls_dir', list_workspace: 'ls_dir', dir: 'ls_dir',
+	search: 'grep_search', grep: 'grep_search', search_text: 'grep_search', search_code: 'grep_search',
+	find: 'search_for_files', find_files: 'search_for_files', search_files: 'search_for_files', find_file: 'search_for_files',
+	glob: 'glob_files',
+	delete: 'delete_file_or_folder', remove: 'delete_file_or_folder', rm: 'delete_file_or_folder', delete_file: 'delete_file_or_folder',
+	run: 'run_command', exec: 'run_command', execute: 'run_command', shell: 'run_command', bash: 'run_command',
+	run_terminal: 'run_command', terminal: 'run_command', run_shell: 'run_command',
+	done: 'attempt_completion', finish: 'attempt_completion', complete: 'attempt_completion',
+	completion: 'attempt_completion', no_completion: 'attempt_completion', finish_task: 'attempt_completion',
+	todo: 'todo_write', update_todo: 'todo_write', set_todos: 'todo_write',
+	diagnostics: 'get_diagnostics', get_errors: 'get_diagnostics', lint: 'read_lint_errors',
+};
+
+/** Map a (possibly invented) tool name to the canonical builtin name when there's a known synonym. */
+export function canonicalizeToolName(name: string): string {
+	if (typeof name !== 'string') { return name; }
+	return TOOL_NAME_ALIASES[name.trim().toLowerCase()] ?? name;
+}
+
 export function parseJsonToolCallFromText(text: string): ParsedJsonToolCall | null {
 	try {
 		let jsonStr = text.trim();
@@ -54,7 +86,7 @@ export function parseJsonToolCallFromText(text: string): ParsedJsonToolCall | nu
 			const toolName = parsed.name ?? parsed.function_name ?? parsed.tool_name ?? parsed.tool ?? parsed.action;
 			const toolParams = parsed.arguments || parsed.params || parsed.parameters || parsed.input || {};
 			if (typeof toolName === 'string' && typeof toolParams === 'object' && toolParams !== null) {
-				return { toolName, toolParams: toolParams as Record<string, unknown> };
+				return { toolName: canonicalizeToolName(toolName), toolParams: toolParams as Record<string, unknown> };
 			}
 		}
 	} catch {

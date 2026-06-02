@@ -33,6 +33,7 @@ import { LRUCache } from '../../../../base/common/map.js'
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
+import { coerceAbsolutePathToWorkspaceRelative } from '../common/coerceWorkspacePath.js'
 import { IEditorService } from '../../../services/editor/common/editorService.js'
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js'
 import { Position } from '../../../../editor/common/core/position.js'
@@ -88,12 +89,14 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 		// This handles cases where LLM returns paths like "/carepilot-api/src" that should be relative
 		else if (workspaceContextService && uriStr.startsWith('/')) {
 			const workspace = workspaceContextService.getWorkspace();
+			let matched = false;
 			for (const folder of workspace.folders) {
 				const workspacePath = folder.uri.fsPath;
 				// Check if the absolute path is actually within this workspace folder
 				// by checking if workspace path is a prefix
 				if (uriStr.startsWith(workspacePath)) {
 					// Path is already correctly absolute within workspace
+					matched = true;
 					break;
 				}
 				// Check if path starts with workspace folder name (common LLM mistake)
@@ -102,8 +105,19 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 					// Treat as relative path - remove leading slash and folder name
 					const relativePath = uriStr.replace(`/${workspaceFolderName}`, '').replace(/^\//, '');
 					uri = joinPath(folder.uri, relativePath);
+					matched = true;
 					break;
 				}
+			}
+			// Fallback: a weak/local model routinely invents an absolute path under a fake root
+			// it imagines ("/file", "/workspace/fib.py", "/app/src/x.ts"). Rather than failing the
+			// call, re-root it into the workspace by treating it as workspace-relative. The
+			// isInsideWorkspace check below is the fail-closed backstop: anything that escapes the
+			// workspace via "../" still throws.
+			if (!matched && workspace.folders.length > 0) {
+				const root = workspace.folders[0].uri;
+				const relativePath = coerceAbsolutePathToWorkspaceRelative(uriStr) ?? '';
+				uri = relativePath ? joinPath(root, relativePath) : root;
 			}
 		}
 	}

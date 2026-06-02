@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { parseJsonToolCallFromText } from '../../common/parseJsonToolCall.js';
+import { parseJsonToolCallFromText, canonicalizeToolName } from '../../common/parseJsonToolCall.js';
 
 suite('parseJsonToolCallFromText', () => {
 
@@ -21,10 +21,10 @@ suite('parseJsonToolCallFromText', () => {
 		assert.deepStrictEqual(r!.toolParams, { limit: 1, pattern: '**/*' });
 	});
 
-	test('{action, arguments} is recognized (name maps even if the tool is later unknown)', () => {
+	test('{action, arguments} is recognized; the invented name is canonicalized (list -> ls_dir)', () => {
 		const r = parseJsonToolCallFromText('{"action":"list","arguments":{"directory":"/x"}}');
 		assert.ok(r);
-		assert.strictEqual(r!.toolName, 'list');
+		assert.strictEqual(r!.toolName, 'ls_dir');
 		assert.deepStrictEqual(r!.toolParams, { directory: '/x' });
 	});
 
@@ -47,5 +47,35 @@ suite('parseJsonToolCallFromText', () => {
 		assert.strictEqual(parseJsonToolCallFromText('I will help you with that. First, let me look around.'), null);
 		assert.strictEqual(parseJsonToolCallFromText('{"foo":"bar"}'), null); // no recognizable name field
 		assert.strictEqual(parseJsonToolCallFromText('not json at all'), null);
+	});
+
+	test('REGRESSION: the exact name the 7B invented (create_file) is canonicalized so the call runs', () => {
+		const r = parseJsonToolCallFromText('{"name":"create_file","arguments":{"uri":"fib.py","contents":"x"}}');
+		assert.strictEqual(r!.toolName, 'create_file_or_folder');
+	});
+});
+
+suite('canonicalizeToolName', () => {
+	test('maps the common invented names to canonical builtins', () => {
+		assert.strictEqual(canonicalizeToolName('create_file'), 'create_file_or_folder');
+		assert.strictEqual(canonicalizeToolName('write_file'), 'rewrite_file');
+		assert.strictEqual(canonicalizeToolName('list_workspace_folders'), 'ls_dir');
+		assert.strictEqual(canonicalizeToolName('no_completion'), 'attempt_completion');
+		assert.strictEqual(canonicalizeToolName('run'), 'run_command');
+		assert.strictEqual(canonicalizeToolName('delete'), 'delete_file_or_folder');
+	});
+
+	test('is case- and whitespace-insensitive', () => {
+		assert.strictEqual(canonicalizeToolName('  Create_File '), 'create_file_or_folder');
+		assert.strictEqual(canonicalizeToolName('LIST'), 'ls_dir');
+	});
+
+	test('leaves a valid canonical name untouched', () => {
+		assert.strictEqual(canonicalizeToolName('create_file_or_folder'), 'create_file_or_folder');
+		assert.strictEqual(canonicalizeToolName('grep_search'), 'grep_search');
+	});
+
+	test('leaves an unknown name untouched (downstream yields a recoverable "no such tool")', () => {
+		assert.strictEqual(canonicalizeToolName('frobnicate'), 'frobnicate');
 	});
 });
