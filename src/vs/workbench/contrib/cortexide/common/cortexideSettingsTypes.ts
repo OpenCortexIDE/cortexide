@@ -33,6 +33,7 @@ export type CortexideStatefulModelInfo = { // <-- STATEFUL
 	modelName: string,
 	type: 'default' | 'autodetected' | 'custom';
 	isHidden: boolean, // whether or not the user is hiding it (switched off)
+	parameterSize?: string, // real param count from the provider (ollama details.parameter_size, e.g. "7.6B"); lets the router prefer a true 7B over a tiny ":latest" coder
 }
 
 

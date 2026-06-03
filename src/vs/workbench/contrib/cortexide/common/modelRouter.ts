@@ -817,6 +817,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const name = modelSelection.modelName.toLowerCase();
 		const provider = modelSelection.providerName.toLowerCase();
 		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		// Real parameter size the provider reported (ollama details.parameter_size), if known. Lets the
+		// size bonus/penalty prefer a true 7B over a tiny ":latest" coder whose tag doesn't reveal size.
+		const realParamSize: string | undefined = isLocal
+			? settingsState?.settingsOfProvider?.[modelSelection.providerName]?.models?.find((m: { modelName: string; parameterSize?: string }) => m.modelName === modelSelection.modelName)?.parameterSize
+			: undefined;
 
 		// Check Local-First AI setting
 		// PERFORMANCE: Use pre-computed value if provided, otherwise lookup (for backward compatibility)
@@ -1030,7 +1035,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// :1.5b vs :latest both report 32k+FIM), prefer the larger as a tie-breaker, and
 				// decisively demote a sub-7B local coder (below the agentic floor) so a lucky
 				// learned-score swing can't hand an agentic codebase task to a 3B over a 7B.
-				if (isLocal) { score += localModelSizeBonus(name) + smallLocalModelCodePenalty(name) }
+				if (isLocal) { score += localModelSizeBonus(name, realParamSize) + smallLocalModelCodePenalty(name, realParamSize) }
 
 				// Local models struggle more with codebase questions (need to understand many files)
 				if (isLocal) {
@@ -1049,7 +1054,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				score += codingModelScoreBonus(name, capabilities.supportsFIM)
 				// Among local coders, prefer the larger model as a tie-breaker, and decisively demote
 				// a sub-7B local coder so it can't tie/beat a 7B+ coder on a code task.
-				if (isLocal) { score += localModelSizeBonus(name) + smallLocalModelCodePenalty(name) }
+				if (isLocal) { score += localModelSizeBonus(name, realParamSize) + smallLocalModelCodePenalty(name, realParamSize) }
 
 				// High-quality models are better at code generation
 				// Claude models are particularly good at understanding requirements and generating code

@@ -44,12 +44,32 @@ export function codingModelScoreBonus(modelNameLower: string, supportsFIM: boole
  * Parses a parameter count like "7b" / "1.5b" / "32b" from the tag; an unnumbered tag (":latest",
  * ":instruct") is assumed to be the flagship size (capable) rather than the smallest.
  */
-export function localModelSizeBonus(modelNameLower: string): number {
-	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
-	const params = m ? parseFloat(m[1]) : 8; // unnumbered tag => assume a capable flagship size
-	if (!isFinite(params) || params <= 0) {
-		return 0;
-	}
+/**
+ * Parse a parameter count in BILLIONS from either an ollama `details.parameter_size` string
+ * ("7.6B", "1.3B", "32B") or a model tag ("7b", "1.5b"). Returns null if no count is present
+ * (e.g. an unnumbered tag like ":latest"). Not fooled by a version number ("qwen2.5-coder" -> null;
+ * "qwen2.5-coder:1.5b" -> 1.5).
+ */
+export function parseParamSizeBillions(s: string | undefined | null): number | null {
+	if (!s || typeof s !== 'string') { return null; }
+	const m = s.toLowerCase().match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
+	if (!m) { return null; }
+	const n = parseFloat(m[1]);
+	return isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The model's parameter count in billions: the REAL size (ollama `details.parameter_size`) if known,
+ * else parsed from the name tag, else 8 (an unnumbered/flagship tag like ":latest" whose real size we
+ * don't have — assume capable). Passing the real size is what stops a tiny ":latest" coder (e.g.
+ * deepseek-coder:latest ~1.3B) from being mistaken for a flagship.
+ */
+function effectiveParamsBillions(modelNameLower: string, realParamSize?: string): number {
+	return parseParamSizeBillions(realParamSize) ?? parseParamSizeBillions(modelNameLower) ?? 8;
+}
+
+export function localModelSizeBonus(modelNameLower: string, realParamSize?: string): number {
+	const params = effectiveParamsBillions(modelNameLower, realParamSize);
 	return Math.min(params, 32) * 0.5; // 1.5b->0.75, 3b->1.5, 7b/latest->~4, >=32b->16
 }
 
@@ -65,11 +85,13 @@ export function localModelSizeBonus(modelNameLower: string): number {
  *
  * Returns 0 for >= 7B and for unnumbered/flagship tags (":latest"); a negative penalty below that.
  */
-export function smallLocalModelCodePenalty(modelNameLower: string): number {
-	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
-	if (!m) { return 0; } // unnumbered tag (":latest") => assume a capable flagship
-	const params = parseFloat(m[1]);
-	if (!isFinite(params) || params >= 7) { return 0; }
+export function smallLocalModelCodePenalty(modelNameLower: string, realParamSize?: string): number {
+	// Prefer the real size; else the name tag. An unnumbered tag with NO known real size is assumed a
+	// flagship (no penalty) — but if the real size IS known (e.g. deepseek-coder:latest = "1.3B"), a
+	// tiny ":latest" coder is correctly penalized.
+	const params = parseParamSizeBillions(realParamSize) ?? parseParamSizeBillions(modelNameLower);
+	if (params == null) { return 0; } // truly unknown => assume flagship
+	if (params >= 7) { return 0; }
 	if (params <= 3) { return -15; } // 1.5B / 3B: clearly below the agentic floor
 	return -8; // 3B < p < 7B (e.g. 4B/5B): moderately under-sized for agentic coding
 }
@@ -82,11 +104,11 @@ export function smallLocalModelCodePenalty(modelNameLower: string): number {
  * Conservative on the unnumbered case (treats ":latest" as capable) so we DON'T nag a user who has a
  * real flagship coder; the cost of a rare false-positive (skipping the offer) is lower than nagging.
  */
-export function isCapableLocalCoder(modelNameLower: string): boolean {
+export function isCapableLocalCoder(modelNameLower: string, realParamSize?: string): boolean {
 	if (codingModelScoreBonus(modelNameLower, false) < 25) { return false; } // not a coder by name
-	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
-	if (!m) { return true; } // unnumbered/flagship tag (":latest") => assume capable
-	return parseFloat(m[1]) >= 7;
+	const params = parseParamSizeBillions(realParamSize) ?? parseParamSizeBillions(modelNameLower);
+	if (params == null) { return true; } // unnumbered, unknown real size => assume capable
+	return params >= 7;
 }
 
 /**
@@ -99,14 +121,15 @@ export function isCapableLocalCoder(modelNameLower: string): boolean {
  * user is put on a capable coder rather than whatever ollama happens to list first — with a single
  * definition of "best coder" so the two never diverge.
  */
-export function pickBestCoderModelName(modelNames: readonly string[]): string | null {
+export function pickBestCoderModelName(modelNames: readonly string[], sizeOf?: (name: string) => string | undefined): string | null {
 	if (!modelNames || modelNames.length === 0) { return null; }
 	let best: string | null = null;
 	let bestScore = -Infinity;
 	for (const name of modelNames) {
 		const lower = name.toLowerCase();
-		// name-only coder signal (FIM isn't known from a bare tag) + size tie-break
-		const score = codingModelScoreBonus(lower, false) + localModelSizeBonus(lower);
+		// coder signal (FIM isn't known from a bare tag) + size tie-break. sizeOf supplies the REAL
+		// param size (ollama parameter_size) when known, so a tiny ":latest" coder doesn't win by tag.
+		const score = codingModelScoreBonus(lower, false) + localModelSizeBonus(lower, sizeOf?.(name));
 		if (score > bestScore) { bestScore = score; best = name; }
 	}
 	return best;

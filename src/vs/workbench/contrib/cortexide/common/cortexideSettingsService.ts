@@ -73,7 +73,7 @@ export interface ICortexideSettingsService {
 	dangerousSetState(newState: CortexideSettingsState): Promise<void>;
 	resetState(): Promise<void>;
 
-	setAutodetectedModels(providerName: ProviderName, modelNames: string[], logging: object): void;
+	setAutodetectedModels(providerName: ProviderName, modelNames: string[], logging: object, paramSizeOfModelName?: Record<string, string>): void;
 	toggleModelHidden(providerName: ProviderName, modelName: string): void;
 	addModel(providerName: ProviderName, modelName: string): void;
 	deleteModel(providerName: ProviderName, modelName: string): boolean;
@@ -92,15 +92,19 @@ export interface ICortexideSettingsService {
 
 
 
-const _modelsWithSwappedInNewModels = (options: { existingModels: CortexideStatefulModelInfo[], models: string[], type: 'autodetected' | 'default' }) => {
-	const { existingModels, models, type } = options
+const _modelsWithSwappedInNewModels = (options: { existingModels: CortexideStatefulModelInfo[], models: string[], type: 'autodetected' | 'default', paramSizeOfModelName?: Record<string, string> }) => {
+	const { existingModels, models, type, paramSizeOfModelName } = options
 
 	const existingModelsMap: Record<string, CortexideStatefulModelInfo> = {}
 	for (const existingModel of existingModels) {
 		existingModelsMap[existingModel.modelName] = existingModel
 	}
 
-	const newDefaultModels = models.map((modelName, i) => ({ modelName, type, isHidden: !!existingModelsMap[modelName]?.isHidden, }))
+	const newDefaultModels = models.map((modelName, i) => ({
+		modelName, type, isHidden: !!existingModelsMap[modelName]?.isHidden,
+		// real param size from the provider (ollama), preserved across refreshes if not re-supplied
+		parameterSize: paramSizeOfModelName?.[modelName] ?? existingModelsMap[modelName]?.parameterSize,
+	}))
 
 	return [
 		...newDefaultModels, // swap out all the models of this type for the new models of this type
@@ -614,12 +618,12 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 
 
 
-	setAutodetectedModels(providerName: ProviderName, autodetectedModelNames: string[], logging: object) {
+	setAutodetectedModels(providerName: ProviderName, autodetectedModelNames: string[], logging: object, paramSizeOfModelName?: Record<string, string>) {
 
 		const { models } = this.state.settingsOfProvider[providerName]
 		const oldModelNames = models.map(m => m.modelName)
 
-		const newModels = _modelsWithSwappedInNewModels({ existingModels: models, models: autodetectedModelNames, type: 'autodetected' })
+		const newModels = _modelsWithSwappedInNewModels({ existingModels: models, models: autodetectedModelNames, type: 'autodetected', paramSizeOfModelName })
 		this.setSettingOfProvider(providerName, 'models', newModels)
 
 		// if the models changed, log it
@@ -749,7 +753,7 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 				// the most capable installed coder instead, so the out-of-box default is always the
 				// strongest local coder. A single-model user still gets their one model.
 				if ((localProviderNames as readonly string[]).includes(providerName)) {
-					const best = pickBestCoderModelName(visibleModels.map(m => m.modelName))
+					const best = pickBestCoderModelName(visibleModels.map(m => m.modelName), (name) => visibleModels.find(m => m.modelName === name)?.parameterSize)
 					const chosen = visibleModels.find(m => m.modelName === best) || visibleModels[0]
 					return { providerName, modelName: chosen.modelName }
 				}

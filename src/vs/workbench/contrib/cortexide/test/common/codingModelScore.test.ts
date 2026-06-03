@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName, isCapableLocalCoder } from '../../common/routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName, isCapableLocalCoder, parseParamSizeBillions } from '../../common/routing/codingModelScore.js';
 
 suite('codingModelScoreBonus', () => {
 
@@ -118,5 +118,49 @@ suite('isCapableLocalCoder', () => {
 		assert.strictEqual(isCapableLocalCoder('llama3.1:70b'), false);
 		assert.strictEqual(isCapableLocalCoder('llama3.2:3b'), false);
 		assert.strictEqual(isCapableLocalCoder('mistral:7b'), false);
+	});
+
+	test('a tiny ":latest" coder is NOT capable once the REAL size is known', () => {
+		assert.strictEqual(isCapableLocalCoder('deepseek-coder:latest'), true); // name alone: assume flagship
+		assert.strictEqual(isCapableLocalCoder('deepseek-coder:latest', '1.3B'), false); // real size: it's tiny
+		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:latest', '7.6B'), true);
+	});
+});
+
+suite('parseParamSizeBillions + real-size routing (rank 6)', () => {
+	test('parses ollama parameter_size strings and tags; null for unnumbered/none', () => {
+		assert.strictEqual(parseParamSizeBillions('7.6B'), 7.6);
+		assert.strictEqual(parseParamSizeBillions('1.3B'), 1.3);
+		assert.strictEqual(parseParamSizeBillions('32B'), 32);
+		assert.strictEqual(parseParamSizeBillions('qwen2.5-coder:1.5b'), 1.5); // not fooled by the 2.5 version
+		assert.strictEqual(parseParamSizeBillions('qwen2.5-coder:latest'), null);
+		assert.strictEqual(parseParamSizeBillions(undefined), null);
+	});
+
+	test('REAL size overrides the ":latest"->8 assumption in localModelSizeBonus', () => {
+		assert.strictEqual(localModelSizeBonus('deepseek-coder:latest'), 4); // name-only: assume 8 -> 4
+		assert.strictEqual(localModelSizeBonus('deepseek-coder:latest', '1.3B'), 0.65); // real: 1.3 -> 0.65
+	});
+
+	test('REGRESSION: a tiny ":latest" coder is penalized once the real size is known', () => {
+		assert.strictEqual(smallLocalModelCodePenalty('deepseek-coder:latest'), 0); // name-only: assume flagship
+		assert.strictEqual(smallLocalModelCodePenalty('deepseek-coder:latest', '1.3B'), -15); // real: tiny
+	});
+
+	test('REGRESSION: with real sizes, qwen2.5-coder:latest (7.6B) DECISIVELY beats deepseek-coder:latest (1.3B)', () => {
+		const score = (name: string, size: string) =>
+			codingModelScoreBonus(name, true) + localModelSizeBonus(name, size) + smallLocalModelCodePenalty(name, size);
+		const qwen = score('qwen2.5-coder:latest', '7.6B');
+		const deepseek = score('deepseek-coder:latest', '1.3B');
+		assert.ok(qwen - deepseek >= 14, `qwen ${qwen} must decisively beat deepseek ${deepseek}`);
+	});
+
+	test('pickBestCoderModelName uses the real-size lookup to avoid the tiny ":latest" trap', () => {
+		const sizeOf = (n: string) => ({ 'deepseek-coder:latest': '1.3B', 'qwen2.5-coder:latest': '7.6B' } as Record<string, string>)[n];
+		// deepseek-coder:latest is listed FIRST, but the real size makes qwen win
+		assert.strictEqual(
+			pickBestCoderModelName(['deepseek-coder:latest', 'qwen2.5-coder:latest'], sizeOf),
+			'qwen2.5-coder:latest'
+		);
 	});
 });

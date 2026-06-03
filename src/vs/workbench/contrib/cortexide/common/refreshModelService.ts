@@ -172,6 +172,16 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		listFn({
 			providerName,
 			onSuccess: ({ models }) => {
+				// Capture the REAL parameter size ollama reports (details.parameter_size, e.g. "7.6B")
+				// so the router can prefer a true 7B over a tiny ":latest" coder (e.g. deepseek-coder
+				// :latest ~1.3B). Only ollama exposes this; vLLM/lmStudio don't.
+				const paramSizeOfModelName: Record<string, string> = {}
+				if (providerName === 'ollama') {
+					for (const m of models as OllamaModelResponse[]) {
+						const ps = m?.details?.parameter_size
+						if (m?.name && ps) { paramSizeOfModelName[m.name] = ps }
+					}
+				}
 				// set the models to the detected models
 				this.cortexideSettingsService.setAutodetectedModels(
 					providerName,
@@ -181,7 +191,8 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 						else if (providerName === 'lmStudio') return (model as OpenaiCompatibleModelResponse).id;
 						else throw new Error('refreshMode fn: unknown provider', providerName);
 					}),
-					{ enableProviderOnSuccess: options.enableProviderOnSuccess, hideRefresh: options.doNotFire }
+					{ enableProviderOnSuccess: options.enableProviderOnSuccess, hideRefresh: options.doNotFire },
+					paramSizeOfModelName
 				)
 
 				if (options.enableProviderOnSuccess) this.cortexideSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true)
