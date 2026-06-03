@@ -16,6 +16,7 @@ import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj }
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
+import { ICortexideAgentsService } from '../common/cortexideAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -424,6 +425,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IModelService private readonly _modelService: IModelService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -2680,10 +2682,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		this._subagentThreadIds.add(childId)
 		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
 		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		// If the orchestrator named a custom agent (.cortexide/agents/*.md), prepend that agent's
+		// system prompt so the child takes on the specialized role. (v1 prepends to the seed message;
+		// a true system-message slot + per-agent tool restriction + model pin are follow-ups.)
+		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
+		const seededPrompt = customAgent
+			? `${customAgent.systemPrompt}\n\n----- YOUR TASK -----\n${params.prompt}`
+			: params.prompt
 		// Seed with a single user message = the self-contained prompt (the child's entire context).
 		this._addMessageToThread(childId, {
 			role: 'user',
-			content: params.prompt,
+			content: seededPrompt,
 			displayContent: params.prompt,
 			selections: null,
 			state: { stagingSelections: [], isBeingEdited: false },
