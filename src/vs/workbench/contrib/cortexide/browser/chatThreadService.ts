@@ -64,6 +64,18 @@ const MAX_CONSECUTIVE_TOOL_ERRORS = 6 // Stop the agent after this many failed t
 const MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS = 3 // Tighter for weak/local models that thrash on tools
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
+/**
+ * Execution context for one agent run. Absent on a normal top-level chat turn (the loop then reads
+ * the user's mode from global settings, as before). A sub-agent (spawned by the run_subagent tool)
+ * passes one so the SAME agent loop runs in an isolated context: its own chat mode, a no-nesting
+ * marker, and the parent thread id for UI nesting + abort propagation.
+ */
+type AgentRunContext = {
+	chatModeOverride?: ChatMode
+	isSubagent?: boolean
+	parentThreadId?: string
+}
+
 
 const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
 	if (!currentSelections) return null
@@ -2648,6 +2660,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		earlyRequestId,
 		isAutoMode,
 		repoIndexerPromise,
+		runCtx,
 	}: {
 		threadId: string,
 		modelSelection: ModelSelection | null,
@@ -2656,6 +2669,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		earlyRequestId?: string,
 		isAutoMode?: boolean,
 		repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>,
+		// Sub-agent execution context. Undefined for a normal (top-level) chat turn, where the loop
+		// reads the user's mode from global settings as before. When a sub-agent is spawned (see
+		// run_subagent), this carries the child's own mode + provenance so the SAME loop runs in an
+		// isolated context without touching the user's UI mode.
+		runCtx?: AgentRunContext,
 	}) {
 
 		// CRITICAL: Validate and resolve model selection BEFORE starting the loop
@@ -2721,12 +2739,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
-		const { chatMode: userChatMode } = this._settingsService.state.globalSettings // user's mode (shown in UI); frozen for the loop
+		// A sub-agent runs its OWN assigned mode (runCtx.chatModeOverride); a normal turn reads the
+		// user's UI mode from global settings (frozen for the loop), unchanged from before.
+		const userChatMode = runCtx?.chatModeOverride ?? this._settingsService.state.globalSettings.chatMode
 		// Per-turn gate: a trivial general-knowledge question on a weak/local model answers directly
 		// instead of running the agent tool-loop. `chatMode` below is the EFFECTIVE mode for this turn
 		// (may be relaxed to 'normal'); the user's selected mode is unchanged. It then flows to tool
 		// gating + system message + the send call, so the whole turn is consistently tool-less.
-		const chatMode = this._effectiveChatModeForTurn(threadId, userChatMode, modelSelection)
+		// Sub-agents skip the trivia relaxation — they run the mode they were spawned with.
+		const chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, modelSelection)
 		const isLocalModel = !!modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
 		const maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
 		const maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
