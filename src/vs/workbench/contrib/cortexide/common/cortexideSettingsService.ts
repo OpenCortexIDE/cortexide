@@ -14,7 +14,8 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { defaultProviderSettings, getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
-import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, CortexideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './cortexideSettingsTypes.js';
+import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, localProviderNames, ModelSelection, modelSelectionsEqual, featureNames, CortexideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './cortexideSettingsTypes.js';
+import { pickBestCoderModelName } from './routing/codingModelScore.js';
 
 
 // name is the name in the dropdown
@@ -739,14 +740,21 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 		for (const providerName of providerNames) {
 			const providerSettings = this.state.settingsOfProvider[providerName]
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
-				const models = providerSettings.models || []
-				const firstModel = models.find(m => !m.isHidden)
-				if (firstModel) {
-					return {
-						providerName,
-						modelName: firstModel.modelName,
-					}
+				const visibleModels = (providerSettings.models || []).filter(m => !m.isHidden)
+				if (visibleModels.length === 0) { continue }
+
+				// For LOCAL providers, ollama/etc. list models by pull order (often a tiny model
+				// first), and this no-scoring fallback used to return that first model — which is
+				// how a fresh "Auto" user ended up on a 1.5B/3B that can't do agentic coding. Pick
+				// the most capable installed coder instead, so the out-of-box default is always the
+				// strongest local coder. A single-model user still gets their one model.
+				if ((localProviderNames as readonly string[]).includes(providerName)) {
+					const best = pickBestCoderModelName(visibleModels.map(m => m.modelName))
+					const chosen = visibleModels.find(m => m.modelName === best) || visibleModels[0]
+					return { providerName, modelName: chosen.modelName }
 				}
+
+				return { providerName, modelName: visibleModels[0].modelName }
 			}
 		}
 

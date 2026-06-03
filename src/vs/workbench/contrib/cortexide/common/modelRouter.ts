@@ -17,7 +17,7 @@ import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
 import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
-import { codingModelScoreBonus, localModelSizeBonus } from './routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty } from './routing/codingModelScore.js';
 
 /**
  * Task types for automatic model selection
@@ -1027,8 +1027,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				score += codingModelScoreBonus(name, capabilities.supportsFIM)
 
 				// Among local coders (which often share identical capability data, e.g. qwen2.5-coder
-				// :1.5b vs :latest both report 32k+FIM), prefer the larger as a tie-breaker.
-				if (isLocal) { score += localModelSizeBonus(name) }
+				// :1.5b vs :latest both report 32k+FIM), prefer the larger as a tie-breaker, and
+				// decisively demote a sub-7B local coder (below the agentic floor) so a lucky
+				// learned-score swing can't hand an agentic codebase task to a 3B over a 7B.
+				if (isLocal) { score += localModelSizeBonus(name) + smallLocalModelCodePenalty(name) }
 
 				// Local models struggle more with codebase questions (need to understand many files)
 				if (isLocal) {
@@ -1045,8 +1047,9 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 				// FIM + code-tuned name bonus (shared with the codebase-question branch above).
 				score += codingModelScoreBonus(name, capabilities.supportsFIM)
-				// Among local coders, prefer the larger model as a tie-breaker.
-				if (isLocal) { score += localModelSizeBonus(name) }
+				// Among local coders, prefer the larger model as a tie-breaker, and decisively demote
+				// a sub-7B local coder so it can't tie/beat a 7B+ coder on a code task.
+				if (isLocal) { score += localModelSizeBonus(name) + smallLocalModelCodePenalty(name) }
 
 				// High-quality models are better at code generation
 				// Claude models are particularly good at understanding requirements and generating code

@@ -1649,7 +1649,10 @@ const ollamaModelOptions = {
 
 } as const satisfies Record<string, CortexideStaticModelInfo>
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
+// Lead with a 7B coder: a 1.5B is below the agentic floor (it fumbles multi-step tool loops), so
+// recommending it first undermines the out-of-the-box agentic experience. Hardware-tiered auto-pull
+// still gates smaller packs by VRAM (see ollamaModelPacks.ts MODEL_PACKS).
+export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
 
 
 const vLLMSettings: VoidStaticProviderInfo = {

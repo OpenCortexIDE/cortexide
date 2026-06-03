@@ -52,3 +52,47 @@ export function localModelSizeBonus(modelNameLower: string): number {
 	}
 	return Math.min(params, 32) * 0.5; // 1.5b->0.75, 3b->1.5, 7b/latest->~4, >=32b->16
 }
+
+/**
+ * Decisive demotion for too-small LOCAL coders on CODE / agentic tasks.
+ *
+ * A 1.5B-3B model is below the agentic floor (it fumbles multi-step tool loops), yet local coders
+ * share identical capability data, so the tiny `localModelSizeBonus` tie-break (a ~1.75-pt final edge
+ * after the learned-score blend) is too weak: a lucky learned-score swing or sort order can hand an
+ * agent task to a 3B over a 7B. This pushes a sub-7B local coder clearly below a 7B+ one — by more
+ * than the blend can flip — but ONLY demotes: resolveAutoModelSelection still returns a small model
+ * when it's the only one installed (never excluded). Apply on local models for taskType === 'code'.
+ *
+ * Returns 0 for >= 7B and for unnumbered/flagship tags (":latest"); a negative penalty below that.
+ */
+export function smallLocalModelCodePenalty(modelNameLower: string): number {
+	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
+	if (!m) { return 0; } // unnumbered tag (":latest") => assume a capable flagship
+	const params = parseFloat(m[1]);
+	if (!isFinite(params) || params >= 7) { return 0; }
+	if (params <= 3) { return -15; } // 1.5B / 3B: clearly below the agentic floor
+	return -8; // 3B < p < 7B (e.g. 4B/5B): moderately under-sized for agentic coding
+}
+
+/**
+ * Pick the most capable coder from a list of model NAMES (tags) for a LOCAL provider, reusing the
+ * same coder + size signal the router uses. Prefers a code-tuned name, breaks ties by larger param
+ * count; falls back to the largest model when none are coders, and to the sole entry for a one-item
+ * list. Returns null only for an empty list.
+ *
+ * Shared by resolveAutoModelSelection (the out-of-box Auto default) and onboarding so a brand-new
+ * user is put on a capable coder rather than whatever ollama happens to list first — with a single
+ * definition of "best coder" so the two never diverge.
+ */
+export function pickBestCoderModelName(modelNames: readonly string[]): string | null {
+	if (!modelNames || modelNames.length === 0) { return null; }
+	let best: string | null = null;
+	let bestScore = -Infinity;
+	for (const name of modelNames) {
+		const lower = name.toLowerCase();
+		// name-only coder signal (FIM isn't known from a bare tag) + size tie-break
+		const score = codingModelScoreBonus(lower, false) + localModelSizeBonus(lower);
+		if (score > bestScore) { bestScore = score; best = name; }
+	}
+	return best;
+}
