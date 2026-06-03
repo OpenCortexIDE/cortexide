@@ -664,6 +664,14 @@ export class ToolsService implements IToolsService {
 				return { result, command };
 			},
 
+			run_subagent: (params: RawToolParamsObj) => {
+				const description = validateStr('description', params.description);
+				const prompt = validateStr('prompt', params.prompt);
+				// accept agentType or agent_type (models vary); optional
+				const agentType = validateOptionalStr('agentType', params.agentType ?? (params as Record<string, unknown>).agent_type);
+				return { description, prompt, agentType };
+			},
+
 		}
 
 
@@ -1824,6 +1832,13 @@ export class ToolsService implements IToolsService {
 				return { result: { acknowledged: true as const } };
 			},
 
+			run_subagent: async () => {
+				// run_subagent is intercepted and executed in chatThreadService._runToolCall (it needs the
+				// chat service to spawn a child agent loop, which ToolsService has no dependency on). This
+				// stub exists only to satisfy the exhaustive CallBuiltinTool type and must never be reached.
+				throw new Error('run_subagent must be handled by the chat thread service.');
+			},
+
 		}
 
 
@@ -2066,6 +2081,11 @@ export class ToolsService implements IToolsService {
 			attempt_completion: (params, _result) => {
 				const commandLine = params.command ? `\n\nVerification command: \`${params.command}\`` : '';
 				return `Task completed.\n\n${params.result}${commandLine}`;
+			},
+
+			run_subagent: (_params, result) => {
+				const header = result.completed ? `Sub-agent finished.` : `Sub-agent stopped WITHOUT signalling completion (may be incomplete).`;
+				return `${header}\n\n${result.result}`;
 			},
 		}
 

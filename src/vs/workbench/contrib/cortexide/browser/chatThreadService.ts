@@ -2495,11 +2495,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				if (isLocal && !(COMPACT_LOCAL_TOOLSET as Set<string>).has(toolName)) {
 					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...COMPACT_LOCAL_TOOLSET].join(', ')}.`)
 				}
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
-				const interruptor = () => { interrupted = true; interruptTool?.() }
-				resolveInterruptor(interruptor)
+				if (toolName === 'run_subagent') {
+					// Sub-agents are executed here (they need the chat service to spawn a child agent
+					// loop), not in toolsService. Enforce no nesting: a sub-agent cannot spawn another.
+					if (this._subagentThreadIds.has(threadId)) {
+						throw new Error('A sub-agent cannot spawn another sub-agent. Complete this sub-task yourself and call attempt_completion with your result.')
+					}
+					resolveInterruptor(() => { interrupted = true })
+					toolResult = await this._runSubagent(threadId, toolParams as BuiltinToolCallParams['run_subagent'])
+				}
+				else {
+					const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
+					const interruptor = () => { interrupted = true; interruptTool?.() }
+					resolveInterruptor(interruptor)
 
-				toolResult = await result
+					toolResult = await result
+				}
 			}
 			else {
 				const mcpTools = this._mcpService.getMCPTools()
@@ -2650,6 +2661,64 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		if ((lastUser.images?.length ?? 0) > 0 || (lastUser.pdfs?.length ?? 0) > 0) { return userChatMode } // attachments need agent/vision
 		const text = lastUser.content || lastUser.displayContent || ''
 		return isTriviaQuestion(text) ? 'normal' : userChatMode
+	}
+
+	// Threads currently running as sub-agents (spawned by run_subagent). Enforces no-nesting and marks
+	// child threads. Not persisted; cleared when the child finishes.
+	private readonly _subagentThreadIds = new Set<string>()
+
+	/**
+	 * Execute a sub-agent (the run_subagent tool). Spawns a HIDDEN child thread seeded with ONLY the
+	 * given prompt, runs the normal agent loop on it in an isolated 'agent'-mode context (its own
+	 * streamState/checkpoints/caps), and returns the child's final summary. The child sees nothing of
+	 * the parent conversation; the parent sees only the returned summary — keeping the parent context
+	 * clean. See docs/GAP-ANALYSIS.md "Sub-agents — concrete design".
+	 */
+	private async _runSubagent(parentThreadId: string, params: BuiltinToolCallParams['run_subagent']): Promise<BuiltinToolResultType['run_subagent']> {
+		const child = newThreadObject()
+		const childId = child.id
+		this._subagentThreadIds.add(childId)
+		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
+		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		// Seed with a single user message = the self-contained prompt (the child's entire context).
+		this._addMessageToThread(childId, {
+			role: 'user',
+			content: params.prompt,
+			displayContent: params.prompt,
+			selections: null,
+			state: { stagingSelections: [], isBeingEdited: false },
+		})
+		// The child inherits the user's current model selection and runs the full loop in an isolated
+		// 'agent'-mode context. parentThreadId lets the UI nest it (and future abort propagation).
+		const { modelSelection, modelSelectionOptions } = this._currentModelSelectionProps()
+		try {
+			await this._runChatAgent({
+				threadId: childId,
+				modelSelection,
+				modelSelectionOptions,
+				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId },
+			})
+		} finally {
+			this._subagentThreadIds.delete(childId)
+		}
+		// Extract the child's result: prefer its attempt_completion summary, else its last assistant text.
+		const messages = this.state.allThreads[childId]?.messages ?? []
+		let summary = ''
+		let lastAssistant = ''
+		let completed = false
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const m = messages[i] as any
+			if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) {
+				summary = String(m.params.result)
+				completed = true
+				break
+			}
+			if (!lastAssistant && m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) {
+				lastAssistant = m.displayContent.trim()
+			}
+		}
+		if (!summary) { summary = lastAssistant || '(The sub-agent finished without producing a summary.)' }
+		return { result: summary, childThreadId: childId, completed }
 	}
 
 	private async _runChatAgent({

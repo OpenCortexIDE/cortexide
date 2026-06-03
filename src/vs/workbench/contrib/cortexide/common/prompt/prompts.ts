@@ -492,6 +492,18 @@ export const builtinTools: {
 		}
 	},
 
+	// --- delegate a scoped task to a sub-agent ---
+
+	run_subagent: {
+		name: 'run_subagent',
+		description: `Delegate a focused, self-contained sub-task to a SUB-AGENT that runs in its OWN fresh context with its own tool loop, and returns ONLY a final summary — keeping YOUR context clean. Use it for (a) deep exploration/research of part of the codebase whose intermediate output you don't need, or (b) a well-scoped implementation step you can describe completely. CRITICAL: the sub-agent sees NOTHING of this conversation except the 'prompt' you pass — make 'prompt' fully self-contained (include every file path, error message, and decision it needs). It runs the agent loop and reports back via attempt_completion. A sub-agent CANNOT spawn further sub-agents.`,
+		params: {
+			description: { description: 'A short (3-7 word) description of the sub-task, for display.' },
+			prompt: { description: 'The COMPLETE, self-contained instruction for the sub-agent. It sees ONLY this — include every file path, error, constraint, and detail it needs to do the task and report back. Tell it to call attempt_completion with its findings/summary when done.' },
+			agentType: { description: 'Optional. Name of a predefined agent to use (from .cortexide/agents). Omit for a general-purpose agent.' },
+		}
+	},
+
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
 
@@ -508,8 +520,9 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
-// Tools restricted to agent/plan modes only (not available in gather)
-const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion'])
+// Tools restricted to agent/plan modes only (not available in gather). run_subagent is also excluded
+// from COMPACT_LOCAL_TOOLSET below (weak/local models must not spawn sub-agents).
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent'])
 
 // Curated tool subset offered to weak/local models in agent/plan mode. Excludes the tools a small
 // model tends to hallucinate or misuse — persistent terminals, MCP, web, LSP nav/refactor, multi_edit —

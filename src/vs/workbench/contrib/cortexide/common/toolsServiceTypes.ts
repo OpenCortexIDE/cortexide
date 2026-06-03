@@ -90,6 +90,8 @@ export type BuiltinToolCallParams = {
 	'todo_write': { todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> },
 	// --- explicit completion signal ---
 	'attempt_completion': { result: string; command: string | null },
+	// --- delegate a scoped task to a sub-agent (handled in chatThreadService, not toolsService) ---
+	'run_subagent': { description: string; prompt: string; agentType: string | null },
 }
 
 // RESULT OF TOOL CALL
@@ -134,6 +136,8 @@ export type BuiltinToolResultType = {
 	'todo_write': { acknowledged: true; count: number },
 	// --- explicit completion signal ---
 	'attempt_completion': { acknowledged: true },
+	// --- sub-agent: the child's final summary, returned to the parent agent ---
+	'run_subagent': { result: string; childThreadId: string; completed: boolean },
 }
 
 
