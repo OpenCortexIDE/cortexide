@@ -1201,6 +1201,12 @@ export class ToolsService implements IToolsService {
 			},
 
 			rewrite_file: async ({ uri, newContent }) => {
+				// Weak/local models routinely skip create_file_or_folder and rewrite straight into a
+				// path that doesn't exist yet. Without a backing file the diff zone can't open
+				// (instantlyRewriteFile bails) and the content is silently dropped. Create it first.
+				if (!(await fileService.exists(uri))) {
+					await fileService.createFile(uri)
+				}
 				await cortexideModelService.initializeModel(uri)
 				const streamState = this.commandBarService.getStreamState(uri)
 				if (streamState === 'streaming') {
