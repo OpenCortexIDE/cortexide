@@ -44,6 +44,10 @@ EXT="$PROFILE/extensions"
 mkdir -p "$UDD" "$EXT"
 
 echo "Launching CortexIDE (port $PORT, ws $WS, profile $PROFILE)"
+# --password-store=basic: the ad-hoc-signed dev build (Identifier "Electron", no Team ID) can't be
+# stably attributed to its macOS Keychain item, so safeStorage prompts for the login password on
+# every launch. "basic" makes Electron use in-memory/plaintext encryption instead of the Keychain,
+# so there's no prompt. Dev-only convenience; release builds must be Developer-ID signed instead.
 exec env -u ELECTRON_RUN_AS_NODE \
 	NODE_ENV=development VSCODE_DEV=1 VSCODE_CLI=1 ELECTRON_ENABLE_LOGGING=1 \
 	"$APP" "$ROOT" \
@@ -53,4 +57,5 @@ exec env -u ELECTRON_RUN_AS_NODE \
 	--disable-updates --disable-workspace-trust \
 	--skip-welcome --skip-release-notes --disable-gpu \
 	--disable-extension=vscode.vscode-api-tests \
+	--password-store="basic" \
 	"$WS"
