@@ -75,6 +75,21 @@ export function smallLocalModelCodePenalty(modelNameLower: string): number {
 }
 
 /**
+ * Is this LOCAL model name a coder big enough for agentic work? True for a coder-named tag that is
+ * >= 7B (or an unnumbered/flagship tag like ":latest", assumed capable). Used by onboarding to decide
+ * whether to offer pulling a capable coder when a fresh user has ollama running but only tiny models.
+ *
+ * Conservative on the unnumbered case (treats ":latest" as capable) so we DON'T nag a user who has a
+ * real flagship coder; the cost of a rare false-positive (skipping the offer) is lower than nagging.
+ */
+export function isCapableLocalCoder(modelNameLower: string): boolean {
+	if (codingModelScoreBonus(modelNameLower, false) < 25) { return false; } // not a coder by name
+	const m = modelNameLower.match(/(\d+(?:\.\d+)?)\s*b(?:\b|$)/);
+	if (!m) { return true; } // unnumbered/flagship tag (":latest") => assume capable
+	return parseFloat(m[1]) >= 7;
+}
+
+/**
  * Pick the most capable coder from a list of model NAMES (tags) for a LOCAL provider, reusing the
  * same coder + size signal the router uses. Prefers a code-tuned name, breaks ties by larger param
  * count; falls back to the largest model when none are coders, and to the sole entry for a one-item

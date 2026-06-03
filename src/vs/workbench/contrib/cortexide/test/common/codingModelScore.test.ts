@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName } from '../../common/routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName, isCapableLocalCoder } from '../../common/routing/codingModelScore.js';
 
 suite('codingModelScoreBonus', () => {
 
@@ -98,5 +98,25 @@ suite('pickBestCoderModelName', () => {
 
 	test('null only for an empty list', () => {
 		assert.strictEqual(pickBestCoderModelName([]), null);
+	});
+});
+
+suite('isCapableLocalCoder', () => {
+	test('true for a 7B+ coder or an unnumbered flagship coder tag', () => {
+		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:7b'), true);
+		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:latest'), true);
+		assert.strictEqual(isCapableLocalCoder('codestral:22b'), true);
+		assert.strictEqual(isCapableLocalCoder('deepseek-coder-v2:16b'), true);
+	});
+
+	test('false for a sub-7B coder (below the agentic floor)', () => {
+		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:3b'), false);
+		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:1.5b'), false);
+	});
+
+	test('false for a non-coder regardless of size', () => {
+		assert.strictEqual(isCapableLocalCoder('llama3.1:70b'), false);
+		assert.strictEqual(isCapableLocalCoder('llama3.2:3b'), false);
+		assert.strictEqual(isCapableLocalCoder('mistral:7b'), false);
 	});
 });
