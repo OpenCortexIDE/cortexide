@@ -94,6 +94,8 @@ export type BuiltinToolCallParams = {
 	'run_subagent': { description: string; prompt: string; agentType: string | null },
 	// --- run several READ-ONLY research sub-agents concurrently (handled in chatThreadService) ---
 	'run_parallel_subagents': { tasks: Array<{ description: string; prompt: string }> },
+	// --- persist a durable, learned fact to project memory (surfaced in future system prompts) ---
+	'save_memory': { type: 'decision' | 'preference' | 'context'; key: string; value: string; tags: string[] | null },
 }
 
 // RESULT OF TOOL CALL
@@ -142,6 +144,8 @@ export type BuiltinToolResultType = {
 	'run_subagent': { result: string; childThreadId: string; completed: boolean },
 	// --- parallel sub-agents: each child's summary, returned together to the parent ---
 	'run_parallel_subagents': { results: Array<{ description: string; result: string; completed: boolean }> },
+	// --- memory write: acknowledgement of the persisted fact ---
+	'save_memory': { acknowledged: true; key: string },
 }
 
 

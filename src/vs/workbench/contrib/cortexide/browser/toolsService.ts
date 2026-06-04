@@ -33,6 +33,7 @@ import { LRUCache } from '../../../../base/common/map.js'
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
+import { IMemoriesService } from '../common/memoriesService.js'
 import { coerceAbsolutePathToWorkspaceRelative } from '../common/coerceWorkspacePath.js'
 import { IEditorService } from '../../../services/editor/common/editorService.js'
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js'
@@ -311,6 +312,7 @@ export class ToolsService implements IToolsService {
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
+		@IMemoriesService private readonly memoriesService: IMemoriesService,
 	) {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -686,6 +688,19 @@ export class ToolsService implements IToolsService {
 				}
 				if (tasks.length === 0) { throw new Error('run_parallel_subagents requires a non-empty "tasks" array, each item having a "prompt".'); }
 				return { tasks };
+			},
+
+			save_memory: (params: RawToolParamsObj) => {
+				const typeRaw = validateStr('type', params.type);
+				const validTypes = new Set(['decision', 'preference', 'context']);
+				if (!validTypes.has(typeRaw)) throw new Error(`save_memory: type must be one of decision/preference/context, got "${typeRaw}".`);
+				const key = validateStr('key', params.key);
+				const value = validateStr('value', params.value);
+				// tags: optional string[]; accept a JSON string or an array, drop non-strings.
+				let tagsRaw: unknown = (params as Record<string, unknown>).tags;
+				if (typeof tagsRaw === 'string') { try { tagsRaw = JSON.parse(tagsRaw); } catch { tagsRaw = null; } }
+				const tags = Array.isArray(tagsRaw) ? tagsRaw.filter((t): t is string => typeof t === 'string') : null;
+				return { type: typeRaw as 'decision' | 'preference' | 'context', key, value, tags };
 			},
 
 		}
@@ -1860,6 +1875,12 @@ export class ToolsService implements IToolsService {
 				throw new Error('run_parallel_subagents must be handled by the chat thread service.');
 			},
 
+			save_memory: async ({ type, key, value, tags }) => {
+				// Persist via the memories service (workspace-scoped, upserts by key within type).
+				await this.memoriesService.addMemory(type, key, value, tags ?? undefined);
+				return { result: { acknowledged: true as const, key } };
+			},
+
 		}
 
 
@@ -2113,6 +2134,9 @@ export class ToolsService implements IToolsService {
 				return result.results.map((r, i) =>
 					`### Sub-agent ${i + 1}${r.description ? `: ${r.description}` : ''}${r.completed ? '' : ' [did NOT signal completion — may be incomplete]'}\n${r.result}`
 				).join('\n\n---\n\n');
+			},
+			save_memory: (params, _result) => {
+				return `Saved ${params.type} memory "${params.key}" to project memory${params.tags && params.tags.length ? ` (tags: ${params.tags.join(', ')})` : ''}.`;
 			},
 		}
 

@@ -512,6 +512,19 @@ export const builtinTools: {
 		}
 	},
 
+	// --- persist a learned fact to project memory ---
+
+	save_memory: {
+		name: 'save_memory',
+		description: `Persist a durable, high-value fact to PROJECT MEMORY so it is available in FUTURE conversations (relevant memories are surfaced in later system prompts automatically). Use SPARINGLY and only for long-lived facts the user would want remembered across sessions: an architecture/design decision the team made, a stable user or team preference, or essential project context. Do NOT save transient task state, secrets/keys, or anything already obvious from the code or git history. Each call upserts by 'key' within its 'type'.`,
+		params: {
+			type: { description: `One of: "decision" (a choice or architecture decision), "preference" (a durable user/team preference), or "context" (essential background). Pick the closest.` },
+			key: { description: 'A short, stable, unique identifier for this fact, e.g. "test-runner" or "api-error-handling". Reusing an existing key updates that memory.' },
+			value: { description: 'The fact itself, stated concisely and self-contained (no pronouns referring to this conversation).' },
+			tags: { description: 'Optional. Array of short keywords to improve later relevance matching, e.g. ["testing","ci"].' },
+		}
+	},
+
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
 
@@ -530,7 +543,7 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 // Tools restricted to agent/plan modes only (not available in gather). run_subagent is also excluded
 // from COMPACT_LOCAL_TOOLSET below (weak/local models must not spawn sub-agents).
-const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent', 'run_parallel_subagents'])
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent', 'run_parallel_subagents', 'save_memory'])
 
 // Curated tool subset offered to weak/local models in agent/plan mode. Excludes the tools a small
 // model tends to hallucinate or misuse — persistent terminals, MCP, web, LSP nav/refactor, multi_edit —
