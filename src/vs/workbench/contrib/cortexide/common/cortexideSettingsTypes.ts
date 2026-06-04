@@ -518,6 +518,7 @@ export type GlobalSettings = {
 	enableInlineCodeReview?: boolean; // Enable inline code review annotations (default: true)
 	reviewSeverityFilter?: 'all' | 'warning+error'; // Filter annotations by severity (default: 'all')
 	enableAutoCompaction?: boolean; // Auto-summarize older messages when an AGENT/PLAN run nears the model's context window, so long runs continue instead of overflowing (default: false)
+	enableLifecycleHooks?: boolean; // Run user-configured .cortexide/hooks.json commands at agent lifecycle events (pre-tool/post-tool/agent-stop) (default: false)
 	// Audit log settings
 	audit?: {
 		enable?: boolean; // Enable audit logging (default: false)
@@ -588,6 +589,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	imageQADevMode: false,
 	enableMemories: true, // Enable memories by default
 	enableAutoCompaction: false, // Opt-in: summarize old agent-run messages near the context limit
+	enableLifecycleHooks: false, // Opt-in: run .cortexide/hooks.json commands at agent lifecycle events
 	enableYOLOMode: false, // YOLO mode disabled by default (requires explicit opt-in)
 	yoloRiskThreshold: 0.2, // Auto-apply edits with risk < 0.2
 	yoloConfidenceThreshold: 0.7, // Auto-apply edits with confidence > 0.7

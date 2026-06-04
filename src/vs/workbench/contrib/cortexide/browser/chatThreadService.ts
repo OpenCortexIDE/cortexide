@@ -17,6 +17,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
+import { ICortexideHooksService } from './cortexideHooksService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -433,6 +434,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
+		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -2523,6 +2525,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				throw new Error(`The ${toolName} tool isn't available to this sub-agent. Available tools: ${agentAllowedTools.join(', ')}, attempt_completion.`)
 			}
 
+			// R3: fire any pre-tool lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+			this._hooksService.runHooksForEvent({ event: 'pre-tool', toolName, threadId })
+
 			if (isBuiltInTool) {
 				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
 				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
@@ -2605,6 +2610,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// 5. add to history and keep going
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+
+		// R3: fire any post-tool lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+		this._hooksService.runHooksForEvent({ event: 'post-tool', toolName, threadId })
 
 		// attempt_completion terminates the agent loop
 		if (isBuiltInTool && toolName === 'attempt_completion') {
@@ -4471,6 +4479,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// capture number of messages sent
 		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode })
+
+		// R3: fire any agent-stop lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+		this._hooksService.runHooksForEvent({ event: 'agent-stop', threadId, reason: 'loop_done' })
 	}
 
 
