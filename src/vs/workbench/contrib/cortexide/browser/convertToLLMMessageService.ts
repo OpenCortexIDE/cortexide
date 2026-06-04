@@ -69,6 +69,7 @@ import { IRepoIndexerService } from './repoIndexerService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IMemoriesService } from '../common/memoriesService.js'
 import { ICortexideRulesService } from '../common/cortexideRulesService.js';
+import { ICortexideAgentsService } from '../common/cortexideAgentsService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -1259,6 +1260,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMemoriesService private readonly memoriesService: IMemoriesService,
 		@ICortexideRulesService private readonly rulesService: ICortexideRulesService,
+		@ICortexideAgentsService private readonly agentsService: ICortexideAgentsService,
 	) {
 		super()
 	}
@@ -1303,10 +1305,19 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 
+		// Discoverability: list the user's custom agents (.cortexide/agents/*.md) so the orchestrator
+		// knows which agentType values it can delegate to via run_subagent. Undefined when none exist
+		// (=> no injection, zero impact for users without custom agents). Cloud only — run_subagent is
+		// curated out of the local toolset.
+		const customAgents = this.agentsService.agents;
+		const availableSubagents = customAgents.length > 0
+			? customAgents.map(a => `- ${a.name}: ${a.description || '(no description)'}`).join('\n')
+			: undefined;
+
 		// Create cache key from relevant factors
-		// Include sub-agent role in the key so a sub-agent's system message is never served from — or
-		// poisons — the normal-turn cache.
-		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|sa:${subagentSystemPrompt ?? ''}`;
+		// Include sub-agent role + available-agents list so a sub-agent's system message is never served
+		// from — or poisons — the normal-turn cache, and the agents list refreshes when it changes.
+		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|sa:${subagentSystemPrompt ?? ''}|agents:${availableSubagents ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1363,7 +1374,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const activeFileURI = this.editorService.activeEditor?.resource;
 		const projectRules = this._getCombinedAIInstructions(activeFileURI) || undefined;
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents })
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });

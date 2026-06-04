@@ -643,7 +643,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, availableSubagents?: string }) => {
 	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
@@ -746,6 +746,13 @@ You are operating as a specialized sub-agent. The following role definition gove
 ${subagentSystemPrompt}
 </subagent_role>`) : null;
 
+	// Discoverability: tell the orchestrator which user-defined sub-agents it can delegate to via
+	// run_subagent's agentType (agent/plan only, where run_subagent is offered).
+	const availableSubagentsSection = ((mode === 'agent' || mode === 'plan') && availableSubagents) ? (`<available_subagents>
+You can delegate a focused, self-contained sub-task to one of these specialized sub-agents by calling run_subagent with the matching agentType (omit agentType for a general-purpose sub-agent):
+${availableSubagents}
+</available_subagents>`) : null;
+
 	// return answer
 	const ansStrs: string[] = []
 	ansStrs.push(header)
@@ -760,6 +767,9 @@ ${toolDefinitions}
 `)
 	}
 	ansStrs.push(importantDetails)
+	if (availableSubagentsSection) {
+		ansStrs.push(availableSubagentsSection)
+	}
 	if (subagentSection) {
 		ansStrs.push(subagentSection)
 	}
