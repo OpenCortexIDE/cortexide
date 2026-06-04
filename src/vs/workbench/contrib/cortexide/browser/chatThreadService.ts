@@ -25,6 +25,11 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
+import { createSerializer } from '../common/asyncSerializer.js';
+
+// File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
+// so a background agent (R7) and the foreground chat can't interleave a read-modify-write on a file.
+const WRITE_FILE_TOOLS = new Set<string>(['edit_file', 'rewrite_file', 'multi_edit', 'create_file_or_folder', 'delete_file_or_folder'])
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { shorten } from '../../../../base/common/labels.js';
@@ -2558,6 +2563,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					resolveInterruptor(() => { interrupted = true })
 					toolResult = await this._runParallelSubagents(threadId, toolParams as BuiltinToolCallParams['run_parallel_subagents'])
 				}
+				else if (WRITE_FILE_TOOLS.has(toolName)) {
+					// Serialize file-edit application across concurrent agent threads so a read-modify-write
+					// can't interleave + corrupt a file. No-op when no other edit is in flight.
+					toolResult = await this._editSerializer.run(async () => {
+						const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
+						resolveInterruptor(() => { interrupted = true; interruptTool?.() })
+						return await result
+					})
+				}
 				else {
 					const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
 					const interruptor = () => { interrupted = true; interruptTool?.() }
@@ -2729,6 +2743,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
 	// the abort to in-flight children (depth 1, since sub-agents can't nest).
 	private readonly _childThreadsByParent = new Map<string, Set<string>>()
+	// Serializes file-edit application across ALL concurrent agent threads (foreground + background +
+	// parallel sub-agents) so concurrent edits can't corrupt a file. No-op for a single sequential agent.
+	private readonly _editSerializer = createSerializer()
 
 	/**
 	 * Execute a sub-agent (the run_subagent tool). Spawns a HIDDEN child thread seeded with ONLY the
