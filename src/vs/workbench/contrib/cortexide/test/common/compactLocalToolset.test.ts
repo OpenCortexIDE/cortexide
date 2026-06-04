@@ -53,3 +53,43 @@ suite('COMPACT_LOCAL_TOOLSET / availableTools(isLocal)', () => {
 		assert.deepStrictEqual(a, b);
 	});
 });
+
+suite('availableTools allowedToolNames (R4.2 per-agent restriction)', () => {
+	test('intersects to exactly the allowed builtins (+ attempt_completion always kept)', () => {
+		const names = (availableTools('agent', fakeMcp, { allowedToolNames: ['read_file', 'edit_file'] }) ?? []).map(t => t.name).sort();
+		assert.deepStrictEqual(names, ['attempt_completion', 'edit_file', 'read_file']);
+	});
+
+	test('attempt_completion survives even if omitted (a restricted sub-agent must be able to finish)', () => {
+		const names = (availableTools('agent', fakeMcp, { allowedToolNames: ['read_file'] }) ?? []).map(t => t.name);
+		assert.ok(names.includes('attempt_completion'), 'attempt_completion must always be offered');
+		assert.ok(names.includes('read_file'));
+		assert.ok(!names.includes('run_command'), 'non-allowed tools are removed');
+	});
+
+	test('empty allowedToolNames => only attempt_completion', () => {
+		const names = (availableTools('agent', fakeMcp, { allowedToolNames: [] }) ?? []).map(t => t.name);
+		assert.deepStrictEqual(names, ['attempt_completion']);
+	});
+
+	test('only removes — cannot escalate: combined with isLocal it is the intersection of BOTH', () => {
+		// web_search is in neither the local set nor the allow list => absent
+		const names = (availableTools('agent', fakeMcp, { isLocal: true, allowedToolNames: ['read_file', 'web_search'] }) ?? []).map(t => t.name).sort();
+		assert.ok(names.includes('read_file'));
+		assert.ok(names.includes('attempt_completion'));
+		assert.ok(!names.includes('web_search'), 'web_search not in the local set => cannot be added back by allowedToolNames');
+	});
+
+	test('MCP tools are filtered to the allow list', () => {
+		const withMcp = (availableTools('agent', fakeMcp, { allowedToolNames: ['read_file', 'some_mcp_tool'] }) ?? []).map(t => t.name);
+		assert.ok(withMcp.includes('some_mcp_tool'), 'allowed MCP tool kept');
+		const withoutMcp = (availableTools('agent', fakeMcp, { allowedToolNames: ['read_file'] }) ?? []).map(t => t.name);
+		assert.ok(!withoutMcp.includes('some_mcp_tool'), 'non-allowed MCP tool dropped');
+	});
+
+	test('absent allowedToolNames => unchanged (backward compatible canary)', () => {
+		const a = (availableTools('agent', fakeMcp, { isLocal: false }) ?? []).map(t => t.name).sort();
+		const b = (availableTools('agent', fakeMcp, { isLocal: false, allowedToolNames: undefined }) ?? []).map(t => t.name).sort();
+		assert.deepStrictEqual(a, b);
+	});
+});

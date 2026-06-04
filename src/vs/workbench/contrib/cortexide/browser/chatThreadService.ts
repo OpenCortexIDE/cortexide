@@ -78,6 +78,9 @@ type AgentRunContext = {
 	// A custom agent's (.cortexide/agents/*.md) system prompt, injected as a real <subagent_role>
 	// system-message block for this run. The pinned model (if any) flows through modelSelection.
 	systemPromptOverride?: string
+	// A custom agent's restricted tool set. Intersected into the offered tools AND enforced at the
+	// _runToolCall dispatch gate (authoritative). attempt_completion is always allowed.
+	allowedToolNames?: string[]
 }
 
 
@@ -1473,7 +1476,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		modelSelection: ModelSelection | null,
 		chatMode: ChatMode,
 		repoIndexerResults: { results: string[]; metrics: any } | null | undefined,
-		subagentSystemPrompt?: string
+		subagentSystemPrompt?: string,
+		allowedToolNames?: string[]
 	): string {
 		// Create stable hash from inputs
 		const modelKey = modelSelection ? `${modelSelection.providerName}:${modelSelection.modelName}` : 'null';
@@ -1485,7 +1489,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const repoIndexerKey = repoIndexerResults ? JSON.stringify(repoIndexerResults.results.slice(0, 10)) : 'null';
 		// Include the sub-agent role so a custom-agent child never reuses a normal-turn prep (or vice-versa).
 		const subagentKey = subagentSystemPrompt ? `sa:${subagentSystemPrompt.length}:${subagentSystemPrompt.slice(0, 60)}` : '';
-		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}|${subagentKey}`;
+		const toolsKey = allowedToolNames ? `tools:${allowedToolNames.join('+')}` : '';
+		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}|${subagentKey}|${toolsKey}`;
 	}
 
 	/**
@@ -2496,6 +2501,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// set stream state
 			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } })
 
+			// Per-agent tool allowlist (a custom sub-agent's allowedTools): the AUTHORITATIVE execution
+			// gate, beyond the prompt-level restriction. Covers builtin + MCP. attempt_completion is
+			// always allowed so a restricted sub-agent can still signal completion. A recoverable throw.
+			const agentAllowedTools = this._allowedToolsByThread.get(threadId)
+			if (agentAllowedTools && toolName !== 'attempt_completion' && !agentAllowedTools.includes(toolName)) {
+				throw new Error(`The ${toolName} tool isn't available to this sub-agent. Available tools: ${agentAllowedTools.join(', ')}, attempt_completion.`)
+			}
+
 			if (isBuiltInTool) {
 				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
 				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
@@ -2674,6 +2687,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// Threads currently running as sub-agents (spawned by run_subagent). Enforces no-nesting and marks
 	// child threads. Not persisted; cleared when the child finishes.
 	private readonly _subagentThreadIds = new Set<string>()
+	// Per-(sub-agent-)thread tool allowlist (a custom agent's allowedTools). Read by the _runToolCall
+	// dispatch gate to authoritatively block tools outside the agent's set. Cleared when the child ends.
+	private readonly _allowedToolsByThread = new Map<string, string[]>()
 
 	/**
 	 * Execute a sub-agent (the run_subagent tool). Spawns a HIDDEN child thread seeded with ONLY the
@@ -2686,12 +2702,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const child = newThreadObject()
 		const childId = child.id
 		this._subagentThreadIds.add(childId)
+		// Resolve a named custom agent (.cortexide/agents/*.md), if any — it supplies the child's system
+		// prompt (runCtx.systemPromptOverride), pinned model, and tool allowlist.
+		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
+		// Per-thread tool allowlist read by the _runToolCall dispatch gate (authoritative enforcement).
+		if (customAgent?.allowedTools && customAgent.allowedTools.length > 0) {
+			this._allowedToolsByThread.set(childId, customAgent.allowedTools)
+		}
 		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
 		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
-		// If the orchestrator named a custom agent (.cortexide/agents/*.md), prepend that agent's
-		// system prompt so the child takes on the specialized role. (v1 prepends to the seed message;
-		// a true system-message slot + per-agent tool restriction + model pin are follow-ups.)
-		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
 		// Seed with a single user message = the self-contained task (the child's entire context). The
 		// custom agent's role now flows as a real <subagent_role> system-message block (runCtx below),
 		// not a prepend to this message.
@@ -2716,10 +2735,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				threadId: childId,
 				modelSelection,
 				modelSelectionOptions,
-				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt },
+				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt, allowedToolNames: customAgent?.allowedTools },
 			})
 		} finally {
 			this._subagentThreadIds.delete(childId)
+			this._allowedToolsByThread.delete(childId)
 		}
 		// Extract the child's result: prefer its attempt_completion summary, else its last assistant text.
 		const messages = this.state.allThreads[childId]?.messages ?? []
@@ -3175,7 +3195,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 			}
 
-			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride);
+			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride, runCtx?.allowedToolNames);
 			const cached = this._messagePrepCache.get(cacheKey);
 			const now = Date.now();
 
@@ -3197,7 +3217,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					modelSelection,
 					chatMode,
 					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-					subagentSystemPrompt: runCtx?.systemPromptOverride
+					subagentSystemPrompt: runCtx?.systemPromptOverride,
+					allowedToolNames: runCtx?.allowedToolNames
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
@@ -3325,7 +3346,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						try {
 							console.log(`[ChatThreadService] Re-preparing messages for new model: ${modelKey}`)
 							// PERFORMANCE: Use cache for model switch too
-							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride);
+							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride, runCtx?.allowedToolNames);
 							const switchCached = this._messagePrepCache.get(switchCacheKey);
 							const switchNow = Date.now();
 
@@ -3342,7 +3363,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									modelSelection,
 									chatMode,
 									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-									subagentSystemPrompt: runCtx?.systemPromptOverride
+									subagentSystemPrompt: runCtx?.systemPromptOverride,
+									allowedToolNames: runCtx?.allowedToolNames
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;

@@ -535,7 +535,7 @@ export const COMPACT_LOCAL_TOOLSET = new Set<BuiltinToolName>([
 	'todo_write', 'attempt_completion', 'run_command',
 ])
 
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean }) => {
+export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean, allowedToolNames?: string[] }) => {
 
 	let builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
@@ -550,8 +550,20 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 		builtinToolNames = builtinToolNames.filter(toolName => COMPACT_LOCAL_TOOLSET.has(toolName))
 	}
 
+	// Per-agent restriction (a custom sub-agent's allowedTools): intersect — only removes, never adds
+	// (so it can't escalate past the chatMode/local set). attempt_completion is always kept so a
+	// restricted sub-agent can still signal completion.
+	if (opts?.allowedToolNames && builtinToolNames) {
+		const allow = new Set(opts.allowedToolNames)
+		builtinToolNames = builtinToolNames.filter(toolName => allow.has(toolName) || toolName === 'attempt_completion')
+	}
+
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') && !opts?.isLocal ? mcpTools : undefined
+	let effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') && !opts?.isLocal ? mcpTools : undefined
+	if (opts?.allowedToolNames && effectiveMCPTools) {
+		const allow = new Set(opts.allowedToolNames)
+		effectiveMCPTools = effectiveMCPTools.filter(t => allow.has(t.name))
+	}
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -584,8 +596,8 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
-const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean) => {
-	const tools = availableTools(chatMode, mcpTools, { isLocal })
+const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean, allowedToolNames?: string[]) => {
+	const tools = availableTools(chatMode, mcpTools, { isLocal, allowedToolNames })
 	if (!tools || tools.length === 0) return null
 
 	const toolXMLDefinitions = (`\
@@ -643,7 +655,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, availableSubagents?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents, allowedToolNames }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, availableSubagents?: string, allowedToolNames?: string[] }) => {
 	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
@@ -686,7 +698,7 @@ ${truncatedDirStr}
 </files_overview>`)
 
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, false, allowedToolNames) : null
 
 	const details: string[] = []
 
@@ -787,7 +799,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string }) => {
+export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt, allowedToolNames }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, allowedToolNames?: string[] }) => {
 	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -797,7 +809,7 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	const sysInfo = `System: ${os} | Today: ${new Date().toDateString()}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
 
 	// Local/weak model → curated tool subset (see COMPACT_LOCAL_TOOLSET).
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true) : null
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true, allowedToolNames) : null
 
 	const details: string[] = []
 	if (mode === 'agent' || mode === 'plan') {
