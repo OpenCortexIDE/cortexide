@@ -15,7 +15,7 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPServerOfName, MCPConfigFileJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from './mcpServiceTypes.js';
+import { MCPServerOfName, MCPConfigFileJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, RECOMMENDED_MCP_SERVERS } from './mcpServiceTypes.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
@@ -30,6 +30,12 @@ type MCPServiceState = {
 export interface IMCPService {
 	readonly _serviceBrand: undefined;
 	revealMCPConfigFile(): Promise<void>;
+	/**
+	 * One-click add a curated MCP server (see RECOMMENDED_MCP_SERVERS) to mcp.json. Never overwrites an
+	 * existing entry of the same name. Returns 'added' or 'already-exists'. The config-file watcher then
+	 * connects the server and surfaces its tools automatically.
+	 */
+	addRecommendedMCPServer(serverName: string): Promise<'added' | 'already-exists'>;
 	toggleServerIsOn(serverName: string, isOn: boolean): Promise<void>;
 
 	readonly state: MCPServiceState; // NOT persisted
@@ -200,6 +206,33 @@ class MCPService extends Disposable implements IMCPService {
 		} catch (error) {
 			console.error('Error opening MCP config file:', error);
 		}
+	}
+
+	public async addRecommendedMCPServer(serverName: string): Promise<'added' | 'already-exists'> {
+		const recommended = RECOMMENDED_MCP_SERVERS[serverName];
+		if (!recommended) throw new Error(`Unknown recommended MCP server: ${serverName}`);
+
+		const mcpConfigUri = await this._getMCPConfigFilePath();
+		if (!(await this._configFileExists(mcpConfigUri))) {
+			await this._createMCPConfigFile(mcpConfigUri);
+		}
+
+		const parsed: MCPConfigFileJSON = (await this._parseMCPConfigFile()) ?? { mcpServers: {} };
+		if (!parsed.mcpServers) parsed.mcpServers = {};
+
+		// Never clobber an existing entry of the same name — just reveal the file so the user can edit it.
+		if (parsed.mcpServers[serverName]) {
+			await this.revealMCPConfigFile();
+			return 'already-exists';
+		}
+
+		parsed.mcpServers[serverName] = recommended.entry;
+		const buffer = VSBuffer.fromString(JSON.stringify(parsed, null, 2));
+		await this.fileService.writeFile(mcpConfigUri, buffer);
+		// The config-file watcher picks up the write and (re)connects servers; reveal the file too so the
+		// user can see what was added (and add credentials/args if needed).
+		await this.revealMCPConfigFile();
+		return 'added';
 	}
 
 	public getMCPTools(): InternalToolInfo[] | undefined {

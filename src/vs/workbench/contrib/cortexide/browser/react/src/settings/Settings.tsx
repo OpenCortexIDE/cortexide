@@ -2227,9 +2227,26 @@ For project-scoped rules, use \`.cortexide/rules/*.md\` files — see Project Ru
 Use Model Context Protocol to provide Agent mode with more tools.
 							`} chatMessageLocation={undefined} />
 									</h4>
-									<div className='my-2'>
-										<VoidButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
+									<div className='my-2 flex flex-wrap gap-2'>
+										<VoidButtonBgDarken className='px-4 py-1 max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
 											Add MCP Server
+										</VoidButtonBgDarken>
+										<VoidButtonBgDarken
+											className='px-4 py-1 max-w-64'
+											onClick={async () => {
+												try {
+													const result = await mcpService.addRecommendedMCPServer('playwright')
+													accessor.get('INotificationService').info(
+														result === 'added'
+															? 'Added the Playwright MCP server (browser automation) to mcp.json. It connects via npx on first use.'
+															: 'A "playwright" MCP server is already in your mcp.json.'
+													)
+												} catch (e) {
+													accessor.get('INotificationService').error(`Could not add Playwright MCP: ${e}`)
+												}
+											}}
+										>
+											+ Playwright (browser automation)
 										</VoidButtonBgDarken>
 									</div>
 

@@ -9,22 +9,22 @@
  *   3. tools/call      -> ToolCallResponse
  *
  * They are distilled directly from the official MCP
- * 2025‑03‑26 specification:
+ * 2025-03-26 specification:
  *   • Tools list response examples
  *   • Prompts list response examples
  *   • Tool call response examples
  *
  * Use them to get full IntelliSense when working with
- * @modelcontextprotocol/inspector‑cli responses.
+ * @modelcontextprotocol/inspector-cli responses.
  */
 
 
 /* -------------------------------------------------- */
-/* Core JSON‑RPC envelope                              */
+/* Core JSON-RPC envelope                              */
 /* -------------------------------------------------- */
 
 // export interface JsonRpcSuccess<T> {
-// 	/** JSON‑RPC version – always '2.0' */
+// 	/** JSON-RPC version - always '2.0' */
 // 	jsonrpc: '2.0';
 // 	/** Request identifier echoed back by the server */
 // 	id: string | number | null;
@@ -48,11 +48,11 @@
 export interface MCPTool {
 	/** Unique tool identifier */
 	name: string;
-	/** Human‑readable description */
+	/** Human-readable description */
 	description?: string;
 	/** JSON schema describing expected arguments */
 	inputSchema?: Record<string, unknown>;
-	/** Free‑form annotations describing behaviour, security, etc. */
+	/** Free-form annotations describing behaviour, security, etc. */
 	annotations?: Record<string, unknown>;
 }
 
@@ -93,7 +93,7 @@ export interface MCPTool {
 // export interface Resource {
 // 	uri: string;
 // 	mimeType: string;
-// 	/** Either plain‑text or base64‑encoded binary data */
+// 	/** Either plain-text or base64-encoded binary data */
 // 	text?: string;
 // 	data?: string;
 // }
@@ -108,7 +108,7 @@ export interface MCPTool {
 // export interface ToolCallResult {
 // 	/** List of content parts (text, images, resources, etc.) */
 // 	content: ToolContent[];
-// 	/** True if the tool itself encountered a domain‑level error */
+// 	/** True if the tool itself encountered a domain-level error */
 // 	isError?: boolean;
 // }
 
@@ -168,6 +168,19 @@ export interface MCPConfigFileEntryJSON {
 export interface MCPConfigFileJSON {
 	mcpServers: Record<string, MCPConfigFileEntryJSON>;
 }
+
+/**
+ * Curated MCP servers offered as a one-click add (see IMCPService.addRecommendedMCPServer + the
+ * Settings MCP tab). Playwright gives the agent real browser automation out of the box; it runs via
+ * `npx`, so there is no global install step (npx fetches it on first use).
+ */
+export const RECOMMENDED_MCP_SERVERS: Record<string, { entry: MCPConfigFileEntryJSON; title: string; blurb: string }> = {
+	playwright: {
+		entry: { command: 'npx', args: ['@playwright/mcp@latest'] },
+		title: 'Playwright (browser automation)',
+		blurb: 'Lets the agent open pages, click, type, and read the DOM. Requires Node/npx.',
+	},
+};
 
 
 // SERVER EVENT TYPES ------------------------------------------
