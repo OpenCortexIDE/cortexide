@@ -222,11 +222,16 @@ cloud/PR agents are explicitly deferred (XL).
 > run_subagent path is not E2E live-verified — local models won't *call* the tool (which is why it's
 > curated out of the local set), so it needs a capable/cloud model to exercise end-to-end.
 >
-> STILL OPEN (need infra / decisions): **R3 hooks** (needs a hidden electron-main process-runner —
-> terminalToolService runs visibly/noisily per tool call), **R7 local background agents** (a "Running
-> agents" panel), **R8 auto-compaction** (LLM summarization at the 70% token threshold), **R10 bundled
-> Playwright MCP** config, the persistent-memory WRITE path (memoriesService exists but nothing writes
-> learned facts), and parallel EDITING (needs git-worktree isolation, XL).
+> UPDATE (2026-06-04): the five then-open items are now ALL implemented — opt-in/additive, tsgo-clean,
+> pure logic unit-tested, and passed a 6-dimension adversarial review with 0 findings (NOT yet live-verified):
+> **R10 Playwright MCP** one-click add (85c9ca3559e) · **memory-write** save_memory tool (89320eebcde) ·
+> **R8 auto-compaction** opt-in + NON-destructive context windowing (ef012ccf84c) · **R3 lifecycle hooks**
+> via a hidden electron-main runner channel (6ad09565125) · **R7 background agents** + Running-agents panel
+> (1ab9cfeeb3d).
+>
+> STILL OPEN: parallel EDITING (needs git-worktree isolation, XL); R6 static capability data (superseded by
+> runtime parameter_size). Possible follow-ups: R8 LLM-summarization compaction (v1 is a provider-agnostic
+> sliding window since LLMChatMessage is provider-specific); live/E2E verification of all five.
 
 ---
 
