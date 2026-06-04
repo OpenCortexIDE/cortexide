@@ -89,6 +89,11 @@ type AgentRunContext = {
 	// A custom agent's restricted tool set. Intersected into the offered tools AND enforced at the
 	// _runToolCall dispatch gate (authoritative). attempt_completion is always allowed.
 	allowedToolNames?: string[]
+	// Parallel-edit phase 2: the absolute fs path of this sub-agent's git-worktree root. When set, the
+	// child's file tools resolve + are confined to the worktree instead of the workspace root (see
+	// _runToolCall -> validateParams -> validateURI). Threaded via _workspaceRootOverrideByThread so it
+	// survives the approval-resume re-entry, which calls _runChatAgent WITHOUT runCtx.
+	workspaceRootOverride?: string
 }
 
 
@@ -2325,7 +2330,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// 1. validate tool params
 			try {
 				if (isBuiltInTool) {
-					const params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams)
+					// Parallel-edit phase 2: a sub-agent running in its own git worktree resolves + confines
+					// file paths to that worktree (undefined for a normal run -> validateURI behaves as before).
+					const workspaceRootOverride = this._workspaceRootOverrideByThread.get(threadId)
+					const params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams, { workspaceRootOverride })
 					toolParams = params
 				}
 				else {
@@ -2740,6 +2748,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// Per-(sub-agent-)thread tool allowlist (a custom agent's allowedTools). Read by the _runToolCall
 	// dispatch gate to authoritatively block tools outside the agent's set. Cleared when the child ends.
 	private readonly _allowedToolsByThread = new Map<string, string[]>()
+	// Per-(sub-agent-)thread git-worktree root (parallel-edit phase 2). When set, _runToolCall passes it
+	// into validateParams so the child's file paths resolve + are confined to the worktree, not the
+	// workspace. Keyed by threadId (not runCtx) so it survives the approval-resume re-entry into
+	// _runChatAgent, which drops runCtx. Set at the top of _runChatAgent; cleared when the child ends.
+	private readonly _workspaceRootOverrideByThread = new Map<string, string>()
 	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
 	// the abort to in-flight children (depth 1, since sub-agents can't nest).
 	private readonly _childThreadsByParent = new Map<string, Set<string>>()
@@ -2823,6 +2836,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		} finally {
 			this._subagentThreadIds.delete(childId)
 			this._allowedToolsByThread.delete(childId)
+			this._workspaceRootOverrideByThread.delete(childId)
 			// Remove the child from its parent's sibling set, and drop the set entirely once it's empty so
 			// parents don't accumulate empty Sets over many sub-agent calls.
 			const siblings = this._childThreadsByParent.get(parentThreadId)
@@ -2955,6 +2969,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// isolated context without touching the user's UI mode.
 		runCtx?: AgentRunContext,
 	}) {
+
+		// Parallel-edit phase 2: register this run's git-worktree root (if any) keyed by threadId, so the
+		// _runToolCall dispatch path can confine file tools to the worktree. Keyed by threadId (not
+		// runCtx) because the approval-resume re-entry calls _runChatAgent WITHOUT runCtx — the entry
+		// persists until the sub-agent finishes (_runSubagent's finally clears it). Only ever populated
+		// for sub-agent runs; a normal top-level turn passes no override, so this is a no-op there.
+		if (runCtx?.workspaceRootOverride) {
+			this._workspaceRootOverrideByThread.set(threadId, runCtx.workspaceRootOverride)
+		}
 
 		// CRITICAL: Validate and resolve model selection BEFORE starting the loop
 		// This prevents wasted API calls and ensures we have a valid model
