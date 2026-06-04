@@ -2742,6 +2742,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		siblings.add(childId)
 		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
 		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		console.log(`[run_subagent] spawning child ${childId}${readOnly ? ' (read-only)' : ''}${params.agentType ? ` as "${params.agentType}"` : ''}: ${params.description}`)
 		// Seed with a single user message = the self-contained task (the child's entire context). The
 		// custom agent's role now flows as a real <subagent_role> system-message block (runCtx below),
 		// not a prepend to this message.
@@ -2802,6 +2803,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// caches for the lifetime of the window. Runs on the error path too (the throw still propagates).
 			this._disposeSubagentThreadState(childId)
 		}
+		console.log(`[run_subagent] child ${childId} finished (completed=${completed}); summary ${summary.length} chars`)
 		return { result: summary, childThreadId: childId, completed }
 	}
 
