@@ -1488,7 +1488,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		})));
 		const repoIndexerKey = repoIndexerResults ? JSON.stringify(repoIndexerResults.results.slice(0, 10)) : 'null';
 		// Include the sub-agent role so a custom-agent child never reuses a normal-turn prep (or vice-versa).
-		const subagentKey = subagentSystemPrompt ? `sa:${subagentSystemPrompt.length}:${subagentSystemPrompt.slice(0, 60)}` : '';
+		// Use the FULL prompt (not a length+prefix digest): two custom agents can share the same first 60
+		// chars and length yet differ later, which would collide and poison one with the other's prep.
+		// Matches the cloud system-message cache key (convertToLLMMessageService), which also keys on the
+		// full prompt.
+		const subagentKey = subagentSystemPrompt ? `sa:${subagentSystemPrompt}` : '';
 		const toolsKey = allowedToolNames ? `tools:${allowedToolNames.join('+')}` : '';
 		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}|${subagentKey}|${toolsKey}`;
 	}
@@ -2757,6 +2761,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const modelSelectionOptions = agentModel
 			? this._settingsService.state.optionsOfModelSelection['Chat']?.[agentModel.providerName]?.[agentModel.modelName]
 			: parentProps.modelSelectionOptions
+		let summary = ''
+		let completed = false
 		try {
 			await this._runChatAgent({
 				threadId: childId,
@@ -2764,29 +2770,59 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				modelSelectionOptions,
 				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt, allowedToolNames: effectiveAllowedTools },
 			})
+			// Extract the child's result: prefer its attempt_completion summary, else its last assistant
+			// text. Read INSIDE the try so the child's final state is captured before disposal in finally;
+			// on error we skip straight to finally and the throw propagates (parent handles it), as before.
+			const messages = this.state.allThreads[childId]?.messages ?? []
+			let lastAssistant = ''
+			for (let i = messages.length - 1; i >= 0; i--) {
+				const m = messages[i] as any
+				if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) {
+					summary = String(m.params.result)
+					completed = true
+					break
+				}
+				if (!lastAssistant && m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) {
+					lastAssistant = m.displayContent.trim()
+				}
+			}
+			if (!summary) { summary = lastAssistant || '(The sub-agent finished without producing a summary.)' }
 		} finally {
 			this._subagentThreadIds.delete(childId)
 			this._allowedToolsByThread.delete(childId)
-			this._childThreadsByParent.get(parentThreadId)?.delete(childId)
-		}
-		// Extract the child's result: prefer its attempt_completion summary, else its last assistant text.
-		const messages = this.state.allThreads[childId]?.messages ?? []
-		let summary = ''
-		let lastAssistant = ''
-		let completed = false
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i] as any
-			if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) {
-				summary = String(m.params.result)
-				completed = true
-				break
+			// Remove the child from its parent's sibling set, and drop the set entirely once it's empty so
+			// parents don't accumulate empty Sets over many sub-agent calls.
+			const siblings = this._childThreadsByParent.get(parentThreadId)
+			if (siblings) {
+				siblings.delete(childId)
+				if (siblings.size === 0) { this._childThreadsByParent.delete(parentThreadId) }
 			}
-			if (!lastAssistant && m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) {
-				lastAssistant = m.displayContent.trim()
-			}
+			// Tear down the hidden child thread + every per-thread cache it populated. Without this, each
+			// run_subagent call leaks a full thread (with all its messages) plus its read/plan/stream
+			// caches for the lifetime of the window. Runs on the error path too (the throw still propagates).
+			this._disposeSubagentThreadState(childId)
 		}
-		if (!summary) { summary = lastAssistant || '(The sub-agent finished without producing a summary.)' }
 		return { result: summary, childThreadId: childId, completed }
+	}
+
+	/**
+	 * Tear down a finished sub-agent's HIDDEN thread and every per-thread cache it populated. Sub-agent
+	 * child threads are ephemeral — the only child->parent channel is the returned summary — so, unlike
+	 * deleteThread, this must NOT persist, touch openTabs/currentThreadId, or open a replacement thread.
+	 * It only drops the in-memory state so repeated run_subagent calls don't leak threads + caches.
+	 */
+	private _disposeSubagentThreadState(childId: string): void {
+		if (this.state.allThreads[childId]) {
+			const rest = { ...this.state.allThreads }
+			delete rest[childId]
+			this._setState({ allThreads: rest })
+		}
+		this._fileReadCache.delete(childId)
+		this._fileReadCacheLRU.delete(childId)
+		this._planCache.delete(childId)
+		this._pendingStreamStateUpdates.delete(childId)
+		delete this._suppressPlanOnceByThread[childId]
+		delete this.streamState[childId]
 	}
 
 	/**

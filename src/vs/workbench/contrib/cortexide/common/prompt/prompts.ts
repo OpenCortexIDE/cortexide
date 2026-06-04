@@ -500,7 +500,7 @@ export const builtinTools: {
 		params: {
 			description: { description: 'A short (3-7 word) description of the sub-task, for display.' },
 			prompt: { description: 'The COMPLETE, self-contained instruction for the sub-agent. It sees ONLY this — include every file path, error, constraint, and detail it needs to do the task and report back. Tell it to call attempt_completion with its findings/summary when done.' },
-			agentType: { description: 'Optional. Name of a predefined agent to use (from .cortexide/agents). Omit for a general-purpose agent.' },
+			agent_type: { description: 'Optional. Name of a predefined agent to use (from .cortexide/agents). Omit for a general-purpose agent.' },
 		}
 	},
 
