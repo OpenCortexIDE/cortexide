@@ -22,6 +22,7 @@ import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
+import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { shorten } from '../../../../base/common/labels.js';
@@ -3327,6 +3328,62 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					contextSize,
 					timestamp: now
 				});
+			}
+
+			// --- R8: opt-in auto-compaction (NON-destructive) ---
+			// When an agent/plan run nears the model's context window, send a COMPACTED view of the
+			// conversation (keep the original request + recent messages, replace the middle with a marker)
+			// so the run continues instead of overflowing. The STORED thread is never mutated — only the
+			// messages sent to the LLM this turn are windowed — so checkpoints, the UI, and history are
+			// untouched. Best-effort: any failure falls back to the full prepared messages.
+			if ((chatMode === 'agent' || chatMode === 'plan')
+				&& this._settingsService.state.globalSettings.enableAutoCompaction
+				&& promptTokens > 0
+				&& modelSelection.providerName !== 'auto') {
+				try {
+					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
+					const contextWindow = (caps as any).contextWindow ?? 128_000
+					if (shouldCompactConversation({
+						enabled: true, chatMode, promptTokens, contextWindow,
+						messageCount: preprocessedMessages.length,
+						iterationsSinceLastCompaction: Number.POSITIVE_INFINITY, // non-destructive => re-window every over-threshold turn
+					})) {
+						const win = selectCompactionWindow(preprocessedMessages.length)
+						if (win) {
+							const omitted = win.end - win.start
+							const marker: ChatMessage = {
+								role: 'assistant',
+								displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
+								reasoning: '',
+								anthropicReasoning: null,
+							}
+							const compactedView: ChatMessage[] = [
+								...preprocessedMessages.slice(0, win.start),
+								marker,
+								...preprocessedMessages.slice(win.end),
+							]
+							const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+								chatMessages: compactedView,
+								modelSelection,
+								chatMode,
+								repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+								subagentSystemPrompt: runCtx?.systemPromptOverride,
+								allowedToolNames: runCtx?.allowedToolNames
+							})
+							if (prep2.messages && prep2.messages.length > 0) {
+								messages = prep2.messages
+								separateSystemMessage = prep2.separateSystemMessage
+								const tr2 = this._computeTokenCount(messages)
+								promptTokens = tr2.tokenCount
+								contextSize = tr2.contextSize
+								this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
+							}
+						}
+					}
+				} catch {
+					// compaction is best-effort; on any error keep the full prepared messages
+				}
 			}
 
 			// CRITICAL: Validate that messages are not empty before sending to API
