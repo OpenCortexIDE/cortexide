@@ -81,6 +81,10 @@ class CortexideRulesService extends Disposable implements ICortexideRulesService
 	declare readonly _serviceBrand: undefined;
 
 	private _rules: ProjectRule[] = [];
+	// Content of a root-level AGENTS.md (the emerging cross-tool standard, used by Cursor/Codex/etc.).
+	// Folded into the rules block alongside .cortexide/rules so users migrating from other tools get
+	// their repo agent instructions honored with no extra setup.
+	private _agentsMd: string = '';
 	private readonly _onDidChangeRules = this._register(new Emitter<ProjectRule[]>());
 	readonly onDidChangeRules: Event<ProjectRule[]> = this._onDidChangeRules.event;
 
@@ -107,13 +111,19 @@ class CortexideRulesService extends Disposable implements ICortexideRulesService
 
 	buildRulesBlock(fileUri?: URI): string {
 		const applicable = this.getRulesForFile(fileUri);
-		if (applicable.length === 0) return '';
+		if (applicable.length === 0 && !this._agentsMd) return '';
 
-		const sections = applicable.map(r =>
-			`### Rule: ${r.title}\n${r.content.trim()}`
-		).join('\n\n---\n\n');
+		const parts: string[] = [];
+		// AGENTS.md first (repo-wide agent instructions), then the structured .cortexide rules.
+		if (this._agentsMd) {
+			parts.push(`### AGENTS.md\n${this._agentsMd.trim()}`);
+		}
+		for (const r of applicable) {
+			parts.push(`### Rule: ${r.title}\n${r.content.trim()}`);
+		}
+		if (parts.length === 0) return '';
 
-		return `\n\n## Project Rules\n\nThe following rules are defined by the project maintainers. Follow them precisely.\n\n${sections}\n`;
+		return `\n\n## Project Rules\n\nThe following rules are defined by the project maintainers. Follow them precisely.\n\n${parts.join('\n\n---\n\n')}\n`;
 	}
 
 	// allow-any-unicode-next-line
@@ -125,24 +135,29 @@ class CortexideRulesService extends Disposable implements ICortexideRulesService
 
 		const rootUri = workspaceFolders[0].uri;
 		const rulesDirUri = URI.joinPath(rootUri, RULES_DIR);
+		const agentsMdUri = URI.joinPath(rootUri, 'AGENTS.md');
 
 		await this._loadAll(rulesDirUri);
+		await this._loadAgentsMd(agentsMdUri);
 
-		// Watch for changes inside the rules directory
+		// Watch for changes inside the rules directory + the root AGENTS.md
 		try {
-			this._register(
-				this.fileService.watch(rulesDirUri)
-			);
+			this._register(this.fileService.watch(rulesDirUri));
+			this._register(this.fileService.watch(agentsMdUri));
 			this._register(
 				this.fileService.onDidFilesChange(async e => {
 					if (e.affects(rulesDirUri)) {
 						await this._loadAll(rulesDirUri);
 					}
+					if (e.affects(agentsMdUri)) {
+						await this._loadAgentsMd(agentsMdUri);
+						this._onDidChangeRules.fire(this._rules);
+					}
 				})
 			);
 		} catch {
 			// allow-any-unicode-next-line
-			// Rules directory doesn't exist yet — that's fine, watch isn't needed
+			// Rules directory / AGENTS.md doesn't exist yet — that's fine, watch isn't needed
 		}
 	}
 
@@ -191,6 +206,18 @@ class CortexideRulesService extends Disposable implements ICortexideRulesService
 
 		this._rules = newRules;
 		this._onDidChangeRules.fire(this._rules);
+	}
+
+	private async _loadAgentsMd(agentsMdUri: URI): Promise<void> {
+		try {
+			const stat = await this.fileService.resolve(agentsMdUri);
+			if (stat.isDirectory) { this._agentsMd = ''; return; }
+			const raw = await this.fileService.readFile(agentsMdUri).then(f => f.value);
+			this._agentsMd = raw.slice(0, 16 * 1024).toString().trim();
+		} catch {
+			// AGENTS.md doesn't exist — fine, no repo-wide instructions.
+			this._agentsMd = '';
+		}
 	}
 }
 
