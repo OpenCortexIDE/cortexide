@@ -92,6 +92,8 @@ export type BuiltinToolCallParams = {
 	'attempt_completion': { result: string; command: string | null },
 	// --- delegate a scoped task to a sub-agent (handled in chatThreadService, not toolsService) ---
 	'run_subagent': { description: string; prompt: string; agentType: string | null },
+	// --- run several READ-ONLY research sub-agents concurrently (handled in chatThreadService) ---
+	'run_parallel_subagents': { tasks: Array<{ description: string; prompt: string }> },
 }
 
 // RESULT OF TOOL CALL
@@ -138,6 +140,8 @@ export type BuiltinToolResultType = {
 	'attempt_completion': { acknowledged: true },
 	// --- sub-agent: the child's final summary, returned to the parent agent ---
 	'run_subagent': { result: string; childThreadId: string; completed: boolean },
+	// --- parallel sub-agents: each child's summary, returned together to the parent ---
+	'run_parallel_subagents': { results: Array<{ description: string; result: string; completed: boolean }> },
 }
 
 

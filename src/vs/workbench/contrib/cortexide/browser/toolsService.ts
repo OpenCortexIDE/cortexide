@@ -672,6 +672,22 @@ export class ToolsService implements IToolsService {
 				return { description, prompt, agentType };
 			},
 
+			run_parallel_subagents: (params: RawToolParamsObj) => {
+				const tasksRaw = (params as Record<string, unknown>).tasks;
+				const tasks: Array<{ description: string; prompt: string }> = [];
+				if (Array.isArray(tasksRaw)) {
+					for (const t of tasksRaw) {
+						if (t && typeof t === 'object') {
+							const prompt = validateStr('prompt', (t as Record<string, unknown>).prompt);
+							const description = validateOptionalStr('description', (t as Record<string, unknown>).description) ?? '';
+							tasks.push({ description, prompt });
+						}
+					}
+				}
+				if (tasks.length === 0) { throw new Error('run_parallel_subagents requires a non-empty "tasks" array, each item having a "prompt".'); }
+				return { tasks };
+			},
+
 		}
 
 
@@ -1839,6 +1855,11 @@ export class ToolsService implements IToolsService {
 				throw new Error('run_subagent must be handled by the chat thread service.');
 			},
 
+			run_parallel_subagents: async () => {
+				// Like run_subagent, intercepted + executed in chatThreadService._runToolCall. Never reached.
+				throw new Error('run_parallel_subagents must be handled by the chat thread service.');
+			},
+
 		}
 
 
@@ -2086,6 +2107,12 @@ export class ToolsService implements IToolsService {
 			run_subagent: (_params, result) => {
 				const header = result.completed ? `Sub-agent finished.` : `Sub-agent stopped WITHOUT signalling completion (may be incomplete).`;
 				return `${header}\n\n${result.result}`;
+			},
+
+			run_parallel_subagents: (_params, result) => {
+				return result.results.map((r, i) =>
+					`### Sub-agent ${i + 1}${r.description ? `: ${r.description}` : ''}${r.completed ? '' : ' [did NOT signal completion — may be incomplete]'}\n${r.result}`
+				).join('\n\n---\n\n');
 			},
 		}
 

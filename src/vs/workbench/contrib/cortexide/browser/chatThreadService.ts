@@ -11,7 +11,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
@@ -2534,6 +2534,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					resolveInterruptor(() => { interrupted = true })
 					toolResult = await this._runSubagent(threadId, toolParams as BuiltinToolCallParams['run_subagent'])
 				}
+				else if (toolName === 'run_parallel_subagents') {
+					// Same as run_subagent but runs N READ-ONLY children concurrently. No nesting.
+					if (this._subagentThreadIds.has(threadId)) {
+						throw new Error('A sub-agent cannot spawn sub-agents. Complete this sub-task yourself and call attempt_completion with your result.')
+					}
+					resolveInterruptor(() => { interrupted = true })
+					toolResult = await this._runParallelSubagents(threadId, toolParams as BuiltinToolCallParams['run_parallel_subagents'])
+				}
 				else {
 					const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
 					const interruptor = () => { interrupted = true; interruptTool?.() }
@@ -2710,16 +2718,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * the parent conversation; the parent sees only the returned summary — keeping the parent context
 	 * clean. See docs/GAP-ANALYSIS.md "Sub-agents — concrete design".
 	 */
-	private async _runSubagent(parentThreadId: string, params: BuiltinToolCallParams['run_subagent']): Promise<BuiltinToolResultType['run_subagent']> {
+	private async _runSubagent(parentThreadId: string, params: BuiltinToolCallParams['run_subagent'], readOnly: boolean = false): Promise<BuiltinToolResultType['run_subagent']> {
 		const child = newThreadObject()
 		const childId = child.id
 		this._subagentThreadIds.add(childId)
 		// Resolve a named custom agent (.cortexide/agents/*.md), if any — it supplies the child's system
 		// prompt (runCtx.systemPromptOverride), pinned model, and tool allowlist.
 		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
+		// readOnly (run_parallel_subagents) forces the read-only toolset so N children can run
+		// concurrently with zero FS-collision risk; otherwise use the custom agent's allowlist (if any).
+		const effectiveAllowedTools = readOnly ? READ_ONLY_SUBAGENT_TOOLS : customAgent?.allowedTools
 		// Per-thread tool allowlist read by the _runToolCall dispatch gate (authoritative enforcement).
-		if (customAgent?.allowedTools && customAgent.allowedTools.length > 0) {
-			this._allowedToolsByThread.set(childId, customAgent.allowedTools)
+		if (effectiveAllowedTools && effectiveAllowedTools.length > 0) {
+			this._allowedToolsByThread.set(childId, effectiveAllowedTools)
 		}
 		// Register the child under its parent so aborting the parent aborts the child too.
 		let siblings = this._childThreadsByParent.get(parentThreadId)
@@ -2751,7 +2762,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				threadId: childId,
 				modelSelection,
 				modelSelectionOptions,
-				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt, allowedToolNames: customAgent?.allowedTools },
+				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt, allowedToolNames: effectiveAllowedTools },
 			})
 		} finally {
 			this._subagentThreadIds.delete(childId)
@@ -2776,6 +2787,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		}
 		if (!summary) { summary = lastAssistant || '(The sub-agent finished without producing a summary.)' }
 		return { result: summary, childThreadId: childId, completed }
+	}
+
+	/**
+	 * Run several READ-ONLY sub-agents concurrently (the run_parallel_subagents tool). Each child is
+	 * forced to the read-only toolset (no edits / no run_command), so running them with Promise.all is
+	 * safe — they can't collide on the file system. Returns every child's summary. A child that throws
+	 * degrades to a per-task error entry rather than failing the whole batch.
+	 */
+	private async _runParallelSubagents(parentThreadId: string, params: BuiltinToolCallParams['run_parallel_subagents']): Promise<BuiltinToolResultType['run_parallel_subagents']> {
+		const results = await Promise.all(params.tasks.map(async (task) => {
+			try {
+				const r = await this._runSubagent(parentThreadId, { description: task.description, prompt: task.prompt, agentType: null }, /* readOnly */ true)
+				return { description: task.description, result: r.result, completed: r.completed }
+			} catch (e) {
+				return { description: task.description, result: `(sub-agent errored: ${getErrorMessage(e)})`, completed: false }
+			}
+		}))
+		return { results }
 	}
 
 	private async _runChatAgent({

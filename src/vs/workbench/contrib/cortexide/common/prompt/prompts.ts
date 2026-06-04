@@ -504,6 +504,14 @@ export const builtinTools: {
 		}
 	},
 
+	run_parallel_subagents: {
+		name: 'run_parallel_subagents',
+		description: `Run SEVERAL READ-ONLY research sub-agents CONCURRENTLY and get all their summaries back at once — faster than sequential run_subagent calls when you need to understand multiple INDEPENDENT parts of the codebase. Each runs in its own fresh context, is restricted to READ-ONLY tools (read/search/diagnostics/LSP-navigation — it CANNOT edit files or run commands), and reports via attempt_completion. For a task that must EDIT files, use run_subagent (sequential) instead.`,
+		params: {
+			tasks: { description: 'Array of { "description": "short label", "prompt": "the COMPLETE self-contained instruction for this read-only sub-agent (include all file paths + detail; tell it to call attempt_completion with its findings)" }. Each task runs concurrently in its own context.' },
+		}
+	},
+
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
 
@@ -522,7 +530,7 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 // Tools restricted to agent/plan modes only (not available in gather). run_subagent is also excluded
 // from COMPACT_LOCAL_TOOLSET below (weak/local models must not spawn sub-agents).
-const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent'])
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent', 'run_parallel_subagents'])
 
 // Curated tool subset offered to weak/local models in agent/plan mode. Excludes the tools a small
 // model tends to hallucinate or misuse — persistent terminals, MCP, web, LSP nav/refactor, multi_edit —
@@ -534,6 +542,15 @@ export const COMPACT_LOCAL_TOOLSET = new Set<BuiltinToolName>([
 	'create_file_or_folder', 'edit_file', 'rewrite_file',
 	'todo_write', 'attempt_completion', 'run_command',
 ])
+
+// Read-only builtin tools a PARALLEL sub-agent is restricted to (run_parallel_subagents). No edits,
+// no run_command, no terminals — so N can run concurrently with zero file-system collision risk.
+// attempt_completion is included so each child can return its findings.
+export const READ_ONLY_SUBAGENT_TOOLS: string[] = [
+	'read_file', 'ls_dir', 'get_dir_tree', 'search_pathnames_only', 'search_for_files', 'search_in_file',
+	'read_lint_errors', 'grep_search', 'glob_files', 'get_diagnostics',
+	'go_to_definition', 'find_references', 'search_symbols', 'attempt_completion',
+]
 
 export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean, allowedToolNames?: string[] }) => {
 
