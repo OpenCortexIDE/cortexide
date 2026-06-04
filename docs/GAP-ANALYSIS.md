@@ -211,9 +211,22 @@ child→parent channel is the final summary; no infinite nesting.
 trustworthy. **R7/R8** follow naturally on the R1 foundation. Parallel *editing* (worktrees) and
 cloud/PR agents are explicitly deferred (XL).
 
-> Build status (2026-06-03): out-of-box agentic moat shipped this session (tool-call repair,
-> capable-model routing, onboarding auto-pull, ollama num_ctx 16384, dev Keychain fix — 6 commits,
-> verified live). **R1 (`AgentRunContext`) is in progress**; R2 (`run_subagent`) is next.
+> Build status (2026-06-04): out-of-box agentic moat shipped (tool-call repair, capable-model routing,
+> onboarding auto-pull, ollama num_ctx 16384, dev Keychain fix — verified live) + rank-6 real
+> parameter_size routing (verified: Auto picks the 7B over a 1B). **The ENTIRE sub-agents track is now
+> implemented**: R1 AgentRunContext keystone ✅ · R2 run_subagent ✅ · R4 custom agents
+> (.cortexide/agents/*.md) ✅ · R4.1 system-message slot + model pin ✅ · discoverability ✅ · R4.2
+> per-agent tool restriction (prompt intersect + authoritative dispatch gate) ✅ · abort-propagation ✅ ·
+> R5 read-only parallel (run_parallel_subagents) ✅ · plus R9 AGENTS.md ingestion ✅. ~18 commits, all
+> tsc-clean + unit-tested; new params are optional so normal chat is byte-identical. CAVEAT: the
+> run_subagent path is not E2E live-verified — local models won't *call* the tool (which is why it's
+> curated out of the local set), so it needs a capable/cloud model to exercise end-to-end.
+>
+> STILL OPEN (need infra / decisions): **R3 hooks** (needs a hidden electron-main process-runner —
+> terminalToolService runs visibly/noisily per tool call), **R7 local background agents** (a "Running
+> agents" panel), **R8 auto-compaction** (LLM summarization at the 70% token threshold), **R10 bundled
+> Playwright MCP** config, the persistent-memory WRITE path (memoriesService exists but nothing writes
+> learned facts), and parallel EDITING (needs git-worktree isolation, XL).
 
 ---
 
