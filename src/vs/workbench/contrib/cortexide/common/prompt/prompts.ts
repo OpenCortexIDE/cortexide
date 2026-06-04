@@ -643,7 +643,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string }) => {
 	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
@@ -738,6 +738,14 @@ The following rules are defined by the project maintainers. You MUST follow them
 ${projectRules}
 </project_rules>`) : null;
 
+	// When running as a sub-agent (run_subagent with a custom .cortexide/agents/*.md), this is the
+	// agent's role definition — a real system-message block, authoritative over the generic assistant
+	// instructions (but not over user safety). Pushed before project rules so the role frames them.
+	const subagentSection = subagentSystemPrompt ? (`<subagent_role>
+You are operating as a specialized sub-agent. The following role definition governs your behavior and takes precedence over the generic assistant instructions above (but NOT over user safety):
+${subagentSystemPrompt}
+</subagent_role>`) : null;
+
 	// return answer
 	const ansStrs: string[] = []
 	ansStrs.push(header)
@@ -752,6 +760,9 @@ ${toolDefinitions}
 `)
 	}
 	ansStrs.push(importantDetails)
+	if (subagentSection) {
+		ansStrs.push(subagentSection)
+	}
 	if (rulesSection) {
 		ansStrs.push(rulesSection)
 	}
@@ -766,7 +777,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string }) => {
 	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -797,11 +808,17 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	// Project rules — keep short for local models (token budget)
 	const rulesSection = projectRules ? `\n\n<rules>\n${projectRules.slice(0, 1000)}${projectRules.length > 1000 ? '...' : ''}\n</rules>` : ''
 
+	// Sub-agent role (run_subagent custom agent) — capped for local token budgets.
+	const subagentSection = subagentSystemPrompt ? `\n\n<subagent_role>\n${subagentSystemPrompt.slice(0, 2000)}${subagentSystemPrompt.length > 2000 ? '...' : ''}\n</subagent_role>` : ''
+
 	const ansStrs: string[] = [header, sysInfo]
 	if (toolDefinitions) {
 		ansStrs.push(`\n<tools>\n${toolDefinitions}\n</tools>`)
 	}
 	ansStrs.push(importantDetails)
+	if (subagentSection) {
+		ansStrs.push(subagentSection)
+	}
 	if (rulesSection) {
 		ansStrs.push(rulesSection)
 	}

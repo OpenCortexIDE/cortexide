@@ -1230,7 +1230,7 @@ const prepareMessages = (params: {
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null> }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>, subagentSystemPrompt?: string }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
 	prepareFIMMessage(opts: { messages: LLMFIMMessage, modelSelection: ModelSelection | null, featureName: FeatureName, languageId?: string }): { prefix: string, suffix: string, stopTokens: string[] }
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[], metrics: any } | null>
 }
@@ -1297,14 +1297,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message with caching
-	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
+	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, subagentSystemPrompt?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 
 		// Create cache key from relevant factors
-		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}`;
+		// Include sub-agent role in the key so a sub-agent's system message is never served from — or
+		// poisons — the normal-turn cache.
+		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|sa:${subagentSystemPrompt ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1361,7 +1363,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const activeFileURI = this.editorService.activeEditor?.resource;
 		const projectRules = this._getCombinedAIInstructions(activeFileURI) || undefined;
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt })
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1493,7 +1495,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, subagentSystemPrompt }) => {
 		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
 
 		const { overridesOfModel } = this.cortexideSettingsService.state
@@ -1564,10 +1566,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 			const activeFileURILocal = this.editorService.activeEditor?.resource;
 			const projectRulesLocal = this._getCombinedAIInstructions(activeFileURILocal) || undefined;
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal })
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal, subagentSystemPrompt })
 		} else {
 			// Use full system message for cloud models
-			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat)
+			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, subagentSystemPrompt)
 		}
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)

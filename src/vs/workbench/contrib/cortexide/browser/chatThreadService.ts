@@ -16,7 +16,7 @@ import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj }
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
-import { ICortexideAgentsService } from '../common/cortexideAgentsService.js';
+import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -75,6 +75,9 @@ type AgentRunContext = {
 	chatModeOverride?: ChatMode
 	isSubagent?: boolean
 	parentThreadId?: string
+	// A custom agent's (.cortexide/agents/*.md) system prompt, injected as a real <subagent_role>
+	// system-message block for this run. The pinned model (if any) flows through modelSelection.
+	systemPromptOverride?: string
 }
 
 
@@ -1469,7 +1472,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		chatMessages: any[],
 		modelSelection: ModelSelection | null,
 		chatMode: ChatMode,
-		repoIndexerResults: { results: string[]; metrics: any } | null | undefined
+		repoIndexerResults: { results: string[]; metrics: any } | null | undefined,
+		subagentSystemPrompt?: string
 	): string {
 		// Create stable hash from inputs
 		const modelKey = modelSelection ? `${modelSelection.providerName}:${modelSelection.modelName}` : 'null';
@@ -1479,7 +1483,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			id: m.id
 		})));
 		const repoIndexerKey = repoIndexerResults ? JSON.stringify(repoIndexerResults.results.slice(0, 10)) : 'null';
-		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}`;
+		// Include the sub-agent role so a custom-agent child never reuses a normal-turn prep (or vice-versa).
+		const subagentKey = subagentSystemPrompt ? `sa:${subagentSystemPrompt.length}:${subagentSystemPrompt.slice(0, 60)}` : '';
+		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}|${subagentKey}`;
 	}
 
 	/**
@@ -2686,26 +2692,31 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// system prompt so the child takes on the specialized role. (v1 prepends to the seed message;
 		// a true system-message slot + per-agent tool restriction + model pin are follow-ups.)
 		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
-		const seededPrompt = customAgent
-			? `${customAgent.systemPrompt}\n\n----- YOUR TASK -----\n${params.prompt}`
-			: params.prompt
-		// Seed with a single user message = the self-contained prompt (the child's entire context).
+		// Seed with a single user message = the self-contained task (the child's entire context). The
+		// custom agent's role now flows as a real <subagent_role> system-message block (runCtx below),
+		// not a prepend to this message.
 		this._addMessageToThread(childId, {
 			role: 'user',
-			content: seededPrompt,
+			content: params.prompt,
 			displayContent: params.prompt,
 			selections: null,
 			state: { stagingSelections: [], isBeingEdited: false },
 		})
-		// The child inherits the user's current model selection and runs the full loop in an isolated
-		// 'agent'-mode context. parentThreadId lets the UI nest it (and future abort propagation).
-		const { modelSelection, modelSelectionOptions } = this._currentModelSelectionProps()
+		// Pick the child's model: a custom agent may pin one (resolved against installed models);
+		// otherwise inherit the user's current selection. Recompute options for a pinned model the same
+		// way _currentModelSelectionProps does, so a pinned model gets its configured options (if any).
+		const parentProps = this._currentModelSelectionProps()
+		const agentModel = customAgent?.model ? resolveAgentModelSelection(customAgent.model, this._settingsService.state.settingsOfProvider) : null
+		const modelSelection = agentModel ?? parentProps.modelSelection
+		const modelSelectionOptions = agentModel
+			? this._settingsService.state.optionsOfModelSelection['Chat']?.[agentModel.providerName]?.[agentModel.modelName]
+			: parentProps.modelSelectionOptions
 		try {
 			await this._runChatAgent({
 				threadId: childId,
 				modelSelection,
 				modelSelectionOptions,
-				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId },
+				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt },
 			})
 		} finally {
 			this._subagentThreadIds.delete(childId)
@@ -3164,7 +3175,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 			}
 
-			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride);
 			const cached = this._messagePrepCache.get(cacheKey);
 			const now = Date.now();
 
@@ -3185,7 +3196,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					chatMessages: preprocessedMessages,
 					modelSelection,
 					chatMode,
-					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+					subagentSystemPrompt: runCtx?.systemPromptOverride
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
@@ -3313,7 +3325,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						try {
 							console.log(`[ChatThreadService] Re-preparing messages for new model: ${modelKey}`)
 							// PERFORMANCE: Use cache for model switch too
-							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride);
 							const switchCached = this._messagePrepCache.get(switchCacheKey);
 							const switchNow = Date.now();
 
@@ -3329,7 +3341,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									chatMessages: preprocessedMessages,
 									modelSelection,
 									chatMode,
-									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+									subagentSystemPrompt: runCtx?.systemPromptOverride
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;

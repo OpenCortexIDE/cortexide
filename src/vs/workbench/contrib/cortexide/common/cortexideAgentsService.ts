@@ -34,6 +34,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { SettingsOfProvider, ProviderName, providerNames } from './cortexideSettingsTypes.js';
 
 export const ICortexideAgentsService = createDecorator<ICortexideAgentsService>('cortexideAgentsService');
 
@@ -90,6 +91,41 @@ export function parseCustomAgentFile(fileName: string, text: string, uri: URI): 
 		model: fm['model'] || undefined,
 		uri,
 	};
+}
+
+/**
+ * Resolve a custom agent's `model` string to a concrete ModelSelection, or null if it can't be
+ * resolved (the caller then falls back to the parent's model). Accepts:
+ *  - "provider:model" — split on the FIRST colon; the left must be a known provider AND the right an
+ *    INSTALLED model (e.g. "ollama:qwen2.5-coder:7b").
+ *  - a bare model name — scanned across providers in priority order (online first, then local),
+ *    mirroring resolveAutoModelSelection's ordering.
+ * Ollama tags contain colons, so a bare "qwen2.5-coder:7b" (whose "qwen2.5-coder" prefix is NOT a
+ * provider) correctly falls through to the bare-name scan. Pure; unit-tested.
+ */
+export function resolveAgentModelSelection(modelStr: string | undefined, settingsOfProvider: SettingsOfProvider): { providerName: ProviderName, modelName: string } | null {
+	const s = (modelStr ?? '').trim();
+	if (!s) { return null; }
+	const colon = s.indexOf(':');
+	if (colon > 0) {
+		const left = s.slice(0, colon);
+		const right = s.slice(colon + 1);
+		if (right && (providerNames as readonly string[]).includes(left)) {
+			const models = settingsOfProvider[left as ProviderName]?.models ?? [];
+			if (models.some(m => m.modelName === right)) {
+				return { providerName: left as ProviderName, modelName: right };
+			}
+		}
+	}
+	const priority: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations'] as ProviderName[];
+	const order = priority.filter(p => (providerNames as readonly string[]).includes(p));
+	for (const p of order) {
+		const models = settingsOfProvider[p]?.models ?? [];
+		if (models.some(m => m.modelName === s)) {
+			return { providerName: p, modelName: s };
+		}
+	}
+	return null;
 }
 
 // --- implementation ---
