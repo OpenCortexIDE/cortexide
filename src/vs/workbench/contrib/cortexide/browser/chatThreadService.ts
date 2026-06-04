@@ -18,6 +18,7 @@ import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderN
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
 import { ICortexideHooksService } from './cortexideHooksService.js';
+import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -334,6 +335,10 @@ export interface IChatThreadService {
 
 	// entry pts
 	abortRunning(threadId: string): Promise<void>;
+
+	/** R7: start a top-level agent on a hidden thread that runs WITHOUT blocking the active chat.
+	 *  Tracked in IBackgroundAgentsService (the "Running agents" panel). Returns the hidden threadId. */
+	startBackgroundAgent(description: string, prompt: string): Promise<string>;
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
@@ -435,6 +440,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
 		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
+		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -2852,6 +2858,61 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			}
 		}))
 		return { results }
+	}
+
+	/**
+	 * R7: start a top-level agent on a HIDDEN thread that runs without blocking the active chat. Tracked
+	 * in IBackgroundAgentsService (the "Running agents" panel can show/cancel it). Unlike a sub-agent it
+	 * has no parent and is NOT subject to the no-nesting gate; it runs the normal agent loop + approval
+	 * flow (so it never silently bypasses tool approvals). Fire-and-track: this returns the threadId
+	 * immediately while the run proceeds in the background.
+	 */
+	async startBackgroundAgent(description: string, prompt: string): Promise<string> {
+		const child = newThreadObject()
+		const childId = child.id
+		// Hidden thread: in-memory only (NOT persisted, NOT in openTabs).
+		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		this._addMessageToThread(childId, {
+			role: 'user', content: prompt, displayContent: prompt, selections: null,
+			state: { stagingSelections: [], isBeingEdited: false },
+		})
+		const props = this._currentModelSelectionProps()
+		this._backgroundAgentsService.register({
+			id: childId, description, threadId: childId, startTime: Date.now(),
+			abort: () => { void this.abortRunning(childId) },
+		})
+		this._notificationService.info(`Background agent started: ${description}`)
+
+		const extractSummary = (): string => {
+			const messages = this.state.allThreads[childId]?.messages ?? []
+			for (let i = messages.length - 1; i >= 0; i--) {
+				const m = messages[i] as any
+				if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) { return String(m.params.result) }
+				if (m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) { return m.displayContent.trim() }
+			}
+			return '(no summary produced)'
+		}
+		const stillRunning = () => this._backgroundAgentsService.state.agents.find(a => a.id === childId)?.status === 'running'
+
+		// Run the agent loop in the background — do NOT await.
+		void this._runChatAgent({
+			threadId: childId,
+			modelSelection: props.modelSelection,
+			modelSelectionOptions: props.modelSelectionOptions,
+			runCtx: { chatModeOverride: 'agent', isSubagent: false },
+		}).then(() => {
+			if (stillRunning()) { // not cancelled
+				this._backgroundAgentsService.setStatus(childId, 'completed', { resultSummary: extractSummary(), endTime: Date.now() })
+				this._notificationService.info(`Background agent finished: ${description}`)
+			}
+		}).catch((e) => {
+			if (stillRunning()) {
+				this._backgroundAgentsService.setStatus(childId, 'error', { error: getErrorMessage(e), endTime: Date.now() })
+				this._notificationService.warn(`Background agent failed: ${description} — ${getErrorMessage(e)}`)
+			}
+		})
+
+		return childId
 	}
 
 	private async _runChatAgent({

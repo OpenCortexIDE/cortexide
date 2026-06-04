@@ -145,6 +145,31 @@ registerAction2(class extends Action2 {
 })
 
 
+// R7: start a background agent (runs on a hidden thread without blocking the active chat)
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'cortexide.runBackgroundAgent',
+			f1: true,
+			title: localize2('cortexideRunBackgroundAgent', 'CortexIDE: Start a Background Agent'),
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService)
+		const quickInputService = accessor.get(IQuickInputService)
+		const prompt = await quickInputService.input({
+			title: 'Start a Background Agent',
+			prompt: 'Describe the task. It runs on a hidden thread without blocking your chat; track it in the "Running agents" panel.',
+			placeHolder: 'e.g. Add unit tests for src/utils/date.ts and run them',
+		})
+		const trimmed = (prompt ?? '').trim()
+		if (!trimmed) { return }
+		const description = trimmed.length > 60 ? trimmed.slice(0, 57) + '...' : trimmed
+		await chatThreadService.startBackgroundAgent(description, trimmed)
+	}
+})
+
+
 // New chat keybind + menu button
 const CORTEXIDE_CMD_SHIFT_L_ACTION_ID = 'cortexide.cmdShiftL'
 registerAction2(class extends Action2 {

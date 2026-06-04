@@ -9,6 +9,7 @@ import { useIsDark } from '../util/services.js';
 
 import '../styles.css'
 import { SidebarChat } from './SidebarChat.js';
+import { RunningAgentsPanel } from './RunningAgentsPanel.js';
 import ErrorBoundary from './ErrorBoundary.js';
 
 export const Sidebar = ({ className }: { className: string }) => {
@@ -27,11 +28,14 @@ export const Sidebar = ({ className }: { className: string }) => {
 			`}
 		>
 
-			<div className={`w-full h-full`}>
-				<ErrorBoundary>
-					<SidebarChat />
-				</ErrorBoundary>
-
+			<div className={`w-full h-full flex flex-col`}>
+				{/* R7: shows only when background agents exist (returns null otherwise) */}
+				<RunningAgentsPanel />
+				<div className={`w-full flex-1 min-h-0`}>
+					<ErrorBoundary>
+						<SidebarChat />
+					</ErrorBoundary>
+				</div>
 			</div>
 		</div>
 	</div>

@@ -52,6 +52,7 @@ import { ITerminalService } from '../../../../../terminal/browser/terminal.js'
 import { ISearchService } from '../../../../../../services/search/common/search.js'
 import { IExtensionManagementService } from '../../../../../../../platform/extensionManagement/common/extensionManagement.js'
 import { IMCPService } from '../../../../common/mcpService.js';
+import { IBackgroundAgentsService } from '../../../../browser/backgroundAgentsService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js'
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
 import { IRepoIndexerService } from '../../../repoIndexerService.js'
@@ -89,6 +90,7 @@ const commandBarURIStateListeners: Set<(uri: URI) => void> = new Set();
 const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 
 const mcpListeners: Set<() => void> = new Set()
+const backgroundAgentsListeners: Set<() => void> = new Set()
 
 let localeState: SupportedLocale = 'en'
 const localeStateListeners: Set<(s: SupportedLocale) => void> = new Set()
@@ -114,9 +116,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		cortexideCommandBarService: accessor.get(ICortexideCommandBarService),
 		modelService: accessor.get(IModelService),
 		mcpService: accessor.get(IMCPService),
+		backgroundAgentsService: accessor.get(IBackgroundAgentsService),
 	}
 
-	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, cortexideCommandBarService, modelService, mcpService } = stateServices
+	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, cortexideCommandBarService, modelService, mcpService, backgroundAgentsService } = stateServices
 
 
 
@@ -194,6 +197,12 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		})
 	)
 
+	disposables.push(
+		backgroundAgentsService.onDidChangeState(() => {
+			backgroundAgentsListeners.forEach(l => l())
+		})
+	)
+
 	const i18nService = accessor.get(ICortexideI18nService)
 	localeState = i18nService.locale
 	disposables.push(
@@ -266,6 +275,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IExtensionManagementService: accessor.get(IExtensionManagementService),
 			IExtensionTransferService: accessor.get(IExtensionTransferService),
 			IMCPService: accessor.get(IMCPService),
+			IBackgroundAgentsService: accessor.get(IBackgroundAgentsService),
 			IRepoIndexerService: accessor.get(IRepoIndexerService),
 			ISecretDetectionService: accessor.get(ISecretDetectionService),
 
@@ -450,6 +460,18 @@ export const useMCPServiceState = () => {
 		const listener = () => { ss(mcpService.state) }
 		mcpListeners.add(listener);
 		return () => { mcpListeners.delete(listener) };
+	}, []);
+	return s
+}
+
+export const useBackgroundAgentsState = () => {
+	const accessor = useAccessor()
+	const backgroundAgentsService = accessor.get('IBackgroundAgentsService')
+	const [s, ss] = useState(backgroundAgentsService.state)
+	useEffect(() => {
+		const listener = () => { ss(backgroundAgentsService.state) }
+		backgroundAgentsListeners.add(listener);
+		return () => { backgroundAgentsListeners.delete(listener) };
 	}, []);
 	return s
 }
