@@ -1869,6 +1869,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
 
+		// Propagate the abort to any in-flight sub-agent children spawned from this thread, so stopping
+		// the parent doesn't leave a child agent running in the background. (Depth 1 — no nesting.)
+		const childThreads = this._childThreadsByParent.get(threadId)
+		if (childThreads && childThreads.size > 0) {
+			for (const childId of [...childThreads]) {
+				await this.abortRunning(childId)
+			}
+		}
+
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
@@ -2690,6 +2699,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// Per-(sub-agent-)thread tool allowlist (a custom agent's allowedTools). Read by the _runToolCall
 	// dispatch gate to authoritatively block tools outside the agent's set. Cleared when the child ends.
 	private readonly _allowedToolsByThread = new Map<string, string[]>()
+	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
+	// the abort to in-flight children (depth 1, since sub-agents can't nest).
+	private readonly _childThreadsByParent = new Map<string, Set<string>>()
 
 	/**
 	 * Execute a sub-agent (the run_subagent tool). Spawns a HIDDEN child thread seeded with ONLY the
@@ -2709,6 +2721,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		if (customAgent?.allowedTools && customAgent.allowedTools.length > 0) {
 			this._allowedToolsByThread.set(childId, customAgent.allowedTools)
 		}
+		// Register the child under its parent so aborting the parent aborts the child too.
+		let siblings = this._childThreadsByParent.get(parentThreadId)
+		if (!siblings) { siblings = new Set(); this._childThreadsByParent.set(parentThreadId, siblings) }
+		siblings.add(childId)
 		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
 		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
 		// Seed with a single user message = the self-contained task (the child's entire context). The
@@ -2740,6 +2756,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		} finally {
 			this._subagentThreadIds.delete(childId)
 			this._allowedToolsByThread.delete(childId)
+			this._childThreadsByParent.get(parentThreadId)?.delete(childId)
 		}
 		// Extract the child's result: prefer its attempt_completion summary, else its last assistant text.
 		const messages = this.state.allThreads[childId]?.messages ?? []
