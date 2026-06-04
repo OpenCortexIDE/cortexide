@@ -1156,6 +1156,31 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 <span className='text-void-fg-3 text-xs'>Enable repo indexer</span>
             </div>
         </div>
+        {/* Agent: auto-compaction + lifecycle hooks (opt-in) */}
+        <div className=' pl-6 mt-2 flex items-center gap-2'>
+            <div className='flex items-center gap-2'>
+                <VoidSwitch
+                    size='xxs'
+                    value={!!cortexideSettingsService.state.globalSettings.enableAutoCompaction}
+                    onChange={(v) => cortexideSettingsService.setGlobalSetting('enableAutoCompaction', !!v)}
+                />
+                <span className='text-void-fg-3 text-xs'>Auto-compact long agent runs</span>
+                <span className='text-void-fg-4 text-xs' title='When an agent run nears the model context window, send a compacted view (keep the task + recent messages) so it continues instead of overflowing. Non-destructive: the stored conversation is unchanged.'>
+                    (i)
+                </span>
+            </div>
+            <div className='flex items-center gap-2 ml-4'>
+                <VoidSwitch
+                    size='xxs'
+                    value={!!cortexideSettingsService.state.globalSettings.enableLifecycleHooks}
+                    onChange={(v) => cortexideSettingsService.setGlobalSetting('enableLifecycleHooks', !!v)}
+                />
+                <span className='text-void-fg-3 text-xs'>Lifecycle hooks</span>
+                <span className='text-void-fg-4 text-xs' title='Run your own commands from .cortexide/hooks.json at agent events (pre-tool, post-tool, agent-stop). Commands run quietly with no shell, fire-and-forget.'>
+                    (i)
+                </span>
+            </div>
+        </div>
         {/* Web browsing settings */}
         <div className=' pl-6 mt-2 flex items-center gap-2'>
             <div className='flex items-center gap-2'>
