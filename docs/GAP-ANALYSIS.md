@@ -222,16 +222,23 @@ cloud/PR agents are explicitly deferred (XL).
 > run_subagent path is not E2E live-verified — local models won't *call* the tool (which is why it's
 > curated out of the local set), so it needs a capable/cloud model to exercise end-to-end.
 >
-> UPDATE (2026-06-04): the five then-open items are now ALL implemented — opt-in/additive, tsgo-clean,
-> pure logic unit-tested, and passed a 6-dimension adversarial review with 0 findings (NOT yet live-verified):
-> **R10 Playwright MCP** one-click add (85c9ca3559e) · **memory-write** save_memory tool (89320eebcde) ·
-> **R8 auto-compaction** opt-in + NON-destructive context windowing (ef012ccf84c) · **R3 lifecycle hooks**
-> via a hidden electron-main runner channel (6ad09565125) · **R7 background agents** + Running-agents panel
-> (1ab9cfeeb3d).
+> UPDATE (2026-06-04): the five then-open items are ALL implemented — opt-in/additive, tsgo-clean, pure
+> logic unit-tested, passed a 6-dimension adversarial review (0 findings), and **LIVE-VERIFIED over CDP
+> (8/8)**: app boots (DI sound), R3/R8 settings toggles render, R10 writes a playwright entry to mcp.json,
+> R7's command + Running-agents panel + status lifecycle work. Commits: **R10** (85c9ca3559e) · **memory-write**
+> (89320eebcde) · **R8** non-destructive compaction (ef012ccf84c) · **R3** hooks via a hidden electron-main
+> runner (6ad09565125) · **R7** background agents + panel (1ab9cfeeb3d) · settings toggles (cb07a0ac9c6).
 >
-> STILL OPEN: parallel EDITING (needs git-worktree isolation, XL); R6 static capability data (superseded by
-> runtime parameter_size). Possible follow-ups: R8 LLM-summarization compaction (v1 is a provider-agnostic
-> sliding window since LLMChatMessage is provider-specific); live/E2E verification of all five.
+> PARALLEL EDITING — phase 1 DONE (1c457d10b7e): a write-serialization mutex (_editSerializer) makes
+> concurrent multi-agent file edits collision-safe (R7 background + foreground can't interleave a
+> read-modify-write). Phase 2 (XL, future) = true git-worktree branch isolation: each parallel sub-agent
+> edits its own worktree, then merge. BLOCKER (why it's XL): it needs a per-agent workspace-root override
+> threaded through the STATELESS tool path-resolution (validateURI → workspace root), the edit-apply path,
+> and terminal cwd — invasive to the core path contract; best done as a focused, separately-verified effort.
+>
+> STILL OPEN: worktree parallel-edit phase 2 (above); R6 static capability data (superseded by runtime
+> parameter_size); optional R8 LLM-summarization compaction (v1 is a provider-agnostic sliding window since
+> LLMChatMessage is provider-specific).
 
 ---
 
