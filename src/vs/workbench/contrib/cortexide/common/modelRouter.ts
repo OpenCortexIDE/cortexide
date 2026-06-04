@@ -1527,10 +1527,27 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		const configured = this.getAvailableModels(settingsState);
 		const quotas = this.freeTierQuotaService.getAllRemaining();
+
+		// Context floor: code/agentic/multi-step tasks run a tool loop whose
+		// context GROWS every turn, so demote context-starved free providers
+		// (e.g. Cerebras's 8K cap) below large-context ones (Gemini 1M, Groq
+		// 128K). Without this, the highest-qualityRank free provider wins even
+		// when its window can't hold an agentic run — the message + tool results
+		// + sub-agent summaries blow past 8K and the whole thing stalls.
+		const isAgenticOrLargeTask = context.taskType === 'code'
+			|| !!context.isMultiStepTask
+			|| !!context.requiresComplexReasoning
+			|| !!context.hasCode;
+		const minContextWindow = Math.max(
+			context.contextSize ?? 0,
+			isAgenticOrLargeTask ? 32_000 : 0,
+		);
+
 		const ladder = buildFreeTierLadder({
 			configuredModels: configured,
 			quotas,
 			privacyMode: !!context.requiresPrivacy,
+			minContextWindow,
 		});
 
 		const top = pickTopFromLadder(ladder);

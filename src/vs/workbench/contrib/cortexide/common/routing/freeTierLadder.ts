@@ -27,6 +27,8 @@ export interface FreeTierCandidate {
 	readonly modelName: string;
 	/** Higher = preferred. */
 	readonly qualityRank: number;
+	/** Largest free-tier context window (tokens) for this provider. */
+	readonly maxContextWindowTokens: number;
 }
 
 /** Inputs to the ladder computation - all caller-supplied, no service deps. */
@@ -44,6 +46,17 @@ export interface FreeTierLadderInput {
 	 * caller falls back to local models.
 	 */
 	readonly privacyMode: boolean;
+	/**
+	 * Minimum input context window (tokens) the task needs.  Providers whose
+	 * free-tier context window is smaller are DEMOTED below those that fit (a
+	 * stable demotion, not a hard drop — a too-small provider still remains as a
+	 * last resort so we never produce an empty ladder when one would otherwise
+	 * exist).  Omit / 0 = no context preference (ordering by quality only).
+	 *
+	 * This is what keeps an agentic / sub-agent task off Cerebras's 8K window
+	 * when a large-context free provider (Gemini, Groq) is also configured.
+	 */
+	readonly minContextWindow?: number;
 }
 
 /**
@@ -104,10 +117,26 @@ export function buildFreeTierLadder(input: FreeTierLadderInput): readonly FreeTi
 			providerId,
 			modelName: model.modelName,
 			qualityRank: def.qualityRank,
+			maxContextWindowTokens: def.maxContextWindowTokens,
 		});
 	}
 
-	candidates.sort((a, b) => b.qualityRank - a.qualityRank);
+	// Primary order: quality. Secondary (and dominant when a context floor is
+	// set): providers that can hold the task's context window rank above those
+	// that can't. We keep too-small providers at the tail rather than dropping
+	// them, so a user whose ONLY free provider is context-starved still gets a
+	// usable ladder instead of an empty one.
+	const minCtx = input.minContextWindow ?? 0;
+	candidates.sort((a, b) => {
+		if (minCtx > 0) {
+			const aFits = a.maxContextWindowTokens >= minCtx ? 1 : 0;
+			const bFits = b.maxContextWindowTokens >= minCtx ? 1 : 0;
+			if (aFits !== bFits) {
+				return bFits - aFits; // fitting providers first
+			}
+		}
+		return b.qualityRank - a.qualityRank;
+	});
 	return candidates;
 }
 

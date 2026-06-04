@@ -178,4 +178,73 @@ suite('FreeTierLadder', () => {
 		assert.strictEqual(ladder.length, 1);
 		assert.strictEqual(ladder[0].providerId, 'groq');
 	});
+
+	// --- context-window awareness (agentic tasks) ---------------------------
+
+	test('agentic context floor demotes 8K cerebras below large-context gemini', () => {
+		// Same setup as the quality-rank test above, but now the task needs a
+		// 32K window. Cerebras (8K) must drop BELOW gemini (1M) despite ranking
+		// higher on raw quality, so the agentic loop doesn't stall on 8K.
+		const configured: ModelSelection[] = [
+			{ providerName: 'cerebras', modelName: 'llama-4-scout-17b-16e-instruct' },
+			{ providerName: 'gemini', modelName: 'gemini-2.5-flash' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [snap('cerebras'), snap('gemini')],
+			privacyMode: false,
+			minContextWindow: 32_000,
+		});
+		assert.strictEqual(ladder.length, 2);
+		assert.strictEqual(ladder[0].providerId, 'gemini', 'large-context provider must lead for an agentic task');
+		assert.strictEqual(ladder[1].providerId, 'cerebras', 'context-starved provider is demoted, not dropped');
+	});
+
+	test('no context floor (e.g. tiny chat) keeps cerebras on top by quality', () => {
+		// Regression guard: omitting minContextWindow must preserve the old
+		// quality-only ordering so plain chat still uses the fastest provider.
+		const configured: ModelSelection[] = [
+			{ providerName: 'cerebras', modelName: 'llama-4-scout-17b-16e-instruct' },
+			{ providerName: 'gemini', modelName: 'gemini-2.5-flash' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [snap('cerebras'), snap('gemini')],
+			privacyMode: false,
+		});
+		assert.strictEqual(ladder[0].providerId, 'cerebras', 'no floor => quality rank wins');
+	});
+
+	test('context floor is a stable demotion, not a drop: only-cerebras still yields a usable ladder', () => {
+		// A user whose ONLY free provider is context-starved must still get it
+		// back (degraded) rather than an empty ladder that strands them.
+		const configured: ModelSelection[] = [
+			{ providerName: 'cerebras', modelName: 'qwen-3-32b' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [snap('cerebras')],
+			privacyMode: false,
+			minContextWindow: 32_000,
+		});
+		assert.strictEqual(ladder.length, 1, 'must not produce an empty ladder');
+		assert.strictEqual(ladder[0].providerId, 'cerebras');
+	});
+
+	test('context floor preserves quality order among providers that all fit', () => {
+		// groq(80) + gemini(60) both clear a 32K floor, so the floor is a no-op
+		// between them and quality rank decides as usual.
+		const configured: ModelSelection[] = [
+			{ providerName: 'gemini', modelName: 'gemini-2.5-flash' },
+			{ providerName: 'groq', modelName: 'llama-3.3-70b-versatile' },
+		];
+		const ladder = buildFreeTierLadder({
+			configuredModels: configured,
+			quotas: [snap('gemini'), snap('groq')],
+			privacyMode: false,
+			minContextWindow: 32_000,
+		});
+		assert.strictEqual(ladder[0].providerId, 'groq', 'both fit => quality rank decides');
+		assert.strictEqual(ladder[1].providerId, 'gemini');
+	});
 });
