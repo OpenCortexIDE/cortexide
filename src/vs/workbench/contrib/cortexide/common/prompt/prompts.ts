@@ -289,7 +289,7 @@ export const builtinTools: {
 
 	automated_code_review: {
 		name: 'automated_code_review',
-		description: `Analyzes code in a file for potential issues, bugs, code smells, and suggests improvements. Returns a list of issues with severity and suggestions.`,
+		description: `Returns the file's full content, language, and current lint/diagnostic errors. Does NOT run any AI analysis itself — use the returned data to review the code yourself and propose any fixes via edit_file or multi_edit.`,
 		params: {
 			...uriParam('file'),
 		},
@@ -297,17 +297,17 @@ export const builtinTools: {
 
 	generate_tests: {
 		name: 'generate_tests',
-		description: `Generates unit or integration tests for code in a file. Can generate tests for a specific function or the entire file.`,
+		description: `Returns the file content, detected language, detected test framework (auto-detected from package.json / file extension when not provided), and a suggested test file path. Does NOT generate or write tests — use the returned data to author tests yourself, then create the file via create_file_or_folder + rewrite_file.`,
 		params: {
 			...uriParam('file'),
-			function_name: { description: 'Optional. The name of the function to generate tests for. If not provided, generates tests for the entire file.' },
-			test_framework: { description: 'Optional. The test framework to use (e.g., "jest", "mocha", "pytest"). Defaults to the framework detected from the project.' },
+			function_name: { description: 'Optional. The name of the function to scope returned context to. If not provided, returns the full file.' },
+			test_framework: { description: 'Optional. The test framework to use (e.g., "jest", "mocha", "pytest"). When omitted, detected from the project.' },
 		},
 	},
 
 	rename_symbol: {
 		name: 'rename_symbol',
-		description: `Renames a symbol (function, class, variable) at a specific position and updates all references to it across the codebase.`,
+		description: `Uses LSP to locate every reference to the symbol at the given position and returns a list of edits needed to rename it. Does NOT apply the edits — feed the returned \`changes\` array into edit_file (or multi_edit when several changes fall in one file) to actually perform the rename.`,
 		params: {
 			...uriParam('file'),
 			line: { description: 'The line number (1-based) where the symbol is located.' },
@@ -318,7 +318,7 @@ export const builtinTools: {
 
 	extract_function: {
 		name: 'extract_function',
-		description: `Extracts a block of code into a new function. Replaces the selected code with a function call.`,
+		description: `Returns generated text for a new function wrapping the selected lines, plus the replacement call site. Does NOT modify the file — apply both via edit_file. Parameter inference is naive: you will usually need to add real parameters and return values to the generated function.`,
 		params: {
 			...uriParam('file'),
 			start_line: { description: 'The starting line number (1-based) of the code block to extract.' },

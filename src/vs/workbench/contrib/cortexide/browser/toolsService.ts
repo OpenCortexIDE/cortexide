@@ -231,29 +231,14 @@ export const assertNotSSRF = (url: string) => {
 		throw new Error(`Blocked: ${host} is a loopback hostname. browse_url cannot target local/private network resources.`)
 	}
 
-	// IPv6 literals: URL.hostname keeps the surrounding brackets (e.g. "[::1]"),
-	// so strip them before inspecting the address.
+	// IPv6 literals are bracketed in URL.hostname only for the [::1]-style form;
+	// URL strips the brackets, so host is the bare IPv6 string here.
 	if (host.includes(':')) {
-		const compact = host.replace(/^\[|\]$/g, '')
-
-		// IPv4-mapped IPv6 (::ffff:a.b.c.d). The WHATWG URL parser normalises the
-		// embedded dotted-quad to hex (::ffff:127.0.0.1 -> ::ffff:7f00:1), so decode
-		// both forms back to an IPv4 string and fall through to the IPv4 checks below.
-		const mapped = compact.match(/^::ffff:(.+)$/i)
-		if (mapped) {
-			const rest = mapped[1]
-			if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(rest)) {
-				host = rest
-			} else {
-				const words = rest.split(':').map(w => parseInt(w || '0', 16))
-				if (words.length <= 2 && words.every(w => Number.isInteger(w) && w >= 0 && w <= 0xffff)) {
-					const hi = words.length === 2 ? words[0] : 0
-					const lo = words[words.length - 1]
-					host = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
-				}
-			}
-			// fall through to IPv4 literal checks below
-		} else {
+		// IPv4-mapped IPv6: ::ffff:127.0.0.1 — extract the trailing IPv4 and re-check
+		const v4MappedMatch = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+		if (v4MappedMatch) { host = v4MappedMatch[1] /* fall through to IPv4 checks below */ }
+		else {
+			const compact = host.replace(/^\[|\]$/g, '')
 			if (compact === '::' || compact === '::1') {
 				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 loopback/unspecified address.`)
 			}

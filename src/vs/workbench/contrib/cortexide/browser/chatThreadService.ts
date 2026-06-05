@@ -5961,6 +5961,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 			newCurrentId = newTabs[Math.max(0, closedIdx - 1)] ?? Object.keys(newThreads)[0] ?? ''
 		}
 
+		// Drop per-thread caches and state so deleted threads don't leak memory
+		// (file-read cache hits its 100-entry per-thread cap but the bucket itself was orphaned)
+		this._fileReadCache.delete(threadId)
+		this._fileReadCacheLRU.delete(threadId)
+		this._planCache.delete(threadId)
+		this._pendingStreamStateUpdates.delete(threadId)
+		delete this._suppressPlanOnceByThread[threadId]
+		delete this.streamState[threadId]
+
 		// store the updated threads
 		this._storeAllThreads(newThreads);
 		this._setState({ allThreads: newThreads, openTabs: newTabs, currentThreadId: newCurrentId })
