@@ -122,6 +122,7 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 	const metricsService = accessor.get('IMetricsService')
 	const [isRefreshing, setIsRefreshing] = useState(false)
 	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null)
+	const [foundCount, setFoundCount] = useState<number | null>(null)
 
 	const { title: providerTitle } = displayInfoOfProviderName(providerName)
 
@@ -129,17 +130,19 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 		if (isRefreshing) return
 		setIsRefreshing(true)
 		setJustFinished(null)
+		setFoundCount(null)
 
 		try {
-			await refreshModelService.refreshRemoteCatalog(providerName, true)
+			const count = await refreshModelService.refreshRemoteCatalog(providerName, true)
+			setFoundCount(count)
 			setJustFinished('finished')
-			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' })
+			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog', count })
 		} catch (error) {
 			console.error('Failed to refresh remote catalog:', error)
 			setJustFinished('error')
 		} finally {
 			setIsRefreshing(false)
-			const tid = setTimeout(() => { setJustFinished(null) }, 2000)
+			const tid = setTimeout(() => { setJustFinished(null) }, 3000)
 			return () => clearTimeout(tid)
 		}
 	}
@@ -157,7 +160,10 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 							: <RefreshCw className='size-3' />}
 			</button>
 		}
-		text={justFinished === 'finished' ? `${providerTitle} catalog refreshed!`
+		text={justFinished === 'finished'
+			? (foundCount && foundCount > 0
+				? `${providerTitle}: found ${foundCount} model${foundCount === 1 ? '' : 's'} online`
+				: `${providerTitle}: no online catalog — using the built-in list`)
 			: justFinished === 'error' ? `Failed to refresh ${providerTitle} catalog`
 				: `Refresh ${providerTitle} model catalog`}
 	/>

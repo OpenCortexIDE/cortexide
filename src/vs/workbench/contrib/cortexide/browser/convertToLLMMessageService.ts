@@ -826,9 +826,14 @@ const prepareOpenAIOrAnthropicMessages = ({
 	reservedOutputTokenSpace: number | null | undefined,
 }): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
 
-	reservedOutputTokenSpace = Math.max(
-		contextWindow * 1 / 2, // reserve at least 1/4 of the token window length
-		reservedOutputTokenSpace ?? 4_096 // defaults to 4096
+	// Reserve output space WITHOUT starving the input. This previously reserved HALF the context
+	// window (max(contextWindow/2, ...)) — note the comment said 1/4 — so a small/4096-window model
+	// reserved its ENTIRE window, leaving ~0 input budget; every message was then slashed to a stub and
+	// the agent lost its own task + tool results ("smart truncations, achieves nothing"). Reserve the
+	// model's configured output space, capped at a quarter of the window so input always keeps ~75%+.
+	reservedOutputTokenSpace = Math.min(
+		reservedOutputTokenSpace ?? 4_096,
+		Math.max(512, Math.floor(contextWindow / 4)) // never reserve more than 1/4 of the window
 	)
 	// Optimized: shallow clone + selective deep clone only for mutable fields
 	// Images (Uint8Array) are large and don't need cloning since we won't mutate them
@@ -904,7 +909,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 	for (const m of messages) { totalLen += m.content.length }
 	const charsNeedToTrim = totalLen - Math.max(
 		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN, // can be 0, in which case charsNeedToTrim=everything, bad
-		5_000 // ensure we don't trim at least 5k chars (just a random small value)
+		// Minimum input budget so a small-context model keeps the original request + a couple recent
+		// turns/tool results intact (otherwise the loop can never converge). Clamped to 60% of the
+		// window so a genuinely tiny window doesn't get a floor it can't physically hold (overflow).
+		Math.min(12_000, Math.floor(contextWindow * CHARS_PER_TOKEN * 0.6))
 	)
 
 
@@ -1332,9 +1340,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				: `...Directories string cut off, ask user for more if necessary...`
 		})
 
-		// Always include XML tool definitions in Agent Mode, even if native format is available
-		// This ensures tools are visible to the LLM in both formats
-		const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent'
+		// Only inject the XML tool-call contract when the model's tool calls will actually be parsed from
+		// text (i.e. it has NO native tool-calling format). A native-format model (Anthropic/OpenAI/Gemini)
+		// receives its tools via the provider `tools` parameter; force-feeding it the "output ONLY a tool
+		// call in XML format ... STOP immediately after ... NO explanatory text" contract makes it emit
+		// inert XML *text* that nothing extracts (extractXMLToolsWrapper only runs for !specialToolFormat),
+		// so the action is silently dropped. See agentic-audit finding #3.
+		const includeXMLToolDefinitions = !specialToolFormat
 
 		const mcpTools = this.mcpService.getMCPTools()
 
@@ -1542,7 +1554,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					`...Directories string cut off, use tools to read more...`
 					: `...Directories string cut off, ask user for more if necessary...`
 			})
-			const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent'
+			// Local models (ollama/vLLM/LM Studio) emit tool calls as XML/JSON TEXT even when tagged with a
+			// native specialToolFormat — sendOllamaChat sends no native `tools` and the calls come back inside
+			// message.content (see finding #8). They always need the XML tool definitions to know the format.
+			const includeXMLToolDefinitions = true
 			const mcpTools = this.mcpService.getMCPTools()
 			const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
 
@@ -1761,7 +1776,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			systemMessage,
 			aiInstructions,
 			supportsSystemMessage,
-			specialToolFormat,
+			// Local providers don't actually return native tool_calls (the calls arrive as XML/JSON text),
+			// so encode prior tool turns with the XML/text format to stay consistent with the system prompt
+			// + parser — otherwise turn 2+ of the agent loop loses all prior tool context (finding #8).
+			specialToolFormat: isLocalProviderForContext ? undefined : specialToolFormat,
 			supportsAnthropicReasoning: validProviderName === 'anthropic',
 			contextWindow,
 			reservedOutputTokenSpace,

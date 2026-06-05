@@ -686,19 +686,20 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		// Start overall timeout: rolling for local (reset on each chunk), one-shot for remote
 		scheduleOverallTimeout()
 
-		// Set up first token timeout (only for local models)
-		let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null
-		if (isLocalChat) {
-			firstTokenTimeoutId = setTimeout(() => {
-				if (!firstTokenReceived) {
-					response.controller?.abort()
-					onError({
-						message: 'Local model is too slow (no response after 10s). Try a smaller/faster model or use a cloud model.',
-						fullError: null
-					})
-				}
-			}, firstTokenTimeout)
-		}
+		// Set up first-token timeout. Armed for BOTH local and remote: a stalled cloud connection that never
+		// sends its first byte should fail fast (30s) with an actionable error instead of hanging until the
+		// 120s overall timeout — the latter reads to the user as "the model just doesn't work". (finding #14)
+		let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+			if (!firstTokenReceived) {
+				response.controller?.abort()
+				onError({
+					message: isLocalChat
+						? 'Local model is too slow (no response after 10s). Try a smaller/faster model or use a cloud model.'
+						: 'No response from the model provider (timed out waiting for the first token). Check your connection and API key, or try another model.',
+					fullError: null
+				})
+			}
+		}, firstTokenTimeout)
 
 		try {
 			// when receive text

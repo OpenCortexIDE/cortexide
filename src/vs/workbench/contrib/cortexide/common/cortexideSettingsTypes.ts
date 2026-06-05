@@ -517,6 +517,7 @@ export type GlobalSettings = {
 	yoloConfidenceThreshold?: number; // Minimum confidence score for auto-apply (default: 0.7)
 	enableInlineCodeReview?: boolean; // Enable inline code review annotations (default: true)
 	reviewSeverityFilter?: 'all' | 'warning+error'; // Filter annotations by severity (default: 'all')
+	enableModelFallback?: boolean; // When the active model errors, repeatedly fails its tool calls, or hits the step limit, automatically retry the task on the best OTHER configured model — preferring a capable cloud model when one is configured. Honors routingPolicy 'local-only' (never leaves local). (default: true)
 	enableAutoCompaction?: boolean; // Auto-summarize older messages when an AGENT/PLAN run nears the model's context window, so long runs continue instead of overflowing (default: false)
 	enableLifecycleHooks?: boolean; // Run user-configured .cortexide/hooks.json commands at agent lifecycle events (pre-tool/post-tool/agent-stop) (default: false)
 	// Audit log settings
@@ -588,6 +589,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	imageQAEnableHybridMode: true,
 	imageQADevMode: false,
 	enableMemories: true, // Enable memories by default
+	enableModelFallback: true, // Auto-failover to the best other configured model when the current one errors or stalls (stays local under routingPolicy 'local-only')
 	enableAutoCompaction: false, // Opt-in: summarize old agent-run messages near the context limit
 	enableLifecycleHooks: false, // Opt-in: run .cortexide/hooks.json commands at agent lifecycle events
 	enableYOLOMode: false, // YOLO mode disabled by default (requires explicit opt-in)

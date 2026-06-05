@@ -8,7 +8,7 @@ import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IRemoteCatalogService } from './remoteCatalogService.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
-import { RefreshableProviderName, refreshableProviderNames, SettingsOfProvider, ProviderName } from './cortexideSettingsTypes.js';
+import { RefreshableProviderName, refreshableProviderNames, SettingsOfProvider, ProviderName, nonlocalProviderNames } from './cortexideSettingsTypes.js';
 import { OllamaModelResponse, OpenaiCompatibleModelResponse } from './sendLLMMessageTypes.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -68,7 +68,8 @@ function eq<T>(a: T[], b: T[]): boolean {
 export interface IRefreshModelService {
 	readonly _serviceBrand: undefined;
 	startRefreshingModels: (providerName: RefreshableProviderName, options: { enableProviderOnSuccess: boolean, doNotFire: boolean }) => void;
-	refreshRemoteCatalog: (providerName: ProviderName, forceRefresh?: boolean) => Promise<void>;
+	/** Fetch the provider's online catalog and merge it in. Returns the number of chat models found (0 if the provider has no online catalog / the fetch failed). */
+	refreshRemoteCatalog: (providerName: ProviderName, forceRefresh?: boolean) => Promise<number>;
 	onDidChangeState: Event<RefreshableProviderName>;
 	state: RefreshModelStateOfProvider;
 }
@@ -141,8 +142,25 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 			this._register(
 				cortexideSettingsService.onDidChangeState((type) => { if (typeof type === 'object' && type[1] === 'autoRefreshModels') initializeAutoPollingAndOnChange() })
 			)
+			// Cloud providers don't have a /list channel like the local providers, so they never auto-refreshed
+			// online and their model lists were frozen hardcoded snapshots. Fetch each configured cloud
+			// provider's catalog once on launch (cheap, TTL-cached for 1h, errors swallowed) so newly released
+			// models show up without a manual click. Gated by autoRefreshModels like the local poll. (#13)
+			this._autoRefreshConfiguredRemoteCatalogs()
 		})
 
+	}
+
+	/** Fire-and-forget: refresh the online catalog of every configured non-local provider (respects the 1h cache). */
+	private _autoRefreshConfiguredRemoteCatalogs() {
+		if (!this.cortexideSettingsService.state.globalSettings.autoRefreshModels) return
+		for (const providerName of nonlocalProviderNames) {
+			const ps = this.cortexideSettingsService.state.settingsOfProvider[providerName]
+			if (!ps?._didFillInProviderSettings) continue
+			// refreshRemoteCatalog already no-ops for local providers and swallows fetch/CORS errors to [].
+			this.refreshRemoteCatalog(providerName, false).catch(err =>
+				console.warn(`[RefreshModelService] auto catalog refresh failed for ${providerName}:`, err))
+		}
 	}
 
 	state: RefreshModelStateOfProvider = {
@@ -240,7 +258,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		// Only refresh remote providers (not local ones like ollama, vLLM, lmStudio)
 		if (refreshableProviderNames.includes(providerName as RefreshableProviderName)) {
 			// Local providers use startRefreshingModels instead
-			return;
+			return 0;
 		}
 
 		try {
@@ -249,7 +267,8 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 			// Convert RemoteModelInfo to model names and add to settings
 			const modelNames = models
 				.filter(m => !m.deprecated && !m.beta) // Filter out deprecated/beta models
-				.map(m => m.id || m.name);
+				.map(m => m.id || m.name)
+				.filter((n): n is string => !!n);
 
 			if (modelNames.length > 0) {
 				// Use setAutodetectedModels to add/update models
@@ -260,6 +279,9 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 					{ source: 'remoteCatalog', forceRefresh }
 				);
 			}
+			// Return the real count so callers (the Settings refresh button) report honestly instead of
+			// always flashing "catalog refreshed!" even when nothing was fetched (the old stub behaviour).
+			return modelNames.length;
 		} catch (error) {
 			console.error(`Failed to refresh remote catalog for ${providerName}:`, error);
 			throw error;

@@ -15,6 +15,7 @@ import { IStorageService } from '../../../../platform/storage/common/storage.js'
 import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
+import { freeTierIdOfProviderName } from './routing/freeTierConstants.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
 import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
 import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty } from './routing/codingModelScore.js';
@@ -431,6 +432,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				reasoning: this.generateReasoning(best.model, context, best.score, settingsState),
 				qualityTier,
 				timeoutMs,
+				// Auto-mode failover (chatThreadService) reads this to recover when the chosen model errors
+				// (e.g. a 429/quota-exhausted gemini). The normal path below populates it too; the early-exit
+				// previously omitted it, so failover had nothing to fall back to and dead-ended on the error.
+				fallbackChain: scored.slice(1, 4).map(s => s.model),
 			};
 			this.routingCache.set(cacheKey, { decision, timestamp: Date.now() });
 			return decision;
@@ -1104,6 +1109,16 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 							score -= 15; // Moderate penalty - online code models are often better
 						}
 					}
+
+					// #9: when a capable ONLINE model is configured, prefer it for code generation / agentic
+					// edits. The codebase-question branch above already does this (-100); the regular-code path
+					// did NOT consider hasOnlineModels, so a local model could win an implementation/agentic task
+					// even with a strong cloud key present — and then lose the tool-loop, forcing a visible
+					// mid-task failover. Lighter than -100 (capable FIM/tool locals are genuinely useful for
+					// edits) and gated on !localFirstAICached so Local-First / local-only setups are untouched.
+					if (hasOnlineModels && !localFirstAICached) {
+						score -= 40;
+					}
 				}
 			}
 		}
@@ -1450,6 +1465,22 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			} else if (provider === 'openai' && (name.includes('4o') || name.includes('4.1'))) {
 				score += 15;
 			}
+		}
+
+		// SELF-HEALING: demote a free-tier provider whose quota is currently exhausted (a model that just
+		// 429'd, e.g. gemini-2.5-pro on a free key with limit:0). markExhausted() is recorded on the 429
+		// (sendLLMMessageService) but on the default 'auto-cheapest' scoring path was never consulted — so
+		// Auto kept re-picking the dead model every turn and chat never worked. The penalty pushes it below
+		// any working model; it auto-clears when the quota window resets. If the WHOLE free-tier fleet is
+		// exhausted they all get the same penalty, so the least-bad relative order is preserved. Cloud-only;
+		// never break routing on a quota-service hiccup.
+		if (!isLocal) {
+			try {
+				const fid = freeTierIdOfProviderName(modelSelection.providerName);
+				if (fid && this.freeTierQuotaService.getRemaining(fid, modelSelection.modelName).exhausted) {
+					score -= 1000;
+				}
+			} catch { /* never let a quota lookup break model scoring */ }
 		}
 
 		return Math.max(0, score); // Ensure non-negative

@@ -52,7 +52,9 @@ import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
-import { parseJsonToolCallFromText } from '../common/parseJsonToolCall.js';
+import { parseJsonToolCallFromText, canonicalizeToolName } from '../common/parseJsonToolCall.js';
+import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
+import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -2047,9 +2049,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 			}
 		} else if (lowerRequest.includes('file') && (lowerRequest.includes('create') || lowerRequest.includes('add') || lowerRequest.includes('make'))) {
-			// User wants to create a file
+			// User wants to create a file. Prefer a real filename token (something.ext) — e.g. "create a file
+			// fib.py" must yield "fib.py", NOT the trigger word "file" (the old `k.length > 3` matched "file"
+			// itself, creating a file literally named "file"). Fall back to a name after "called"/"named", then
+			// a content keyword, then a sensible default. (finding #12)
 			const keywords = extractKeywords(originalRequest)
-			const fileName = keywords.find(k => k.includes('.') || k.length > 3) || 'newfile'
+			const extMatch = originalRequest.match(/([\w\-./]+\.[a-z0-9]{1,8})(?:\b|$)/i)
+			const namedMatch = originalRequest.match(/(?:called|named)\s+([\w\-./]+)/i)
+			const fileName = (extMatch && extMatch[1])
+				|| (namedMatch && namedMatch[1])
+				|| keywords.find(k => k.includes('.'))
+				|| keywords.find(k => k.length > 3 && k.toLowerCase() !== 'file')
+				|| 'newfile.txt'
 
 			return {
 				toolName: 'create_file_or_folder',
@@ -2323,7 +2334,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let toolResult: ToolResult<ToolName>
 		let toolResultStr: string
 
-		// Check if it's a built-in tool
+		// Check if it's a built-in tool. NOTE: callers canonicalize the tool name before dispatch (see the
+		// canonicalizeToolName call where `toolCall` is finalized, and the callThisToolFirst path) so that
+		// aliased names (create_file -> create_file_or_folder, run -> run_command, ...) from native tool_calls
+		// and the XML extractor resolve here instead of throwing `No tool named "create_file"` (finding #4).
 		const isBuiltInTool = isABuiltinToolName(toolName)
 
 		if (!opts.preapproved) { // skip this if pre-approved
@@ -2742,6 +2756,68 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		return isTriviaQuestion(text) ? 'normal' : userChatMode
 	}
 
+	/**
+	 * True for provider errors that won't improve by retrying the SAME model (bad/missing API key,
+	 * model-not-found, auth/permission). The agent loop skips same-model retries for these and escalates
+	 * straight to another configured model.
+	 */
+	private _isNonRetryableModelError(error: { message?: string } | undefined | null): boolean {
+		const msg = (error?.message || '').toLowerCase()
+		if (!msg) { return false }
+		if (/\b(401|403|404)\b/.test(msg)) { return true }
+		const needles = [
+			'unauthorized', 'forbidden', 'invalid api key', 'invalid_api_key', 'incorrect api key',
+			'no api key', 'api key not', 'missing api key', 'authentication',
+			'model not found', 'model_not_found', 'no such model', 'unknown model', 'does not exist',
+			'permission denied', 'not authorized',
+		]
+		return needles.some(n => msg.includes(n))
+	}
+
+	/**
+	 * Pick the best OTHER configured model to fail over to when the active model errors or stalls.
+	 * Enumerates every filled-in provider's visible models, enriches each with capability data, and ranks
+	 * them via the pure modelFailover policy (prefers a capable cloud model when preferNonLocal is set).
+	 * Honors routingPolicy 'local-only' (never returns a cloud model). Returns null if nothing qualifies.
+	 */
+	private async _pickNextUntriedModel(excludeKeys: ReadonlySet<string>, opts: { preferNonLocal: boolean, avoidFreeTier?: boolean }): Promise<ModelSelection | null> {
+		const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+		const state = this._settingsService.state
+		const overrides = state.overridesOfModel
+		const localOnly = state.globalSettings.routingPolicy === 'local-only'
+		const candidates: FailoverCandidate[] = []
+		for (const providerName of Object.keys(state.settingsOfProvider) as ProviderName[]) {
+			const ps = state.settingsOfProvider[providerName]
+			if (!ps._didFillInProviderSettings) { continue }
+			const isLocal = (localProviderNames as readonly ProviderName[]).includes(providerName)
+			for (const mi of ps.models) {
+				if (mi.isHidden) { continue }
+				if (excludeKeys.has(`${providerName}/${mi.modelName}`)) { continue }
+				let contextWindow = 0
+				let hasNativeToolCalls = false
+				let isCoder = isLikelyCoderModelName(mi.modelName)
+				try {
+					const caps = getModelCapabilities(providerName, mi.modelName, overrides)
+					contextWindow = caps.contextWindow ?? 0
+					hasNativeToolCalls = !!caps.specialToolFormat && !isLocal
+					isCoder = isCoder || !!caps.supportsFIM
+				} catch { /* fall back to name heuristics + zero ctx */ }
+				candidates.push({
+					providerName,
+					modelName: mi.modelName,
+					isLocal,
+					contextWindow,
+					hasNativeToolCalls,
+					isKnownCapableProvider: (KNOWN_CAPABLE_AGENTIC_PROVIDERS as readonly ProviderName[]).includes(providerName),
+					isCoder,
+					isFreeTierProvider: freeTierIdOfProviderName(providerName) !== null,
+				})
+			}
+		}
+		const pick = pickNextFailoverModel(candidates, { excludeKeys, localOnly, preferNonLocal: opts.preferNonLocal, avoidFreeTier: opts.avoidFreeTier })
+		return pick ? toModelSelection(pick) : null
+	}
+
 	// Threads currently running as sub-agents (spawned by run_subagent). Enforces no-nesting and marks
 	// child threads. Not persisted; cleared when the child finishes.
 	private readonly _subagentThreadIds = new Set<string>()
@@ -3050,11 +3126,60 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// (may be relaxed to 'normal'); the user's selected mode is unchanged. It then flows to tool
 		// gating + system message + the send call, so the whole turn is consistently tool-less.
 		// Sub-agents skip the trivia relaxation — they run the mode they were spawned with.
-		const chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, modelSelection)
-		const isLocalModel = !!modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
-		const maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
-		const maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
+		// Per-model state. These track the LIVE model and are recomputed whenever the agent fails over to a
+		// different model mid-task (see tryEscalateModel below). They are derived from the RESOLVED selection
+		// — NOT the raw 'auto' the user picked — so isLocalModel / caps / tool-curation are correct from the
+		// very first turn. (Previously these read the unresolved 'auto', so an Auto->local run silently ran
+		// with cloud caps and the local tool-curation gate disabled — findings #5/#6.)
+		let chatMode: ChatMode = userChatMode
+		let isLocalModel = false
+		let maxAgentIterations = MAX_AGENT_LOOP_ITERATIONS
+		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
+		const recomputeModelState = (m: ModelSelection | null) => {
+			chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, m)
+			isLocalModel = !!m && (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName)
+			maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
+			maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
+		}
+		recomputeModelState(resolvedModelSelection)
 		const { overridesOfModel } = this._settingsService.state
+
+		// --- Automatic model failover (findings #1/#2) ---
+		// When the active model errors, repeatedly fails its tool calls, or stalls past the step limit,
+		// escalate the SAME task to the best OTHER configured model — preferring a capable cloud model when
+		// the failing one is local. This is what makes "my local model failed but I have a capable cloud key"
+		// actually recover, regardless of whether the user picked Auto or a specific model. Honors the
+		// enableModelFallback setting and routingPolicy 'local-only' (never leaves local). State persists
+		// across the whole task (the inner-loop `triedModels` set resets every outer iteration).
+		const modelFallbackEnabled = this._settingsService.state.globalSettings.enableModelFallback !== false
+			&& !runCtx?.isSubagent // a sub-agent runs the exact model it was assigned; don't silently switch it
+		const escalationUsedModels = new Set<string>() // "provider/model" keys already run or escalated away from
+		let escalationCount = 0
+		const MAX_MODEL_ESCALATIONS = 4
+		const tryEscalateModel = async (reason: string, escOpts?: { avoidFreeTier?: boolean }): Promise<boolean> => {
+			if (!modelFallbackEnabled || escalationCount >= MAX_MODEL_ESCALATIONS) { return false }
+			const cur = resolvedModelSelection
+			if (cur && cur.providerName !== 'auto') { escalationUsedModels.add(`${cur.providerName}/${cur.modelName}`) }
+			// Always prefer a capable CLOUD model first (e.g. a configured BYO key like Pollinations) — that's
+			// what the user expects when a model fails; fall to local only when no cloud target qualifies.
+			// avoidFreeTier (set on rate-limit / free-tier exhaustion) pushes the throttled free providers below
+			// both BYO cloud and local, so we land on the working cloud key instead of another rate-limited one.
+			const next = await this._pickNextUntriedModel(escalationUsedModels, { preferNonLocal: true, avoidFreeTier: escOpts?.avoidFreeTier })
+			if (!next) { return false }
+			escalationCount += 1
+			resolvedModelSelection = next
+			const np = next.providerName as Exclude<ProviderName, 'auto'>
+			resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[np]?.[next.modelName]
+			recomputeModelState(next)
+			const fromLabel = cur ? `${cur.providerName}/${cur.modelName}` : 'the previous model'
+			// Surface the switch via a notification, NOT a thread message: injecting an assistant message
+			// here would leave the history ending on an assistant turn (or two assistant turns in a row),
+			// which breaks providers that require strict user/assistant alternation (e.g. Anthropic). The
+			// existing auto-fallback path switches silently for the same reason.
+			this._notificationService.info(`Switched to ${next.providerName}/${next.modelName} — ${fromLabel} ${reason}.`)
+			console.log(`[ChatThreadService] Model failover (${reason}): ${fromLabel} -> ${next.providerName}/${next.modelName}`)
+			return true
+		}
 
 		let nMessagesSent = 0
 		let consecutiveToolErrors = 0 // failed tool calls in a row; resets on any tool success
@@ -3250,6 +3375,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops
 			if (nMessagesSent >= maxAgentIterations) {
+				// Before giving up: a model that burned the whole step budget without finishing is usually a
+				// weak/local model spinning. Escalate the task to a more capable model and keep going.
+				if (await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
+					nMessagesSent = 0
+					consecutiveToolErrors = 0
+					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+					continue
+				}
 				this._notificationService.warn(`Agent stopped after ${maxAgentIterations} tool iterations.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`)
 				this._setStreamState(threadId, { isRunning: undefined })
 				return
@@ -3991,6 +4124,33 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							}
 						}
 
+						// LAST-RESORT forward progress: _modelRouter.route() has no exclude-tried parameter, so
+						// both the fallbackChain loop and the re-route above can leave nextModel null whenever the
+						// top-scored model is already tried (e.g. a just-429'd gemini that keeps winning the score).
+						// That silently dead-ends the whole turn — the user's "one error after another". Guarantee
+						// progress by directly picking the best UNTRIED configured model. Prefer the largest context
+						// window so we don't fail over onto a 4096-ctx alias or a tiny coder that would just truncate.
+						if (isAutoMode && !nextModel) {
+							try {
+								const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+								const overrides = this._settingsService.state.overridesOfModel
+								const untried: ModelSelection[] = []
+								for (const providerName of Object.keys(this._settingsService.state.settingsOfProvider) as ProviderName[]) {
+									const ps = this._settingsService.state.settingsOfProvider[providerName]
+									if (!ps._didFillInProviderSettings) continue
+									for (const mi of ps.models) {
+										if (mi.isHidden) continue
+										if (triedModels.has(`${providerName}/${mi.modelName}`)) continue
+										untried.push({ providerName, modelName: mi.modelName })
+									}
+								}
+								const ctxOf = (m: ModelSelection) => { try { return getModelCapabilities(m.providerName as Exclude<ProviderName, 'auto'>, m.modelName, overrides).contextWindow ?? 0 } catch { return 0 } }
+								nextModel = untried.sort((a, b) => ctxOf(b) - ctxOf(a))[0] ?? null
+							} catch (e) {
+								console.error('[ChatThreadService] last-resort fallback selection failed:', e)
+							}
+						}
+
 						// If we found a next model, switch to it and retry
 						if (nextModel) {
 							// Safety check: prevent infinite loops by limiting total model switches
@@ -4025,21 +4185,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					}
 
-					// If we're in auto mode and didn't find a fallback model, or if we're not in auto mode:
-					// For rate limit errors in non-auto mode, show error immediately
-					if (isRateLimitError && !isAutoMode) {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
-						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
-
-						this._setStreamState(threadId, { isRunning: undefined, error: this._exhaustionAwareError(error) })
-						this._addUserCheckpoint({ threadId })
-						return
-					}
-
-					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
-					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
-					if (!isAutoMode && nAttempts < CHAT_RETRIES) {
+					// (1) Give the user's explicitly-chosen model a chance to recover from a TRANSIENT error
+					// (network blip) by retrying the same model a couple times. Skip non-retryable errors
+					// (401/403/404/model-not-found) AND rate-limits / free-tier exhaustion — retrying the SAME
+					// model won't help, so fall straight through to the escalation below. (Previously a
+					// rate-limited non-auto model returned here with a "switch to your local model manually"
+					// message; now the escalation auto-switches to another configured model — including your
+					// LOCAL model — so you keep working without touching anything.)
+					const isNonRetryable = this._isNonRetryableModelError(error)
+					if (!isAutoMode && !isNonRetryable && !isRateLimitError && nAttempts < CHAT_RETRIES) {
 						shouldRetryLLM = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 						// Faster retries for local models (they fail fast if not available)
@@ -4055,8 +4209,32 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						else
 							continue // retry
 					}
-					// error, but too many attempts or no fallback available in auto mode
-					else {
+					// (2) THE FIX (findings #1/#2): retries are exhausted, or the model is fundamentally broken
+					// (rate-limited / bad key / model-not-found). Escalate the SAME task to the best other
+					// configured model — preferring a capable cloud model when the failing one is local. This is
+					// what makes "my local model failed but I have a capable cloud key" actually recover, and it
+					// works whether the user picked Auto or a specific model. (Auto's own fallback above already
+					// ran; seed its tried set so we don't re-pick the same models.)
+					for (const k of triedModels) { escalationUsedModels.add(k) }
+					const escalationReason = isRateLimitError ? 'the previous model was rate-limited'
+						: isNonRetryable ? 'the previous model was unavailable'
+							: 'the previous model errored'
+					if (await tryEscalateModel(escalationReason, { avoidFreeTier: isRateLimitError })) {
+						modelSelection = resolvedModelSelection
+						modelSelectionOptions = resolvedModelSelectionOptions
+						nAttempts = 0
+						shouldRetryLLM = true
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
+						await timeout(300)
+						if (interruptedWhenIdle) {
+							this._setStreamState(threadId, undefined)
+							return
+						}
+						continue // retry the task on the escalated model
+					}
+
+					// (3) Nothing left to fall over to — surface the error (exhaustion-aware).
+					{
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
@@ -4077,6 +4255,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 				// llm res success
 				let { toolCall, info } = llmRes
+
+				// Native tool_calls and XML-extracted calls carry the model's RAW tool name; map known
+				// synonyms (create_file -> create_file_or_folder, done -> attempt_completion, run -> run_command,
+				// ...) once here so every downstream consumer — execution, completion detection, plan-step
+				// matching, MCP-server resolution — agrees on the canonical name (finding #4). Idempotent; the
+				// JSON-text path is already canonical.
+				if (toolCall && typeof toolCall.name === 'string') {
+					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName }
+				}
 
 				// CRITICAL: Check if model output JSON tool call format as text
 				// Some models output tool calls as JSON text instead of using native tool calling
@@ -4260,7 +4447,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									toolName as ToolName,
 									toolId,
 									mcpTool?.mcpServerName,
-									{ preapproved: false, unvalidatedToolParams: toolParams }
+									{ preapproved: false, unvalidatedToolParams: toolParams },
+									isLocalModel // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
 								)
 
 								if (interrupted) {
@@ -4355,7 +4543,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								toolName as ToolName,
 								toolId,
 								mcpTool?.mcpServerName,
-								{ preapproved: false, unvalidatedToolParams: toolParams }
+								{ preapproved: false, unvalidatedToolParams: toolParams },
+								isLocalModel // keep local-model curation consistent across all tool-dispatch paths
 							)
 
 							if (interrupted) {
@@ -4471,6 +4660,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						else if (tt === 'success') { consecutiveToolErrors = 0 }
 					}
 					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+						// Before giving up: this is the single most common local-model failure mode (invents tool
+						// names, writes empty files, never converges). Escalate to a more capable model and let it
+						// recover the SAME task — it sees the failed attempts in history and corrects.
+						if (await tryEscalateModel(`the previous model failed ${consecutiveToolErrors} tool calls in a row`)) {
+							consecutiveToolErrors = 0
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+							continue
+						}
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} failed tool calls in a row.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
 						this._setStreamState(threadId, { isRunning: undefined })
 						this._addUserCheckpoint({ threadId })
