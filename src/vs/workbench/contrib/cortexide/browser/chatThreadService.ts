@@ -2852,7 +2852,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * given prompt, runs the normal agent loop on it in an isolated 'agent'-mode context (its own
 	 * streamState/checkpoints/caps), and returns the child's final summary. The child sees nothing of
 	 * the parent conversation; the parent sees only the returned summary — keeping the parent context
-	 * clean. See docs/GAP-ANALYSIS.md "Sub-agents — concrete design".
+	 * clean.
 	 */
 	private async _runSubagent(parentThreadId: string, params: BuiltinToolCallParams['run_subagent'], readOnly: boolean = false): Promise<BuiltinToolResultType['run_subagent']> {
 		const child = newThreadObject()
