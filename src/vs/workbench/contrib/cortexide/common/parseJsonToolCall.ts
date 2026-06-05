@@ -53,6 +53,37 @@ export function canonicalizeToolName(name: string): string {
 	return TOOL_NAME_ALIASES[name.trim().toLowerCase()] ?? name;
 }
 
+/**
+ * Param-name synonyms models use for the single file param this IDE's tools universally call `uri`.
+ * Models — especially via gateways like Pollinations that emit tool calls as JSON text — frequently use
+ * `path` / `file` / `filepath` instead. Without mapping these, EVERY file tool (read_file, get_dir_tree,
+ * create_file_or_folder, edit_file, ls_dir, ...) fails validation with "Provided uri must be a string,
+ * but it's undefined" and the action silently does nothing.
+ */
+const URI_PARAM_ALIASES: readonly string[] = [
+	'path', 'filepath', 'file_path', 'filePath', 'file', 'filename', 'file_name', 'fileName',
+	'dir', 'directory', 'folder', 'folder_path', 'dir_path', 'dirpath', 'target_file', 'targetFile',
+	'location', 'pathname', 'uri_path',
+];
+
+/**
+ * Normalize a tool call's parameter names to what the builtin tools expect. Currently fills the universal
+ * `uri` param from a `path`/`file`/`filepath`/... alias when `uri` is missing. Never overwrites an explicit
+ * uri. Pure + idempotent — safe to apply on every tool-call ingestion path (native, JSON-text, XML).
+ */
+export function canonicalizeToolParams(params: Record<string, unknown> | null | undefined): Record<string, unknown> {
+	if (!params || typeof params !== 'object' || Array.isArray(params)) { return (params ?? {}) as Record<string, unknown>; }
+	const cur = params['uri'];
+	if (typeof cur === 'string' && cur.length > 0) { return params; }
+	for (const alias of URI_PARAM_ALIASES) {
+		const v = params[alias];
+		if (typeof v === 'string' && v.length > 0) {
+			return { ...params, uri: v };
+		}
+	}
+	return params;
+}
+
 export function parseJsonToolCallFromText(text: string): ParsedJsonToolCall | null {
 	try {
 		let jsonStr = text.trim();
@@ -86,11 +117,44 @@ export function parseJsonToolCallFromText(text: string): ParsedJsonToolCall | nu
 			const toolName = parsed.name ?? parsed.function_name ?? parsed.tool_name ?? parsed.tool ?? parsed.action;
 			const toolParams = parsed.arguments || parsed.params || parsed.parameters || parsed.input || {};
 			if (typeof toolName === 'string' && typeof toolParams === 'object' && toolParams !== null) {
-				return { toolName: canonicalizeToolName(toolName), toolParams: toolParams as Record<string, unknown> };
+				return { toolName: canonicalizeToolName(toolName), toolParams: canonicalizeToolParams(toolParams as Record<string, unknown>) };
 			}
 		}
 	} catch {
 		// Not valid JSON / not a tool call — fall through.
 	}
 	return null;
+}
+
+/**
+ * Parse Anthropic's XML tool-use format, which Claude emits as TEXT when the endpoint doesn't pass native
+ * `tools` (e.g. the Pollinations gateway proxying claude). Shape:
+ *   <function_calls><invoke name="get_dir_tree"><parameter name="path">/tmp/x</parameter></invoke></function_calls>
+ * We extract the FIRST <invoke> (models often emit a whole fake multi-call transcript with hallucinated
+ * results — we run the first REAL call and re-prompt with the real result). Name + param names are
+ * canonicalized so e.g. `path` lines up with the builtin tools' `uri`.
+ */
+export function parseAnthropicFunctionCalls(text: string): ParsedJsonToolCall | null {
+	if (typeof text !== 'string' || !/<\s*invoke\b/i.test(text)) { return null; }
+	const invokeMatch = text.match(/<\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\s*\/\s*invoke\s*>/i);
+	if (!invokeMatch) { return null; }
+	const toolName = invokeMatch[1];
+	const body = invokeMatch[2];
+	const params: Record<string, unknown> = {};
+	const paramRe = /<\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\s*\/\s*parameter\s*>/gi;
+	let m: RegExpExecArray | null;
+	while ((m = paramRe.exec(body)) !== null) {
+		params[m[1]] = m[2].trim();
+	}
+	if (!toolName) { return null; }
+	return { toolName: canonicalizeToolName(toolName), toolParams: canonicalizeToolParams(params) };
+}
+
+/**
+ * Pull a tool call out of free model text in ANY format weak / gateway-proxied models emit: a JSON object
+ * (optionally inside a ```json block or <tool_call> wrapper), or Anthropic's <function_calls>/<invoke>
+ * XML. Returns the FIRST recognizable call, or null.
+ */
+export function parseTextToolCall(text: string): ParsedJsonToolCall | null {
+	return parseJsonToolCallFromText(text) ?? parseAnthropicFunctionCalls(text);
 }

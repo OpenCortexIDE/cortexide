@@ -52,7 +52,7 @@ import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
-import { parseJsonToolCallFromText, canonicalizeToolName } from '../common/parseJsonToolCall.js';
+import { parseTextToolCall, canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
 import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -1961,9 +1961,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * Example: {"name": "delete_file_or_folder", "arguments": {"uri": "/path", "is_recursive": true}}
 	 */
 	private _parseJSONToolCallFromText(text: string): { toolName: ToolName, toolParams: RawToolParamsObj } | null {
-		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the
-		// JSON tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input).
-		const r = parseJsonToolCallFromText(text)
+		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the JSON
+		// tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input, incl.
+		// inside a <tool_call> wrapper) AND Anthropic's <function_calls>/<invoke>/<parameter> XML that Claude
+		// emits via gateways (Pollinations) that don't pass native tools. Param names are canonicalized
+		// (path/file -> uri) so file tools validate.
+		const r = parseTextToolCall(text)
 		return r ? { toolName: r.toolName as ToolName, toolParams: r.toolParams as RawToolParamsObj } : null
 	}
 
@@ -4283,7 +4286,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// matching, MCP-server resolution — agrees on the canonical name (finding #4). Idempotent; the
 				// JSON-text path is already canonical.
 				if (toolCall && typeof toolCall.name === 'string') {
-					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName }
+					// Also normalize param names (path/file/filepath -> uri) so a native tool_call that uses a
+					// non-`uri` file param doesn't fail validation. Pollinations returns no native tool_calls
+					// (handled by the JSON-text parser below), but other gateways/models can.
+					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName, rawParams: canonicalizeToolParams(toolCall.rawParams) as typeof toolCall.rawParams }
 				}
 
 				// CRITICAL: Check if model output JSON tool call format as text
@@ -4301,33 +4307,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							isDone: true,
 							doneParams: Object.keys(parsedToolCall.toolParams)
 						}
-						// Remove the JSON from text since we're executing it as a tool call
-						// Try to remove just the JSON part, keep any surrounding text
-						const openBraceIdx = info.fullText.indexOf('{')
-						if (openBraceIdx !== -1) {
-							// Find matching closing brace
-							let braceCount = 0
-							let closeBraceIdx = -1
-							for (let i = openBraceIdx; i < info.fullText.length; i++) {
-								if (info.fullText[i] === '{') braceCount++
-								if (info.fullText[i] === '}') {
-									braceCount--
-									if (braceCount === 0) {
-										closeBraceIdx = i
-										break
-									}
-								}
-							}
-
-							if (closeBraceIdx !== -1) {
-								const beforeJson = info.fullText.substring(0, openBraceIdx).trim()
-								const afterJson = info.fullText.substring(closeBraceIdx + 1).trim()
-								info = {
-									...info,
-									fullText: [beforeJson, afterJson].filter(s => s.length > 0).join('\n\n').trim() || ''
-								}
-							}
-						}
+						// Keep ONLY the assistant's preamble before the first tool-call marker, discarding
+						// everything after it. Models like Pollinations/claude emit a FAKE multi-tool transcript
+						// in one message — <tool_call>{json}</tool_call> followed by HALLUCINATED <tool_response>
+						// results and more fake calls. We execute the (first) REAL tool call and re-prompt with the
+						// REAL result, so the hallucinated continuation must NOT leak into the shown text or the
+						// history (it would reinforce the hallucination and re-trigger the bogus uri error next turn).
+						const markers = [
+							info.fullText.indexOf('{'),
+							info.fullText.search(/<\s*tool_call\b/i),
+							info.fullText.search(/<\s*function_calls\b/i),
+							info.fullText.search(/<\s*invoke\b/i),
+						].filter(i => i >= 0)
+						const cutIdx = markers.length ? Math.min(...markers) : -1
+						info = { ...info, fullText: cutIdx > 0 ? info.fullText.substring(0, cutIdx).trim() : (cutIdx === 0 ? '' : info.fullText) }
 					}
 				}
 
@@ -4425,7 +4418,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 						// Skip synthesis if user has images and is asking about them
 						// Also skip if we've already read too many files (prevent infinite loops)
-						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
+						// Do NOT fabricate a tool call once the model has already executed a tool this turn (it
+						// acted — its trailing summary is not unfulfilled intent), or when its response reads like
+						// a conversational final answer (offers/closers). Otherwise the synthesizer fires "I'll
+						// help you... finding files" AFTER a completed task and spins the loop into a confused
+						// empty turn. (live: pollinations/claude finishing then the loop fabricating a bad call)
+						const _resp = info.fullText.toLowerCase()
+						const _looksFinal = /\b(if you'?d like|let me know|feel free|would you like|could you (please )?(let me know|share|tell)|here are (the|your)|i'?ve (deleted|created|removed|completed|finished)|all (files|done))\b/.test(_resp)
+						const _alreadyActed = toolsExecutedInRequest.length > 0
+						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && !_alreadyActed && !_looksFinal && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
 							const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 							// Also skip if synthesized call is search_for_files and images are present
 							if (synthesizedToolCall && !(hasImages && synthesizedToolCall.toolName === 'search_for_files')) {

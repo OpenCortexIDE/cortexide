@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { parseJsonToolCallFromText, canonicalizeToolName } from '../../common/parseJsonToolCall.js';
+import { parseJsonToolCallFromText, canonicalizeToolName, canonicalizeToolParams } from '../../common/parseJsonToolCall.js';
 
 suite('parseJsonToolCallFromText', () => {
 
@@ -25,7 +25,8 @@ suite('parseJsonToolCallFromText', () => {
 		const r = parseJsonToolCallFromText('{"action":"list","arguments":{"directory":"/x"}}');
 		assert.ok(r);
 		assert.strictEqual(r!.toolName, 'ls_dir');
-		assert.deepStrictEqual(r!.toolParams, { directory: '/x' });
+		// param-canonicalization also fills `uri` from the `directory` alias so ls_dir (which expects uri) validates
+		assert.deepStrictEqual(r!.toolParams, { directory: '/x', uri: '/x' });
 	});
 
 	test('{tool_name, params} and {tool, parameters} and input', () => {
@@ -77,5 +78,35 @@ suite('canonicalizeToolName', () => {
 
 	test('leaves an unknown name untouched (downstream yields a recoverable "no such tool")', () => {
 		assert.strictEqual(canonicalizeToolName('frobnicate'), 'frobnicate');
+	});
+});
+
+suite('canonicalizeToolParams', () => {
+	test('THE pollinations bug: {path} maps to {uri} so file tools validate', () => {
+		assert.deepStrictEqual(canonicalizeToolParams({ path: '/tmp/x' }), { path: '/tmp/x', uri: '/tmp/x' });
+	});
+	test('maps file/filepath/file_path/directory aliases to uri', () => {
+		assert.strictEqual(canonicalizeToolParams({ file: 'a.txt' }).uri, 'a.txt');
+		assert.strictEqual(canonicalizeToolParams({ filepath: 'a.txt' }).uri, 'a.txt');
+		assert.strictEqual(canonicalizeToolParams({ file_path: 'a.txt' }).uri, 'a.txt');
+		assert.strictEqual(canonicalizeToolParams({ directory: '/d' }).uri, '/d');
+	});
+	test('never overwrites an explicit uri', () => {
+		assert.deepStrictEqual(canonicalizeToolParams({ uri: '/real', path: '/other' }), { uri: '/real', path: '/other' });
+	});
+	test('leaves non-file params (run_command{command}, grep{query}) untouched', () => {
+		assert.deepStrictEqual(canonicalizeToolParams({ command: 'rm -f x' }), { command: 'rm -f x' });
+		assert.deepStrictEqual(canonicalizeToolParams({ query: 'foo' }), { query: 'foo' });
+	});
+	test('end-to-end: a {"name":"get_dir_tree","arguments":{"path":...}} text call resolves uri', () => {
+		const r = parseJsonToolCallFromText('<tool_call>\n{"name": "get_dir_tree", "arguments": {"path": "/tmp/cx"}}\n</tool_call>');
+		assert.ok(r);
+		assert.strictEqual(r!.toolName, 'get_dir_tree');
+		assert.strictEqual(r!.toolParams.uri, '/tmp/cx');
+	});
+	test('handles empty / non-object params safely', () => {
+		assert.deepStrictEqual(canonicalizeToolParams({}), {});
+		assert.deepStrictEqual(canonicalizeToolParams(null), {});
+		assert.deepStrictEqual(canonicalizeToolParams(undefined), {});
 	});
 });
