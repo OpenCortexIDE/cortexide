@@ -33,6 +33,9 @@ import { LRUCache } from '../../../../base/common/map.js'
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
+import { IMemoriesService } from '../common/memoriesService.js'
+import { coerceAbsolutePathToWorkspaceRelative } from '../common/coerceWorkspacePath.js'
+import { resolveWorktreeRootedURI } from '../common/worktreePathOverride.js'
 import { IEditorService } from '../../../services/editor/common/editorService.js'
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js'
 import { Position } from '../../../../editor/common/core/position.js'
@@ -40,7 +43,13 @@ import { Range } from '../../../../editor/common/core/range.js'
 
 
 // tool use for AI
-type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] }
+
+// Per-call validation context. Currently carries a sub-agent's git-worktree root (parallel-edit
+// phase 2): when present, file paths resolve against the worktree instead of the workspace root, and
+// the workspace-containment check is replaced by a worktree-containment check (see validateURI).
+// Optional + structurally simple so existing single-arg validators and callers are unaffected.
+export type ValidateParamsOpts = { workspaceRootOverride?: string }
+type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj, opts?: ValidateParamsOpts) => BuiltinToolCallParams[T] }
 type CallBuiltinTool = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T]) => Promise<{ result: BuiltinToolResultType[T] | Promise<BuiltinToolResultType[T]>, interruptTool?: () => void }> }
 type BuiltinToolResultToString = { [T in BuiltinToolName]: (p: BuiltinToolCallParams[T], result: Awaited<BuiltinToolResultType[T]>) => string }
 
@@ -60,9 +69,17 @@ const validateStr = (argName: string, value: unknown) => {
  * Validates a URI string and converts it to a URI object.
  * Now includes workspace validation for safety in Agent Mode.
  */
-const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService, requireWorkspace: boolean = true) => {
+const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService, requireWorkspace: boolean = true, workspaceRootOverride?: string) => {
 	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
 	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
+
+	// Sub-agent worktree isolation (parallel-edit phase 2): when a worktree root is supplied, resolve
+	// the path against the worktree and enforce worktree-containment (fail-closed) instead of the
+	// workspace checks below — the worktree lives OUTSIDE the workspace, so isInsideWorkspace would
+	// wrongly reject it. Containment is ALWAYS enforced for an override (isolation is the whole point).
+	if (workspaceRootOverride) {
+		return resolveWorktreeRootedURI(uriStr, workspaceRootOverride);
+	}
 
 	let uri: URI;
 	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
@@ -88,12 +105,14 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 		// This handles cases where LLM returns paths like "/carepilot-api/src" that should be relative
 		else if (workspaceContextService && uriStr.startsWith('/')) {
 			const workspace = workspaceContextService.getWorkspace();
+			let matched = false;
 			for (const folder of workspace.folders) {
 				const workspacePath = folder.uri.fsPath;
 				// Check if the absolute path is actually within this workspace folder
 				// by checking if workspace path is a prefix
 				if (uriStr.startsWith(workspacePath)) {
 					// Path is already correctly absolute within workspace
+					matched = true;
 					break;
 				}
 				// Check if path starts with workspace folder name (common LLM mistake)
@@ -102,8 +121,19 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 					// Treat as relative path - remove leading slash and folder name
 					const relativePath = uriStr.replace(`/${workspaceFolderName}`, '').replace(/^\//, '');
 					uri = joinPath(folder.uri, relativePath);
+					matched = true;
 					break;
 				}
+			}
+			// Fallback: a weak/local model routinely invents an absolute path under a fake root
+			// it imagines ("/file", "/workspace/fib.py", "/app/src/x.ts"). Rather than failing the
+			// call, re-root it into the workspace by treating it as workspace-relative. The
+			// isInsideWorkspace check below is the fail-closed backstop: anything that escapes the
+			// workspace via "../" still throws.
+			if (!matched && workspace.folders.length > 0) {
+				const root = workspace.folders[0].uri;
+				const relativePath = coerceAbsolutePathToWorkspaceRelative(uriStr) ?? '';
+				uri = relativePath ? joinPath(root, relativePath) : root;
 			}
 		}
 	}
@@ -122,9 +152,9 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 	return uri;
 }
 
-const validateOptionalURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService) => {
+const validateOptionalURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService, workspaceRootOverride?: string) => {
 	if (isFalsy(uriStr)) return null
-	return validateURI(uriStr, workspaceContextService, true)
+	return validateURI(uriStr, workspaceContextService, true, workspaceRootOverride)
 }
 
 const validateOptionalStr = (argName: string, str: unknown) => {
@@ -282,14 +312,15 @@ export class ToolsService implements IToolsService {
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
+		@IMemoriesService private readonly memoriesService: IMemoriesService,
 	) {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
 		this.validateParams = {
-			read_file: (params: RawToolParamsObj) => {
+			read_file: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, start_line: startLineUnknown, end_line: endLineUnknown, page_number: pageNumberUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 
 				let startLine = validateNumber(startLineUnknown, { default: null })
@@ -300,16 +331,16 @@ export class ToolsService implements IToolsService {
 
 				return { uri, startLine, endLine, pageNumber }
 			},
-			ls_dir: (params: RawToolParamsObj) => {
+			ls_dir: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, page_number: pageNumberUnknown } = params
 
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { uri, pageNumber }
 			},
-			get_dir_tree: (params: RawToolParamsObj) => {
+			get_dir_tree: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride)
 				return { uri }
 			},
 			search_pathnames_only: (params: RawToolParamsObj) => {
@@ -326,7 +357,7 @@ export class ToolsService implements IToolsService {
 				return { query: queryStr, includePattern, pageNumber }
 
 			},
-			search_for_files: (params: RawToolParamsObj) => {
+			search_for_files: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const {
 					query: queryUnknown,
 					search_in_folder: searchInFolderUnknown,
@@ -335,7 +366,7 @@ export class ToolsService implements IToolsService {
 				} = params
 				const queryStr = validateStr('query', queryUnknown)
 				const pageNumber = validatePageNum(pageNumberUnknown)
-				const searchInFolder = validateOptionalURI(searchInFolderUnknown, workspaceContextService)
+				const searchInFolder = validateOptionalURI(searchInFolderUnknown, workspaceContextService, opts?.workspaceRootOverride)
 				const isRegex = validateBoolean(isRegexUnknown, { default: false })
 				return {
 					query: queryStr,
@@ -344,33 +375,33 @@ export class ToolsService implements IToolsService {
 					pageNumber
 				}
 			},
-			search_in_file: (params: RawToolParamsObj) => {
+			search_in_file: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, query: queryUnknown, is_regex: isRegexUnknown } = params;
-				const uri = validateURI(uriStr, workspaceContextService, true);
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride);
 				const query = validateStr('query', queryUnknown);
 				const isRegex = validateBoolean(isRegexUnknown, { default: false });
 				return { uri, query, isRegex };
 			},
 
-			read_lint_errors: (params: RawToolParamsObj) => {
+			read_lint_errors: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				return { uri }
 			},
 
-			open_file: (params: RawToolParamsObj) => {
+			open_file: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				return { uri }
 			},
 
-			go_to_definition: (params: RawToolParamsObj) => {
+			go_to_definition: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -378,9 +409,9 @@ export class ToolsService implements IToolsService {
 				return { uri, line, column }
 			},
 
-			find_references: (params: RawToolParamsObj) => {
+			find_references: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -388,30 +419,30 @@ export class ToolsService implements IToolsService {
 				return { uri, line, column }
 			},
 
-			search_symbols: (params: RawToolParamsObj) => {
+			search_symbols: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { query: queryUnknown, uri: uriUnknown } = params
 				const query = validateStr('query', queryUnknown)
-				const uri = uriUnknown ? validateURI(uriUnknown, workspaceContextService, true) : null
+				const uri = uriUnknown ? validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride) : null
 				return { query, uri }
 			},
 
-			automated_code_review: (params: RawToolParamsObj) => {
+			automated_code_review: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				return { uri }
 			},
 
-			generate_tests: (params: RawToolParamsObj) => {
+			generate_tests: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, function_name: functionNameUnknown, test_framework: testFrameworkUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const functionName = validateOptionalStr('function_name', functionNameUnknown) ?? undefined
 				const testFramework = validateOptionalStr('test_framework', testFrameworkUnknown) ?? undefined
 				return { uri, functionName, testFramework }
 			},
 
-			rename_symbol: (params: RawToolParamsObj) => {
+			rename_symbol: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown, new_name: newNameUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -420,9 +451,9 @@ export class ToolsService implements IToolsService {
 				return { uri, line, column, newName }
 			},
 
-			extract_function: (params: RawToolParamsObj) => {
+			extract_function: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, start_line: startLineUnknown, end_line: endLineUnknown, function_name: functionNameUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const startLine = validateNumber(startLineUnknown, { default: null })
 				const endLine = validateNumber(endLineUnknown, { default: null })
 				if (startLine === null || startLine < 1) throw new Error(`Invalid LLM output: start_line must be a positive integer, got ${startLineUnknown}`)
@@ -436,33 +467,33 @@ export class ToolsService implements IToolsService {
 
 			// ---
 
-			create_file_or_folder: (params: RawToolParamsObj) => {
+			create_file_or_folder: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
 				return { uri, isFolder }
 			},
 
-			delete_file_or_folder: (params: RawToolParamsObj) => {
+			delete_file_or_folder: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, is_recursive: isRecursiveUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride)
 				const isRecursive = validateBoolean(isRecursiveUnknown, { default: false })
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
 				return { uri, isRecursive, isFolder }
 			},
 
-			rewrite_file: (params: RawToolParamsObj) => {
+			rewrite_file: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, new_content: newContentUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride)
 				const newContent = validateStr('newContent', newContentUnknown)
 				return { uri, newContent }
 			},
 
-			edit_file: (params: RawToolParamsObj) => {
+			edit_file: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateURI(uriStr, workspaceContextService, true, opts?.workspaceRootOverride)
 				const searchReplaceBlocks = validateStr('searchReplaceBlocks', searchReplaceBlocksUnknown)
 				return { uri, searchReplaceBlocks }
 			},
@@ -552,15 +583,15 @@ export class ToolsService implements IToolsService {
 				return { query, includePattern, excludePattern, isRegex, caseSensitive };
 			},
 
-			get_diagnostics: (params: RawToolParamsObj) => {
+			get_diagnostics: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown } = params;
-				const uri = validateOptionalURI(uriUnknown, workspaceContextService);
+				const uri = validateOptionalURI(uriUnknown, workspaceContextService, opts?.workspaceRootOverride);
 				return { uri };
 			},
 
-			multi_edit: (params: RawToolParamsObj) => {
+			multi_edit: (params: RawToolParamsObj, opts?: ValidateParamsOpts) => {
 				const { uri: uriUnknown, edits: editsUnknown } = params;
-				const uri = validateURI(uriUnknown, workspaceContextService, true);
+				const uri = validateURI(uriUnknown, workspaceContextService, true, opts?.workspaceRootOverride);
 
 				let editsRaw: unknown = editsUnknown;
 				if (typeof editsUnknown === 'string') {
@@ -633,6 +664,43 @@ export class ToolsService implements IToolsService {
 				const result = validateStr('result', resultUnknown);
 				const command = validateOptionalStr('command', commandUnknown);
 				return { result, command };
+			},
+
+			run_subagent: (params: RawToolParamsObj) => {
+				const description = validateStr('description', params.description);
+				const prompt = validateStr('prompt', params.prompt);
+				// accept agentType or agent_type (models vary); optional
+				const agentType = validateOptionalStr('agentType', params.agentType ?? (params as Record<string, unknown>).agent_type);
+				return { description, prompt, agentType };
+			},
+
+			run_parallel_subagents: (params: RawToolParamsObj) => {
+				const tasksRaw = (params as Record<string, unknown>).tasks;
+				const tasks: Array<{ description: string; prompt: string }> = [];
+				if (Array.isArray(tasksRaw)) {
+					for (const t of tasksRaw) {
+						if (t && typeof t === 'object') {
+							const prompt = validateStr('prompt', (t as Record<string, unknown>).prompt);
+							const description = validateOptionalStr('description', (t as Record<string, unknown>).description) ?? '';
+							tasks.push({ description, prompt });
+						}
+					}
+				}
+				if (tasks.length === 0) { throw new Error('run_parallel_subagents requires a non-empty "tasks" array, each item having a "prompt".'); }
+				return { tasks };
+			},
+
+			save_memory: (params: RawToolParamsObj) => {
+				const typeRaw = validateStr('type', params.type);
+				const validTypes = new Set(['decision', 'preference', 'context']);
+				if (!validTypes.has(typeRaw)) throw new Error(`save_memory: type must be one of decision/preference/context, got "${typeRaw}".`);
+				const key = validateStr('key', params.key);
+				const value = validateStr('value', params.value);
+				// tags: optional string[]; accept a JSON string or an array, drop non-strings.
+				let tagsRaw: unknown = (params as Record<string, unknown>).tags;
+				if (typeof tagsRaw === 'string') { try { tagsRaw = JSON.parse(tagsRaw); } catch { tagsRaw = null; } }
+				const tags = Array.isArray(tagsRaw) ? tagsRaw.filter((t): t is string => typeof t === 'string') : null;
+				return { type: typeRaw as 'decision' | 'preference' | 'context', key, value, tags };
 			},
 
 		}
@@ -1172,6 +1240,12 @@ export class ToolsService implements IToolsService {
 			},
 
 			rewrite_file: async ({ uri, newContent }) => {
+				// Weak/local models routinely skip create_file_or_folder and rewrite straight into a
+				// path that doesn't exist yet. Without a backing file the diff zone can't open
+				// (instantlyRewriteFile bails) and the content is silently dropped. Create it first.
+				if (!(await fileService.exists(uri))) {
+					await fileService.createFile(uri)
+				}
 				await cortexideModelService.initializeModel(uri)
 				const streamState = this.commandBarService.getStreamState(uri)
 				if (streamState === 'streaming') {
@@ -1789,6 +1863,24 @@ export class ToolsService implements IToolsService {
 				return { result: { acknowledged: true as const } };
 			},
 
+			run_subagent: async () => {
+				// run_subagent is intercepted and executed in chatThreadService._runToolCall (it needs the
+				// chat service to spawn a child agent loop, which ToolsService has no dependency on). This
+				// stub exists only to satisfy the exhaustive CallBuiltinTool type and must never be reached.
+				throw new Error('run_subagent must be handled by the chat thread service.');
+			},
+
+			run_parallel_subagents: async () => {
+				// Like run_subagent, intercepted + executed in chatThreadService._runToolCall. Never reached.
+				throw new Error('run_parallel_subagents must be handled by the chat thread service.');
+			},
+
+			save_memory: async ({ type, key, value, tags }) => {
+				// Persist via the memories service (workspace-scoped, upserts by key within type).
+				await this.memoriesService.addMemory(type, key, value, tags ?? undefined);
+				return { result: { acknowledged: true as const, key } };
+			},
+
 		}
 
 
@@ -2031,6 +2123,20 @@ export class ToolsService implements IToolsService {
 			attempt_completion: (params, _result) => {
 				const commandLine = params.command ? `\n\nVerification command: \`${params.command}\`` : '';
 				return `Task completed.\n\n${params.result}${commandLine}`;
+			},
+
+			run_subagent: (_params, result) => {
+				const header = result.completed ? `Sub-agent finished.` : `Sub-agent stopped WITHOUT signalling completion (may be incomplete).`;
+				return `${header}\n\n${result.result}`;
+			},
+
+			run_parallel_subagents: (_params, result) => {
+				return result.results.map((r, i) =>
+					`### Sub-agent ${i + 1}${r.description ? `: ${r.description}` : ''}${r.completed ? '' : ' [did NOT signal completion — may be incomplete]'}\n${r.result}`
+				).join('\n\n---\n\n');
+			},
+			save_memory: (params, _result) => {
+				return `Saved ${params.type} memory "${params.key}" to project memory${params.tags && params.tags.length ? ` (tags: ${params.tags.join(', ')})` : ''}.`;
 			},
 		}
 

@@ -292,6 +292,8 @@ export const EN_TRANSLATIONS = {
 	'routing.statusBar.uncapped': '{0}: uncapped',
 	'routing.statusBar.tooltipTitle': 'Free-tier provider quotas',
 	'routing.statusBar.tooltipNoProviders': 'No free-tier providers are configured. Add a free-tier API key (Groq, Gemini, OpenRouter, Mistral) to see live quota tracking.',
+	'routing.statusBar.allExhausted': 'Free quota exhausted',
+	'routing.statusBar.allExhaustedHint': 'All free-tier quotas exhausted — switch to a local model or add an API key.',
 } as const;
 
 // allow-any-unicode-next-line

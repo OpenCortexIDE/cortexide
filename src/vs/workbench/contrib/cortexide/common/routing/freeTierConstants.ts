@@ -49,6 +49,16 @@ export interface FreeTierQuota {
 	readonly rpm: number | null;
 	/** Tokens per minute, or `null` if not capped. */
 	readonly tpm: number | null;
+	/**
+	 * Largest input context window (tokens) on this provider's free tier.  Used
+	 * by `buildFreeTierLadder` to DEMOTE context-starved providers for large /
+	 * agentic tasks: a tool loop or sub-agent run on an 8K window (Cerebras)
+	 * stalls almost immediately, so when a task needs more headroom we prefer a
+	 * large-context provider (Gemini 1M, Groq 128K) even if its raw `qualityRank`
+	 * is lower.  Per-provider (not per-model) on purpose — the free tier's
+	 * ceiling is what matters here, matching the rest of this table.
+	 */
+	readonly maxContextWindowTokens: number;
 	/** Free-text note for tooltips / docs. */
 	readonly notes: string;
 }
@@ -64,6 +74,8 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: null,
 		rpm: 30,
 		tpm: null,
+		// Hard 8K cap on the free tier — too small to sustain an agentic tool loop.
+		maxContextWindowTokens: 8_192,
 		notes: '1M tokens/day; 8K context cap',
 	},
 	groq: {
@@ -73,6 +85,7 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: 1000,
 		rpm: 30,
 		tpm: 6000,
+		maxContextWindowTokens: 131_072,
 		notes: '',
 	},
 	gemini: {
@@ -84,6 +97,9 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: 1000,
 		rpm: 15,
 		tpm: null,
+		// Gemini 2.5 Flash exposes a 1M-token window — the best free option for
+		// long agentic loops and sub-agent orchestration.
+		maxContextWindowTokens: 1_000_000,
 		notes: 'Flash-Lite limits; Flash/Pro tighter',
 	},
 	openRouter: {
@@ -93,6 +109,7 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: 50,
 		rpm: 20,
 		tpm: null,
+		maxContextWindowTokens: 128_000,
 		notes: '1000 RPD with $10 top-up',
 	},
 	mistral: {
@@ -102,6 +119,7 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: null,
 		rpm: 2,
 		tpm: null,
+		maxContextWindowTokens: 128_000,
 		notes: '1B tokens/month (Experiment tier)',
 	},
 	cloudflareWorkersAI: {
@@ -111,6 +129,8 @@ export const FREE_TIER_QUOTAS: { readonly [K in FreeTierProviderId]: FreeTierQuo
 		rpd: null,
 		rpm: null,
 		tpm: null,
+		// Workers AI free models are small-context; treat like Cerebras.
+		maxContextWindowTokens: 8_192,
 		notes: '10,000 Neurons/day',
 	},
 };

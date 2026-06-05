@@ -14,7 +14,8 @@ import { IChatThreadService } from './chatThreadService.js';
 import { localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ProviderName } from '../common/cortexideSettingsTypes.js';
 import { IFreeTierQuotaService, FreeTierRemaining } from '../common/routing/freeTierQuotaService.js';
-import { freeTierIdOfProviderName, FREE_TIER_QUOTAS } from '../common/routing/freeTierConstants.js';
+import { freeTierIdOfProviderName, FREE_TIER_QUOTAS, FreeTierProviderId } from '../common/routing/freeTierConstants.js';
+import { buildFreeTierLadder } from '../common/routing/freeTierLadder.js';
 import { ICortexideI18nService } from '../common/i18n/i18nService.js';
 
 export class CortexideStatusBarContribution extends Disposable implements IWorkbenchContribution {
@@ -259,9 +260,9 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 
 	/**
 	 * Free-tier quota widget.  Hides itself when no free-tier providers are
-	 * configured; otherwise shows the most-constrained remaining metric for
-	 * the top-quality provider, with a multiline tooltip listing every
-	 * provider's status.
+	 * configured; otherwise shows the remaining quota for the currently-active
+	 * rung (the provider the router would pick right now), or an "all exhausted"
+	 * warning, with a multiline tooltip marking the active provider.
 	 */
 	private getFreeTierEntryProps(): IStatusbarEntry {
 		const t = (key: Parameters<typeof this.i18nService.t>[0], fallback?: string) => this.i18nService.t(key, fallback);
@@ -281,22 +282,34 @@ export class CortexideStatusBarContribution extends Disposable implements IWorkb
 			.map(p => ({ ...p, remaining: this.freeTierQuotaService.getRemaining(p.providerId, p.modelName) }))
 			.sort((a, b) => b.qualityRank - a.qualityRank);
 
-		const top = enriched[0];
+		// Active rung = the provider the free-tier router would pick right now (first
+		// usable by quality). buildFreeTierLadder is the single source of truth, so the
+		// badge can never disagree with the router about "which free model am I on".
+		const ladder = buildFreeTierLadder({
+			configuredModels: enriched.map(e => ({ providerName: e.providerName, modelName: e.modelName })),
+			quotas: enriched.map(e => e.remaining),
+			privacyMode: false,
+		});
+		const activeProviderId: FreeTierProviderId | null = ladder.length > 0 ? ladder[0].providerId : null;
+
 		let text: string;
-		if (top.remaining.exhausted) {
-			text = `$(warning) ${this.formatProviderStatus(top.remaining)}`;
-		} else if (top.remaining.rpd !== null && top.remaining.limits.rpd !== null) {
-			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
-		} else if (top.remaining.rpm !== null && top.remaining.limits.rpm !== null) {
-			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
+		if (activeProviderId === null) {
+			// Every configured free-tier provider is exhausted.
+			text = `$(warning) ${t('routing.statusBar.allExhausted', 'Free quota exhausted')}`;
 		} else {
-			text = `$(pulse) ${this.formatProviderStatus(top.remaining)}`;
+			const active = enriched.find(e => e.providerId === activeProviderId) ?? enriched[0];
+			text = `$(pulse) ${this.formatProviderStatus(active.remaining)}`;
 		}
 
-		// Multiline tooltip listing every provider's status.
+		// Multiline tooltip listing every provider's status; the active rung is marked.
 		const lines: string[] = [t('routing.statusBar.tooltipTitle', 'Free-tier provider quotas')];
 		for (const p of enriched) {
-			lines.push(this.formatProviderStatus(p.remaining));
+			const marker = p.providerId === activeProviderId ? '→ ' : '   ';
+			lines.push(marker + this.formatProviderStatus(p.remaining));
+		}
+		if (activeProviderId === null) {
+			lines.push('');
+			lines.push(t('routing.statusBar.allExhaustedHint', 'All free-tier quotas exhausted — switch to a local model or add an API key.'));
 		}
 		const tooltip = lines.join('\n');
 

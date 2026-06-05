@@ -1,0 +1,4 @@
+# Smoke-run artifacts — never commit these
+*.png
+*.log
+results*.json

@@ -122,6 +122,7 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 	const metricsService = accessor.get('IMetricsService')
 	const [isRefreshing, setIsRefreshing] = useState(false)
 	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null)
+	const [foundCount, setFoundCount] = useState<number | null>(null)
 
 	const { title: providerTitle } = displayInfoOfProviderName(providerName)
 
@@ -129,17 +130,19 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 		if (isRefreshing) return
 		setIsRefreshing(true)
 		setJustFinished(null)
+		setFoundCount(null)
 
 		try {
-			await refreshModelService.refreshRemoteCatalog(providerName, true)
+			const count = await refreshModelService.refreshRemoteCatalog(providerName, true)
+			setFoundCount(count)
 			setJustFinished('finished')
-			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' })
+			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog', count })
 		} catch (error) {
 			console.error('Failed to refresh remote catalog:', error)
 			setJustFinished('error')
 		} finally {
 			setIsRefreshing(false)
-			const tid = setTimeout(() => { setJustFinished(null) }, 2000)
+			const tid = setTimeout(() => { setJustFinished(null) }, 3000)
 			return () => clearTimeout(tid)
 		}
 	}
@@ -157,7 +160,10 @@ const RefreshRemoteCatalogButton = ({ providerName }: { providerName: ProviderNa
 							: <RefreshCw className='size-3' />}
 			</button>
 		}
-		text={justFinished === 'finished' ? `${providerTitle} catalog refreshed!`
+		text={justFinished === 'finished'
+			? (foundCount && foundCount > 0
+				? `${providerTitle}: found ${foundCount} model${foundCount === 1 ? '' : 's'} online`
+				: `${providerTitle}: no online catalog — using the built-in list`)
 			: justFinished === 'error' ? `Failed to refresh ${providerTitle} catalog`
 				: `Refresh ${providerTitle} model catalog`}
 	/>
@@ -1154,6 +1160,31 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                     onChange={(v) => cortexideSettingsService.setGlobalSetting('enableRepoIndexer', !!v)}
                 />
                 <span className='text-void-fg-3 text-xs'>Enable repo indexer</span>
+            </div>
+        </div>
+        {/* Agent: auto-compaction + lifecycle hooks (opt-in) */}
+        <div className=' pl-6 mt-2 flex items-center gap-2'>
+            <div className='flex items-center gap-2'>
+                <VoidSwitch
+                    size='xxs'
+                    value={!!cortexideSettingsService.state.globalSettings.enableAutoCompaction}
+                    onChange={(v) => cortexideSettingsService.setGlobalSetting('enableAutoCompaction', !!v)}
+                />
+                <span className='text-void-fg-3 text-xs'>Auto-compact long agent runs</span>
+                <span className='text-void-fg-4 text-xs' title='When an agent run nears the model context window, send a compacted view (keep the task + recent messages) so it continues instead of overflowing. Non-destructive: the stored conversation is unchanged.'>
+                    (i)
+                </span>
+            </div>
+            <div className='flex items-center gap-2 ml-4'>
+                <VoidSwitch
+                    size='xxs'
+                    value={!!cortexideSettingsService.state.globalSettings.enableLifecycleHooks}
+                    onChange={(v) => cortexideSettingsService.setGlobalSetting('enableLifecycleHooks', !!v)}
+                />
+                <span className='text-void-fg-3 text-xs'>Lifecycle hooks</span>
+                <span className='text-void-fg-4 text-xs' title='Run your own commands from .cortexide/hooks.json at agent events (pre-tool, post-tool, agent-stop). Commands run quietly with no shell, fire-and-forget.'>
+                    (i)
+                </span>
             </div>
         </div>
         {/* Web browsing settings */}
@@ -2227,9 +2258,26 @@ For project-scoped rules, use \`.cortexide/rules/*.md\` files — see Project Ru
 Use Model Context Protocol to provide Agent mode with more tools.
 							`} chatMessageLocation={undefined} />
 									</h4>
-									<div className='my-2'>
-										<VoidButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
+									<div className='my-2 flex flex-wrap gap-2'>
+										<VoidButtonBgDarken className='px-4 py-1 max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
 											Add MCP Server
+										</VoidButtonBgDarken>
+										<VoidButtonBgDarken
+											className='px-4 py-1 max-w-64'
+											onClick={async () => {
+												try {
+													const result = await mcpService.addRecommendedMCPServer('playwright')
+													accessor.get('INotificationService').info(
+														result === 'added'
+															? 'Added the Playwright MCP server (browser automation) to mcp.json. It connects via npx on first use.'
+															: 'A "playwright" MCP server is already in your mcp.json.'
+													)
+												} catch (e) {
+													accessor.get('INotificationService').error(`Could not add Playwright MCP: ${e}`)
+												}
+											}}
+										>
+											+ Playwright (browser automation)
 										</VoidButtonBgDarken>
 									</div>
 

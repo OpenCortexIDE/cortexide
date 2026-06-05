@@ -134,45 +134,97 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		}
 	}
 
+	// Exclude non-chat artifacts (embeddings, audio, image, moderation, legacy base models) so a refresh
+	// doesn't flood the Chat model dropdown with models you can't chat with.
+	private static readonly NON_CHAT_HINTS = [
+		'embed', 'whisper', 'tts', 'audio', 'speech', 'transcrib', 'moderation', 'dall-e', 'dalle',
+		'image', 'imagen', 'stable-diffusion', 'sdxl', 'rerank', 'guard', 'realtime', 'babbage',
+		'davinci-002', 'text-davinci', 'clip', 'voice',
+	];
+	private static isLikelyChatModel(id: string): boolean {
+		const l = (id || '').toLowerCase();
+		if (!l) { return false; }
+		return !RemoteCatalogService.NON_CHAT_HINTS.some(h => l.includes(h));
+	}
+
+	/**
+	 * Fetch an OpenAI-compatible `/models` list (`{ data: [{ id, ... }] }`). Used by OpenAI, Groq, xAI,
+	 * DeepSeek and Mistral, which all expose the same shape. Errors (incl. CORS / bad key) bubble to the
+	 * caller's try/catch, which returns [] so the hardcoded catalog remains the fallback.
+	 */
+	private async fetchOpenAIStyleModels(url: string, apiKey: string, headers?: Record<string, string>): Promise<RemoteModelInfo[]> {
+		const response = await fetch(url, {
+			headers: { 'Authorization': `Bearer ${apiKey}`, ...(headers || {}) },
+		});
+		if (!response.ok) {
+			throw new Error(`models endpoint ${url} returned ${response.status}`);
+		}
+		const data = await response.json();
+		const list: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+		return list
+			.map((m: any) => (typeof m === 'string' ? { id: m } : m))
+			.filter((m: any) => m?.id && RemoteCatalogService.isLikelyChatModel(m.id))
+			.map((m: any) => ({
+				id: m.id,
+				name: m.id,
+				// Some OpenAI-compatible providers (e.g. Mistral) include context_length / max_context_length.
+				contextWindow: m.context_length ?? m.max_context_length ?? m.max_model_len ?? undefined,
+				supportsCode: /code|coder/.test(String(m.id).toLowerCase()) || undefined,
+			}));
+	}
+
 	private async fetchOpenAICatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// OpenAI doesn't have a public models endpoint, but we can use the API
-		// For now, return empty - models are hardcoded in modelCapabilities.ts
-		// In the future, could use https://api.openai.com/v1/models if API key is provided
-		return [];
-	}
-
-	private async fetchAnthropicCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// Anthropic models are documented but not via API
-		// Could scrape docs or use hardcoded list
-		return [];
-	}
-
-	private async fetchGeminiCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// Google Gemini models are documented at https://ai.google.dev/gemini-api/docs/models/gemini
-		// No public API, but we could parse the docs page
-		return [];
-	}
-
-	private async fetchMistralCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// Mistral has docs at https://docs.mistral.ai/getting-started/models/models_overview/
-		// Could fetch from their API if available
-		return [];
+		return this.fetchOpenAIStyleModels('https://api.openai.com/v1/models', apiKey);
 	}
 
 	private async fetchGroqCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// Groq models are at https://console.groq.com/docs/models
-		// Could use their API if available
-		return [];
+		return this.fetchOpenAIStyleModels('https://api.groq.com/openai/v1/models', apiKey);
 	}
 
 	private async fetchXAICatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// xAI models are documented at https://docs.x.ai/docs/models
-		return [];
+		return this.fetchOpenAIStyleModels('https://api.x.ai/v1/models', apiKey);
 	}
 
 	private async fetchDeepSeekCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
-		// DeepSeek models are documented at https://api-docs.deepseek.com/
-		return [];
+		return this.fetchOpenAIStyleModels('https://api.deepseek.com/models', apiKey);
+	}
+
+	private async fetchMistralCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
+		return this.fetchOpenAIStyleModels('https://api.mistral.ai/v1/models', apiKey);
+	}
+
+	private async fetchAnthropicCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
+		// Anthropic exposes GET /v1/models (x-api-key + anthropic-version). Shape: { data: [{ id, display_name }] }.
+		const response = await fetch('https://api.anthropic.com/v1/models?limit=1000', {
+			headers: {
+				'x-api-key': apiKey,
+				'anthropic-version': '2023-06-01',
+			},
+		});
+		if (!response.ok) {
+			throw new Error(`Anthropic models endpoint returned ${response.status}`);
+		}
+		const data = await response.json();
+		return (data?.data || [])
+			.filter((m: any) => m?.id && RemoteCatalogService.isLikelyChatModel(m.id))
+			.map((m: any) => ({ id: m.id, name: m.display_name || m.id }));
+	}
+
+	private async fetchGeminiCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
+		// Google's list endpoint: GET /v1beta/models?key=. Names look like "models/gemini-1.5-pro";
+		// keep only models that support generateContent (i.e. chat), and strip the "models/" prefix.
+		const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1000`);
+		if (!response.ok) {
+			throw new Error(`Gemini models endpoint returned ${response.status}`);
+		}
+		const data = await response.json();
+		return (data?.models || [])
+			.filter((m: any) => (m?.supportedGenerationMethods || []).includes('generateContent'))
+			.map((m: any) => {
+				const id = String(m.name || '').replace(/^models\//, '');
+				return { id, name: m.displayName || id, contextWindow: m.inputTokenLimit };
+			})
+			.filter((m: RemoteModelInfo) => m.id && RemoteCatalogService.isLikelyChatModel(m.id));
 	}
 
 	private async fetchOpenRouterCatalog(apiKey: string): Promise<RemoteModelInfo[]> {
@@ -189,18 +241,20 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			}
 
 			const data = await response.json();
-			return (data.data || []).map((model: any) => ({
-				id: model.id,
-				name: model.name,
-				description: model.description,
-				contextWindow: model.context_length,
-				supportsVision: model.architecture?.modalities?.includes('image'),
-				supportsCode: model.name?.toLowerCase().includes('code') || model.name?.toLowerCase().includes('coder'),
-				cost: model.pricing ? {
-					input: model.pricing.prompt || 0,
-					output: model.pricing.completion || 0,
-				} : undefined,
-			}));
+			return (data.data || [])
+				.filter((model: any) => model?.id && RemoteCatalogService.isLikelyChatModel(model.id))
+				.map((model: any) => ({
+					id: model.id,
+					name: model.name,
+					description: model.description,
+					contextWindow: model.context_length,
+					supportsVision: model.architecture?.modalities?.includes('image'),
+					supportsCode: model.name?.toLowerCase().includes('code') || model.name?.toLowerCase().includes('coder'),
+					cost: model.pricing ? {
+						input: model.pricing.prompt || 0,
+						output: model.pricing.completion || 0,
+					} : undefined,
+				}));
 		} catch (error) {
 			console.error('Failed to fetch OpenRouter catalog:', error);
 			return [];

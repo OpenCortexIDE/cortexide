@@ -92,7 +92,12 @@ suite('ToolsService - New Cursor Tools', () => {
 			const functionIndent = '    ';
 
 			const extracted = lines.map(line => `${functionIndent}  ${line}`).join('\n');
-			assert.ok(extracted.startsWith('      if (condition)'));
+			// Each line gets functionIndent (4) + 2 spaces prepended, so the first line
+			// (which already starts with 4 spaces) ends up with 10 leading spaces, and
+			// every line's RELATIVE indentation is preserved.
+			assert.ok(extracted.startsWith('          if (condition) {'), 'first line: 4+2 prepended onto its original 4 spaces');
+			assert.ok(extracted.includes('\n            doSomething();'), 'nested line keeps its extra 2-space relative indent');
+			assert.ok(extracted.endsWith('      }'), 'closing brace keeps base indentation');
 		});
 	});
 

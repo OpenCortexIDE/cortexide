@@ -686,19 +686,20 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		// Start overall timeout: rolling for local (reset on each chunk), one-shot for remote
 		scheduleOverallTimeout()
 
-		// Set up first token timeout (only for local models)
-		let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null
-		if (isLocalChat) {
-			firstTokenTimeoutId = setTimeout(() => {
-				if (!firstTokenReceived) {
-					response.controller?.abort()
-					onError({
-						message: 'Local model is too slow (no response after 10s). Try a smaller/faster model or use a cloud model.',
-						fullError: null
-					})
-				}
-			}, firstTokenTimeout)
-		}
+		// Set up first-token timeout. Armed for BOTH local and remote: a stalled cloud connection that never
+		// sends its first byte should fail fast (30s) with an actionable error instead of hanging until the
+		// 120s overall timeout — the latter reads to the user as "the model just doesn't work". (finding #14)
+		let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+			if (!firstTokenReceived) {
+				response.controller?.abort()
+				onError({
+					message: isLocalChat
+						? 'Local model is too slow (no response after 10s). Try a smaller/faster model or use a cloud model.'
+						: 'No response from the model provider (timed out waiting for the first token). Check your connection and API key, or try another model.',
+					fullError: null
+				})
+			}
+		}, firstTokenTimeout)
 
 		try {
 			// when receive text
@@ -1302,6 +1303,122 @@ const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, 
 		})
 }
 
+/**
+ * Native Ollama chat (via the Ollama SDK's /api/chat) instead of the OpenAI-compatible endpoint.
+ *
+ * WHY: ollama's OpenAI-compatible `/v1/chat/completions` IGNORES `num_ctx`, so chat always ran at
+ * ollama's 4096 default and silently truncated longer agent prompts (system prompt + tool catalog +
+ * accumulating tool results), which can make even a capable model lose its own earlier context and
+ * loop. The native `/api/chat` honors `options.num_ctx`, so we set it to the model's advertised
+ * context window (clamped to avoid KV-cache OOM on modest hardware).
+ *
+ * Ollama does NOT return structured tool_calls (it emits the call as JSON in message.content), so —
+ * unlike the OpenAI-compatible path — there are no native tool_calls to stream here; tool parsing
+ * happens downstream in chatThreadService (the JSON-in-text parser). We stream content, split out
+ * <think> reasoning the same way, and apply first-token + rolling-stall timeouts for local UX.
+ */
+const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, overridesOfModel, chatMode, mcpTools }: SendChatParams_Internal) => {
+	const thisConfig = settingsOfProvider.ollama
+	const { modelName, contextWindow, reasoningCapabilities } = getModelCapabilities('ollama', modelName_, overridesOfModel)
+	const ollama = getOllamaClient({ endpoint: thisConfig.endpoint })
+
+	// Use the model's real context window (clamped). The 16k cap balances "don't truncate agent
+	// prompts" against KV-cache memory on modest GPUs; floor of 4096 means never worse than before.
+	const numCtx = Math.min(Math.max(contextWindow || 8192, 4096), 16384)
+	const numPredict = computeMaxTokensForLocalProvider(true, undefined)
+
+	// Reasoning: split out <think>...</think> tags exactly like the OpenAI-compatible path. No-op for
+	// non-reasoning models (openSourceThinkTags undefined).
+	const { canIOReasoning, openSourceThinkTags } = reasoningCapabilities || {}
+	const { providerReasoningIOSettings } = getProviderCapabilities('ollama')
+	const needsManualReasoningParse = providerReasoningIOSettings?.output?.needsManualParse
+	if (needsManualReasoningParse && canIOReasoning && openSourceThinkTags) {
+		const { newOnText, newOnFinalMessage } = extractReasoningWrapper(onText, onFinalMessage, openSourceThinkTags)
+		onText = newOnText
+		onFinalMessage = newOnFinalMessage
+	}
+
+	// Parse XML tool calls out of the streamed text. Ollama returns NO structured tool_calls (it emits
+	// the call as text), and the model may use the XML format from the prompt's tool catalog
+	// (<tool><param>...) OR a JSON blob. extractXMLToolsWrapper catches the XML form here; the JSON
+	// form is caught downstream in chatThreadService. Without this, an XML tool call is inert text.
+	{
+		const { newOnText, newOnFinalMessage } = extractXMLToolsWrapper(onText, onFinalMessage, chatMode, mcpTools)
+		onText = newOnText
+		onFinalMessage = newOnFinalMessage
+	}
+
+	const messagesToSend = sanitizeOpenAIMessagesForEmptyContent(messages)
+	// Ollama's native /api/chat requires messages[].content to be a STRING, but OpenAI-format messages
+	// may carry array content (multimodal text/image parts). Flatten text parts to a string (images,
+	// rare for local coding, are dropped here — text-only agentic is the target).
+	const ollamaMessages = messagesToSend.map((m) => {
+		const c = (m as any).content
+		let content: string
+		if (typeof c === 'string') { content = c }
+		else if (Array.isArray(c)) { content = c.map((part: any) => typeof part === 'string' ? part : (part?.text ?? '')).join('') }
+		else { content = c == null ? '' : String(c) }
+		return { role: (m as any).role, content }
+	})
+
+	let fullTextSoFar = ''
+	let firstTokenReceived = false
+	let timeoutFired = false
+	let stallId: ReturnType<typeof setTimeout> | null = null
+	let firstId: ReturnType<typeof setTimeout> | null = null
+	const STALL_MS = 60_000
+	const FIRST_MS = 10_000
+	const clearTimers = () => { if (stallId) { clearTimeout(stallId); stallId = null } if (firstId) { clearTimeout(firstId); firstId = null } }
+
+	try {
+		const stream = await ollama.chat({
+			model: modelName,
+			messages: ollamaMessages as any,
+			stream: true,
+			options: { num_ctx: numCtx, num_predict: numPredict },
+		})
+		_setAborter(() => { try { stream.abort() } catch { /* ignore */ } })
+
+		const scheduleStall = () => {
+			if (stallId) clearTimeout(stallId)
+			stallId = setTimeout(() => {
+				timeoutFired = true
+				try { stream.abort() } catch { /* ignore */ }
+				if (fullTextSoFar) { onFinalMessage({ fullText: fullTextSoFar, fullReasoning: '', anthropicReasoning: null }) }
+				else { onError({ message: 'Local model timed out (no response for 60s). Try a smaller model or a cloud model.', fullError: null }) }
+			}, STALL_MS)
+		}
+		firstId = setTimeout(() => {
+			if (!firstTokenReceived) {
+				timeoutFired = true
+				try { stream.abort() } catch { /* ignore */ }
+				onError({ message: 'Local model is too slow (no response after 10s). Try a smaller/faster model or a cloud model.', fullError: null })
+			}
+		}, FIRST_MS)
+		scheduleStall()
+
+		for await (const chunk of stream) {
+			if (timeoutFired) break
+			if (!firstTokenReceived) { firstTokenReceived = true; if (firstId) { clearTimeout(firstId); firstId = null } }
+			scheduleStall()
+			const newText = chunk.message?.content ?? ''
+			if (newText) {
+				fullTextSoFar += newText
+				onText({ fullText: fullTextSoFar, fullReasoning: '', toolCall: undefined })
+			}
+		}
+
+		clearTimers()
+		if (timeoutFired) return
+		if (!fullTextSoFar) { onError({ message: 'CortexIDE: Response from model was empty.', fullError: null }) }
+		else { onFinalMessage({ fullText: fullTextSoFar, fullReasoning: '', anthropicReasoning: null }) }
+	} catch (error) {
+		clearTimers()
+		if (timeoutFired) return
+		onError({ message: error + '', fullError: error })
+	}
+}
+
 // ---------------- GEMINI NATIVE IMPLEMENTATION ----------------
 
 const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
@@ -1567,7 +1684,9 @@ export const sendLLMMessageToProviderImplementation = {
 		list: null,
 	},
 	ollama: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		// Native /api/chat (not the OpenAI-compatible endpoint) so we can set num_ctx — ollama's
+		// /v1 endpoint ignores it and would pin context to its 4096 default. See sendOllamaChat.
+		sendChat: (params) => sendOllamaChat(params),
 		sendFIM: sendOllamaFIM,
 		list: ollamaList,
 	},

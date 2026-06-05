@@ -69,6 +69,7 @@ import { IRepoIndexerService } from './repoIndexerService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IMemoriesService } from '../common/memoriesService.js'
 import { ICortexideRulesService } from '../common/cortexideRulesService.js';
+import { ICortexideAgentsService } from '../common/cortexideAgentsService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -825,9 +826,14 @@ const prepareOpenAIOrAnthropicMessages = ({
 	reservedOutputTokenSpace: number | null | undefined,
 }): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
 
-	reservedOutputTokenSpace = Math.max(
-		contextWindow * 1 / 2, // reserve at least 1/4 of the token window length
-		reservedOutputTokenSpace ?? 4_096 // defaults to 4096
+	// Reserve output space WITHOUT starving the input. This previously reserved HALF the context
+	// window (max(contextWindow/2, ...)) — note the comment said 1/4 — so a small/4096-window model
+	// reserved its ENTIRE window, leaving ~0 input budget; every message was then slashed to a stub and
+	// the agent lost its own task + tool results ("smart truncations, achieves nothing"). Reserve the
+	// model's configured output space, capped at a quarter of the window so input always keeps ~75%+.
+	reservedOutputTokenSpace = Math.min(
+		reservedOutputTokenSpace ?? 4_096,
+		Math.max(512, Math.floor(contextWindow / 4)) // never reserve more than 1/4 of the window
 	)
 	// Optimized: shallow clone + selective deep clone only for mutable fields
 	// Images (Uint8Array) are large and don't need cloning since we won't mutate them
@@ -903,7 +909,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 	for (const m of messages) { totalLen += m.content.length }
 	const charsNeedToTrim = totalLen - Math.max(
 		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN, // can be 0, in which case charsNeedToTrim=everything, bad
-		5_000 // ensure we don't trim at least 5k chars (just a random small value)
+		// Minimum input budget so a small-context model keeps the original request + a couple recent
+		// turns/tool results intact (otherwise the loop can never converge). Clamped to 60% of the
+		// window so a genuinely tiny window doesn't get a floor it can't physically hold (overflow).
+		Math.min(12_000, Math.floor(contextWindow * CHARS_PER_TOKEN * 0.6))
 	)
 
 
@@ -1230,7 +1239,7 @@ const prepareMessages = (params: {
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null> }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>, subagentSystemPrompt?: string, allowedToolNames?: string[] }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
 	prepareFIMMessage(opts: { messages: LLMFIMMessage, modelSelection: ModelSelection | null, featureName: FeatureName, languageId?: string }): { prefix: string, suffix: string, stopTokens: string[] }
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[], metrics: any } | null>
 }
@@ -1259,6 +1268,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMemoriesService private readonly memoriesService: IMemoriesService,
 		@ICortexideRulesService private readonly rulesService: ICortexideRulesService,
+		@ICortexideAgentsService private readonly agentsService: ICortexideAgentsService,
 	) {
 		super()
 	}
@@ -1297,14 +1307,25 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message with caching
-	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
+	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, subagentSystemPrompt?: string, allowedToolNames?: string[]) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 
+		// Discoverability: list the user's custom agents (.cortexide/agents/*.md) so the orchestrator
+		// knows which agentType values it can delegate to via run_subagent. Undefined when none exist
+		// (=> no injection, zero impact for users without custom agents). Cloud only — run_subagent is
+		// curated out of the local toolset.
+		const customAgents = this.agentsService.agents;
+		const availableSubagents = customAgents.length > 0
+			? customAgents.map(a => `- ${a.name}: ${a.description || '(no description)'}`).join('\n')
+			: undefined;
+
 		// Create cache key from relevant factors
-		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}`;
+		// Include sub-agent role + available-agents list so a sub-agent's system message is never served
+		// from — or poisons — the normal-turn cache, and the agents list refreshes when it changes.
+		const cacheKey = `${chatMode}|${specialToolFormat}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|sa:${subagentSystemPrompt ?? ''}|agents:${availableSubagents ?? ''}|tools:${(allowedToolNames ?? []).join('+')}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1319,9 +1340,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				: `...Directories string cut off, ask user for more if necessary...`
 		})
 
-		// Always include XML tool definitions in Agent Mode, even if native format is available
-		// This ensures tools are visible to the LLM in both formats
-		const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent'
+		// Only inject the XML tool-call contract when the model's tool calls will actually be parsed from
+		// text (i.e. it has NO native tool-calling format). A native-format model (Anthropic/OpenAI/Gemini)
+		// receives its tools via the provider `tools` parameter; force-feeding it the "output ONLY a tool
+		// call in XML format ... STOP immediately after ... NO explanatory text" contract makes it emit
+		// inert XML *text* that nothing extracts (extractXMLToolsWrapper only runs for !specialToolFormat),
+		// so the action is silently dropped. See agentic-audit finding #3.
+		const includeXMLToolDefinitions = !specialToolFormat
 
 		const mcpTools = this.mcpService.getMCPTools()
 
@@ -1361,7 +1386,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const activeFileURI = this.editorService.activeEditor?.resource;
 		const projectRules = this._getCombinedAIInstructions(activeFileURI) || undefined;
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents, allowedToolNames })
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1493,7 +1518,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, subagentSystemPrompt, allowedToolNames }) => {
 		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
 
 		const { overridesOfModel } = this.cortexideSettingsService.state
@@ -1529,7 +1554,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					`...Directories string cut off, use tools to read more...`
 					: `...Directories string cut off, ask user for more if necessary...`
 			})
-			const includeXMLToolDefinitions = !specialToolFormat || chatMode === 'agent'
+			// Local models (ollama/vLLM/LM Studio) emit tool calls as XML/JSON TEXT even when tagged with a
+			// native specialToolFormat — sendOllamaChat sends no native `tools` and the calls come back inside
+			// message.content (see finding #8). They always need the XML tool definitions to know the format.
+			const includeXMLToolDefinitions = true
 			const mcpTools = this.mcpService.getMCPTools()
 			const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
 
@@ -1564,10 +1592,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 			const activeFileURILocal = this.editorService.activeEditor?.resource;
 			const projectRulesLocal = this._getCombinedAIInstructions(activeFileURILocal) || undefined;
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal })
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal, subagentSystemPrompt, allowedToolNames })
 		} else {
 			// Use full system message for cloud models
-			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat)
+			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, subagentSystemPrompt, allowedToolNames)
 		}
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)
@@ -1748,7 +1776,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			systemMessage,
 			aiInstructions,
 			supportsSystemMessage,
-			specialToolFormat,
+			// Local providers don't actually return native tool_calls (the calls arrive as XML/JSON text),
+			// so encode prior tool turns with the XML/text format to stay consistent with the system prompt
+			// + parser — otherwise turn 2+ of the agent loop loses all prior tool context (finding #8).
+			specialToolFormat: isLocalProviderForContext ? undefined : specialToolFormat,
 			supportsAnthropicReasoning: validProviderName === 'anthropic',
 			contextWindow,
 			reservedOutputTokenSpace,

@@ -133,8 +133,11 @@ export const defaultModelsOfProvider = {
 		// NOTE: Keep this list in sync with Anthropic's current "production" models.
 		// When adding a new model, make sure routing/risk policies are updated.
 		// Reference: https://platform.claude.com/docs/en/about-claude/models/overview (checked 2025-11-30)
-		// Latest Claude 4.5 series (best for complex reasoning, codebase questions):
-		'claude-opus-4-5-20251101', // Latest Opus 4.5: Highest quality, best for complex tasks
+		// Current Claude flagship (4.8 / 4.6):
+		'claude-opus-4-8', // Opus 4.8: current highest-quality model
+		'claude-sonnet-4-6', // Sonnet 4.6: current balanced flagship
+		// Claude 4.5 series (best for complex reasoning, codebase questions):
+		'claude-opus-4-5-20251101', // Opus 4.5: Highest quality, best for complex tasks
 		'claude-sonnet-4-5-20250929', // Latest Sonnet 4.5: High quality, balanced performance
 		'claude-haiku-4-5-20251001', // Latest Haiku 4.5: Fast, cost-effective variant
 		'claude-opus-4-1-20250805', // Opus 4.1: Previous high-quality model
@@ -410,6 +413,37 @@ const defaultModelOptions = {
 	reasoningCapabilities: false,
 } as const satisfies CortexideStaticModelInfo
 
+/**
+ * Safe capabilities for an UNRECOGNIZED model (not in our hardcoded snapshot, or fetched online without
+ * capability metadata). The bare `defaultModelOptions` above (4k context + NO specialToolFormat) silently
+ * cripples brand-new cloud models: it forces text/XML tool-mode (because `!specialToolFormat`) and leaves
+ * `availableContext` near 0, so a just-released Claude/GPT/Gemini "doesn't work" even though the provider
+ * serves it fine. Instead, infer the provider's native tool-calling family and grant a conservative-but-
+ * usable context window so an unknown model on a known provider is agentic out of the box (finding #11).
+ * Local providers stay on the text/XML path (their tool calls arrive as text regardless).
+ */
+const unrecognizedModelDefaults = (providerName: ProviderName): CortexideStaticModelInfo => {
+	const isLocal = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
+	let specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined
+	switch (providerName) {
+		case 'anthropic': specialToolFormat = 'anthropic-style'; break
+		case 'gemini': case 'googleVertex': specialToolFormat = 'gemini-style'; break
+		case 'ollama': case 'vLLM': case 'lmStudio': specialToolFormat = undefined; break // local: text/XML tool calls
+		case 'openAI': case 'openRouter': case 'groq': case 'deepseek': case 'xAI':
+		case 'mistral': case 'microsoftAzure': case 'awsBedrock': case 'openAICompatible':
+		case 'liteLLM': case 'pollinations':
+			specialToolFormat = 'openai-style'; break
+		default: specialToolFormat = undefined // unknown/invalid provider: leave on the XML fallback
+	}
+	return {
+		...defaultModelOptions,
+		contextWindow: isLocal ? 8_192 : 32_000,
+		reservedOutputTokenSpace: isLocal ? 4_096 : 8_192,
+		supportsSystemMessage: isLocal ? false : 'system-role',
+		...(specialToolFormat ? { specialToolFormat } : {}),
+	}
+}
+
 // TODO!!! double check all context sizes below
 // TODO!!! add openrouter common models
 // TODO!!! allow user to modify capabilities and tell them if autodetected model or falling back
@@ -675,6 +709,41 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 // Reference: https://platform.claude.com/docs/en/about-claude/models/overview (checked 2025-11-30)
 const anthropicModelOptions = {
 	// Latest Claude 4.5 series:
+	// Current flagship line (Opus 4.8 / Sonnet 4.6). Specs cloned from the verified 4.5 entries
+	// (200K ctx, anthropic-style tools, budget_slider reasoning); per-token pricing is a placeholder
+	// copied from 4.5 pending verification.
+	'claude-opus-4-8': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify Opus 4.8 pricing (placeholder = Opus 4.5)
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-sonnet-4-6': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 }, // TODO: Verify Sonnet 4.6 pricing (placeholder = Sonnet 4.5)
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
 	'claude-opus-4-5-20251101': {
 		contextWindow: 200_000,
 		reservedOutputTokenSpace: 8_192,
@@ -844,6 +913,10 @@ const anthropicSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
 		const lower = modelName.toLowerCase()
 		let fallbackName: keyof typeof anthropicModelOptions | null = null
+		// Claude 4.8 / 4.6 models (current flagship) — match BEFORE 4.5 so 'claude-opus-4-8-latest' etc.
+		// don't fall through to the 4096 default:
+		if (lower.includes('claude-opus-4-8') || lower.includes('claude-4-8-opus') || (lower.includes('claude-opus') && lower.includes('4.8'))) fallbackName = 'claude-opus-4-8'
+		if (lower.includes('claude-sonnet-4-6') || lower.includes('claude-4-6-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.6'))) fallbackName = 'claude-sonnet-4-6'
 		// Claude 4.5 models (latest):
 		if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) fallbackName = 'claude-opus-4-5-20251101'
 		if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) fallbackName = 'claude-sonnet-4-5-20250929'
@@ -1349,7 +1422,11 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 
 const geminiSettings: VoidStaticProviderInfo = {
 	modelOptions: geminiModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	// Recognize current gemini names not explicitly listed in modelOptions (e.g. gemini-2.5-flash,
+	// gemini-2.5-flash-lite, gemini-2.0-flash) so they inherit real gemini capability data (large
+	// context window, reasoning, tool calls) via the shared recognizer instead of silently falling to
+	// the 4096/no-tools default — which made the recommended FREE flash models unusable + unroutable.
+	modelOptionsFallback: (modelName) => extensiveModelOptionsFallback(modelName),
 }
 
 
@@ -1649,7 +1726,10 @@ const ollamaModelOptions = {
 
 } as const satisfies Record<string, CortexideStaticModelInfo>
 
-export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
+// Lead with a 7B coder: a 1.5B is below the agentic floor (it fumbles multi-step tool loops), so
+// recommending it first undermines the out-of-the-box agentic experience. Hardware-tiered auto-pull
+// still gates smaller packs by VRAM (see ollamaModelPacks.ts MODEL_PACKS).
+export const ollamaRecommendedModels = ['qwen2.5-coder:7b', 'qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
 
 
 const vLLMSettings: VoidStaticProviderInfo = {
@@ -1738,7 +1818,18 @@ const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/doc
 // ---------------- POLLINATIONS ----------------
 const pollinationsSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName);
+		let fallback = extensiveModelOptionsFallback(modelName);
+		// Pollinations proxies real frontier models, but its bare alias names ('openai', 'gemini',
+		// 'gemini-large') don't match the recognizer, so they previously fell to defaultModelOptions
+		// (4096 ctx, no tools) — making them unroutable by Auto AND instantly truncated (the agent loop
+		// had ~0 input budget and "achieved nothing"). Map each alias to the real model it proxies so it
+		// inherits correct context/reasoning/tool specs instead of the broken 4096 default.
+		if (!fallback) {
+			const alias: { [k: string]: string } = { 'openai': 'gpt-4o', 'gemini': 'gemini-2.5-pro', 'gemini-large': 'gemini-2.5-pro' };
+			if (alias[modelName]) {
+				fallback = extensiveModelOptionsFallback(alias[modelName]);
+			}
+		}
 		if (fallback && !fallback.specialToolFormat) {
 			fallback.specialToolFormat = 'openai-style';
 		}
@@ -2150,7 +2241,10 @@ export const getModelCapabilities = (
 		return { ...result, ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
 	}
 
-	return { modelName, ...defaultModelOptions, ...overrides, isUnrecognizedModel: true };
+	// Unrecognized model on a KNOWN provider: give it a safe, family-aware default (native tool format +
+	// usable context) instead of the crippling 4k/no-tools default, so brand-new cloud models work (#11).
+	// User overrides still win.
+	return { modelName, ...unrecognizedModelDefaults(providerName), ...overrides, isUnrecognizedModel: true };
 }
 
 // non-model settings

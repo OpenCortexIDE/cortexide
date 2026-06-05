@@ -1799,9 +1799,19 @@ const getTitle = (toolMessage: Pick<ChatMessage & { role: 'tool' }, 'name' | 'ty
 	// built-in title
 	else {
 		const toolName = t.name as BuiltinToolName
-		if (t.type === 'success') return titleOfBuiltinToolName[toolName].done
-		if (t.type === 'running_now') return titleOfBuiltinToolName[toolName].running
-		return titleOfBuiltinToolName[toolName].proposed
+		const entry = titleOfBuiltinToolName[toolName]
+		// Defensive: a name can pass `builtinToolNames.includes()` (a runtime list)
+		// yet be missing from this title map — e.g. type/runtime drift, or a weak/free
+		// model emitting an unexpected built-in tool name. A missing entry must never
+		// crash the whole chat render (it previously threw "reading 'proposed'").
+		if (!entry) {
+			const verb = t.type === 'success' ? 'Called' : t.type === 'running_now' ? 'Calling' : 'Call'
+			const fallback = `${verb} ${toolName}`
+			return t.type === 'running_now' ? loadingTitleWrapper(fallback) : fallback
+		}
+		if (t.type === 'success') return entry.done
+		if (t.type === 'running_now') return entry.running
+		return entry.proposed
 	}
 }
 

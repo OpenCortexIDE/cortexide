@@ -126,21 +126,25 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 					}
 				}
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ File access test failed:', error);
+				this.logService.error('[FirstRunValidation] File access test failed:', error);
 			}
 
 			// Smoke test 2: Quick Action command availability
 			try {
-				// Check if Quick Action command is available (don't execute, just check)
+				// Check if Quick Action commands are registered (don't execute, just check).
+				// Quick Actions are registered with `void.`-prefixed IDs in quickActions.ts
+				// (e.g. void.explainCode); the old probe checked a non-existent
+				// 'cortexide.quickAction' ID and therefore always warned.
 				const commands = CommandsRegistry.getCommands();
-				const hasQuickAction = commands.has('cortexide.quickAction');
+				const quickActionIds = ['void.explainCode', 'void.refactorCode', 'void.addTests'];
+				const hasQuickAction = quickActionIds.some(id => commands.has(id));
 				if (hasQuickAction) {
 					this.logService.info('[FirstRunValidation] ✓ Quick Action command available');
 				} else {
 					this.logService.warn('[FirstRunValidation] ⚠ Quick Action command not found');
 				}
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ Command check failed:', error);
+				this.logService.error('[FirstRunValidation] Command check failed:', error);
 			}
 
 			// Smoke test 3: Basic service availability
@@ -148,7 +152,7 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 				// Services should be available at this point
 				this.logService.info('[FirstRunValidation] ✓ Services initialized');
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ Service check failed:', error);
+				this.logService.error('[FirstRunValidation] Service check failed:', error);
 			}
 
 			// Mark validation as complete
@@ -157,7 +161,7 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 
 		} catch (error) {
 			// Log error but don't block startup
-			this.logService.error('[FirstRunValidation] ✗ Smoke test failed with error:', error);
+			this.logService.error('[FirstRunValidation] Smoke test failed with error:', error);
 			// Still mark as complete to avoid retrying on every startup
 			this.storageService.store(FIRST_RUN_VALIDATION_COMPLETE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		}

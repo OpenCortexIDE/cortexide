@@ -172,7 +172,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 	async killPersistentTerminal(terminalId: string) {
 		const terminal = this.persistentTerminalInstanceOfId[terminalId]
-		if (!terminal) throw new Error(`Kill Terminal: Terminal with ID ${terminalId} did not exist.`);
+		if (!terminal) throw new Error(`No background terminal with id "${terminalId}". Existing ids: [${this.listPersistentTerminalIds().join(', ')}]. Open one first with open_persistent_terminal.`);
 		terminal.dispose()
 		delete this.persistentTerminalInstanceOfId[terminalId]
 		return
@@ -243,7 +243,10 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 		const disposables: IDisposable[] = []
 
-		const waitTimeout = timeout(10_000)
+		// Shell integration usually mounts CommandDetection within ~1s on a healthy shell. Wait a bounded
+		// time for it; if it never arrives we fall back to a buffer-read capture (see runCommand), so a
+		// shorter wait just makes that fallback snappier without losing precise detection in the common case.
+		const waitTimeout = timeout(6_000)
 		const waitForCapability = new Promise<ITerminalCapabilityImplMap[TerminalCapability.CommandDetection]>((res) => {
 			disposables.push(
 				terminal.capabilities.onDidAddCapability((e) => {
@@ -270,7 +273,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 		if (isPersistent) { // BG process
 			const { persistentTerminalId } = params
 			terminal = this.persistentTerminalInstanceOfId[persistentTerminalId];
-			if (!terminal) throw new Error(`Unexpected internal error: Terminal with ID ${persistentTerminalId} did not exist.`);
+			if (!terminal) throw new Error(`No background terminal with id "${persistentTerminalId}". Existing ids: [${this.listPersistentTerminalIds().join(', ')}]. Open one first with open_persistent_terminal.`);
 		}
 		else {
 			const { cwd } = params
@@ -296,9 +299,14 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			let resolveReason: TerminalResolveReason | undefined
 
 
+			// Prefer shell integration (CommandDetection) for precise command-finished + exit-code detection.
+			// But if it never mounts (shell integration disabled/unsupported, or slow to load), DON'T fail —
+			// previously this threw before sending the command, so the agent couldn't run ANY command on those
+			// setups. Instead we fall through: the command is still sent below, and output is captured via the
+			// inactivity-timeout + readTerminal buffer-read path (less precise — no exit code — but it works).
 			const cmdCap = await this._waitForCommandDetectionCapability(terminal)
 			if (!cmdCap) {
-				throw new Error(`Terminal CommandDetection capability did not mount within 10s. The command output cannot be detected reliably. Try again in a few seconds — if this persists, the shell integration may not be enabled.`)
+				console.warn('[TerminalToolService] CommandDetection (shell integration) unavailable; running the command and capturing output from the terminal buffer (no exit-code detection).')
 			}
 
 			// Prefer the structured command-detection capability when available

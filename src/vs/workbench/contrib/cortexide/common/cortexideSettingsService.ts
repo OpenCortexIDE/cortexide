@@ -14,7 +14,8 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { defaultProviderSettings, getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
-import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, CortexideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './cortexideSettingsTypes.js';
+import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, localProviderNames, ModelSelection, modelSelectionsEqual, featureNames, CortexideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './cortexideSettingsTypes.js';
+import { pickBestCoderModelName } from './routing/codingModelScore.js';
 
 
 // name is the name in the dropdown
@@ -72,7 +73,7 @@ export interface ICortexideSettingsService {
 	dangerousSetState(newState: CortexideSettingsState): Promise<void>;
 	resetState(): Promise<void>;
 
-	setAutodetectedModels(providerName: ProviderName, modelNames: string[], logging: object): void;
+	setAutodetectedModels(providerName: ProviderName, modelNames: string[], logging: object, paramSizeOfModelName?: Record<string, string>): void;
 	toggleModelHidden(providerName: ProviderName, modelName: string): void;
 	addModel(providerName: ProviderName, modelName: string): void;
 	deleteModel(providerName: ProviderName, modelName: string): boolean;
@@ -91,15 +92,19 @@ export interface ICortexideSettingsService {
 
 
 
-const _modelsWithSwappedInNewModels = (options: { existingModels: CortexideStatefulModelInfo[], models: string[], type: 'autodetected' | 'default' }) => {
-	const { existingModels, models, type } = options
+const _modelsWithSwappedInNewModels = (options: { existingModels: CortexideStatefulModelInfo[], models: string[], type: 'autodetected' | 'default', paramSizeOfModelName?: Record<string, string> }) => {
+	const { existingModels, models, type, paramSizeOfModelName } = options
 
 	const existingModelsMap: Record<string, CortexideStatefulModelInfo> = {}
 	for (const existingModel of existingModels) {
 		existingModelsMap[existingModel.modelName] = existingModel
 	}
 
-	const newDefaultModels = models.map((modelName, i) => ({ modelName, type, isHidden: !!existingModelsMap[modelName]?.isHidden, }))
+	const newDefaultModels = models.map((modelName, i) => ({
+		modelName, type, isHidden: !!existingModelsMap[modelName]?.isHidden,
+		// real param size from the provider (ollama), preserved across refreshes if not re-supplied
+		parameterSize: paramSizeOfModelName?.[modelName] ?? existingModelsMap[modelName]?.parameterSize,
+	}))
 
 	return [
 		...newDefaultModels, // swap out all the models of this type for the new models of this type
@@ -613,12 +618,12 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 
 
 
-	setAutodetectedModels(providerName: ProviderName, autodetectedModelNames: string[], logging: object) {
+	setAutodetectedModels(providerName: ProviderName, autodetectedModelNames: string[], logging: object, paramSizeOfModelName?: Record<string, string>) {
 
 		const { models } = this.state.settingsOfProvider[providerName]
 		const oldModelNames = models.map(m => m.modelName)
 
-		const newModels = _modelsWithSwappedInNewModels({ existingModels: models, models: autodetectedModelNames, type: 'autodetected' })
+		const newModels = _modelsWithSwappedInNewModels({ existingModels: models, models: autodetectedModelNames, type: 'autodetected', paramSizeOfModelName })
 		this.setSettingOfProvider(providerName, 'models', newModels)
 
 		// if the models changed, log it
@@ -739,14 +744,21 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 		for (const providerName of providerNames) {
 			const providerSettings = this.state.settingsOfProvider[providerName]
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
-				const models = providerSettings.models || []
-				const firstModel = models.find(m => !m.isHidden)
-				if (firstModel) {
-					return {
-						providerName,
-						modelName: firstModel.modelName,
-					}
+				const visibleModels = (providerSettings.models || []).filter(m => !m.isHidden)
+				if (visibleModels.length === 0) { continue }
+
+				// For LOCAL providers, ollama/etc. list models by pull order (often a tiny model
+				// first), and this no-scoring fallback used to return that first model — which is
+				// how a fresh "Auto" user ended up on a 1.5B/3B that can't do agentic coding. Pick
+				// the most capable installed coder instead, so the out-of-box default is always the
+				// strongest local coder. A single-model user still gets their one model.
+				if ((localProviderNames as readonly string[]).includes(providerName)) {
+					const best = pickBestCoderModelName(visibleModels.map(m => m.modelName), (name) => visibleModels.find(m => m.modelName === name)?.parameterSize)
+					const chosen = visibleModels.find(m => m.modelName === best) || visibleModels[0]
+					return { providerName, modelName: chosen.modelName }
 				}
+
+				return { providerName, modelName: visibleModels[0].modelName }
 			}
 		}
 

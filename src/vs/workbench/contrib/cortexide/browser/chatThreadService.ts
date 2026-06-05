@@ -11,16 +11,25 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/cortexideSettingsTypes.js';
+import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
+import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
+import { ICortexideHooksService } from './cortexideHooksService.js';
+import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
+import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
+import { createSerializer } from '../common/asyncSerializer.js';
+
+// File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
+// so a background agent (R7) and the foreground chat can't interleave a read-modify-write on a file.
+const WRITE_FILE_TOOLS = new Set<string>(['edit_file', 'rewrite_file', 'multi_edit', 'create_file_or_folder', 'delete_file_or_folder'])
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { shorten } from '../../../../base/common/labels.js';
@@ -41,6 +50,11 @@ import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
+import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
+import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
+import { parseTextToolCall, canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
+import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
+import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -56,7 +70,33 @@ const CHAT_RETRIES = 3
 const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
 const MAX_AGENT_LOOP_ITERATIONS = 100 // Hard cap; most tasks complete well under 30 iterations
+const MAX_LOCAL_AGENT_LOOP_ITERATIONS = 30 // Tighter cap for weak/local models, which tend to ramble rather than converge
+const MAX_CONSECUTIVE_TOOL_ERRORS = 6 // Stop the agent after this many failed tool calls in a row
+const MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS = 3 // Tighter for weak/local models that thrash on tools
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
+
+/**
+ * Execution context for one agent run. Absent on a normal top-level chat turn (the loop then reads
+ * the user's mode from global settings, as before). A sub-agent (spawned by the run_subagent tool)
+ * passes one so the SAME agent loop runs in an isolated context: its own chat mode, a no-nesting
+ * marker, and the parent thread id for UI nesting + abort propagation.
+ */
+type AgentRunContext = {
+	chatModeOverride?: ChatMode
+	isSubagent?: boolean
+	parentThreadId?: string
+	// A custom agent's (.cortexide/agents/*.md) system prompt, injected as a real <subagent_role>
+	// system-message block for this run. The pinned model (if any) flows through modelSelection.
+	systemPromptOverride?: string
+	// A custom agent's restricted tool set. Intersected into the offered tools AND enforced at the
+	// _runToolCall dispatch gate (authoritative). attempt_completion is always allowed.
+	allowedToolNames?: string[]
+	// Parallel-edit phase 2: the absolute fs path of this sub-agent's git-worktree root. When set, the
+	// child's file tools resolve + are confined to the worktree instead of the workspace root (see
+	// _runToolCall -> validateParams -> validateURI). Threaded via _workspaceRootOverrideByThread so it
+	// survives the approval-resume re-entry, which calls _runChatAgent WITHOUT runCtx.
+	workspaceRootOverride?: string
+}
 
 
 const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
@@ -307,6 +347,10 @@ export interface IChatThreadService {
 
 	// entry pts
 	abortRunning(threadId: string): Promise<void>;
+
+	/** R7: start a top-level agent on a hidden thread that runs WITHOUT blocking the active chat.
+	 *  Tracked in IBackgroundAgentsService (the "Running agents" panel). Returns the hidden threadId. */
+	startBackgroundAgent(description: string, prompt: string): Promise<string>;
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
@@ -406,6 +450,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IModelService private readonly _modelService: IModelService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
+		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
+		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -692,21 +739,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const reasoningKeywords = ['explain why', 'analyze', 'compare and contrast', 'evaluate', 'critique', 'reasoning', 'logical', 'deduce', 'infer', 'conclusion', 'argument', 'thesis', 'hypothesis', 'theoretical', 'conceptual']
 		const complexAnalysisKeywords = ['complex', 'sophisticated', 'nuanced', 'detailed analysis', 'deep understanding', 'comprehensive', 'thorough']
 
-		// Codebase questions require complex reasoning (understanding structure, relationships, etc.)
-		// Use the same detection logic as _detectTaskType for consistency
-		const codebaseQuestionPatterns = [
-			/\b(codebase|code base|repository|repo|project)\b/,
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/\bhow\s+many\s+(endpoint|endpoints|api|apis|route|routes|file|files|function|functions|class|classes|component|components|module|modules|service|services|controller|controllers)\b/i,
-			/^(summarize|explain|describe|overview|analyze)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-		]
-		const codebaseIndicators = ['codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture', 'endpoint', 'api', 'route']
-		const questionStarters = ['what is', 'what does', 'how many', 'summarize', 'explain', 'describe', 'overview']
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage))
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator))
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter))
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion)
+		// Codebase questions require complex reasoning (understanding structure, relationships, etc.).
+		// Shared, word-boundary-aware detector (see codebaseQuestionDetector.ts) so a word like
+		// "capital" (contains "api") or "report" (prefix "repo") is no longer mis-detected.
+		const isCodebaseQuestion = looksLikeCodebaseQuestion(userMessage)
 
 		const requiresComplexReasoning = isCodebaseQuestion || // Codebase questions need reasoning
 			reasoningKeywords.some(keyword => lowerMessage.includes(keyword)) ||
@@ -741,7 +777,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		const isDocumentationTask = this._detectDocumentationTask(lowerMessage)
 		const isPerformanceTask = this._detectPerformanceTask(lowerMessage)
 		const isSecurityTask = this._detectSecurityTask(lowerMessage)
-		const isSimpleQuestion = this._detectSimpleQuestion(userMessage, lowerMessage)
+		const isSimpleQuestion = this._detectSimpleQuestion(userMessage)
 		const isMathTask = this._detectMathTask(lowerMessage)
 		const isMultiLanguageTask = this._detectMultiLanguageTask(lowerMessage)
 		const isMultiStepTask = this._detectMultiStepTask(lowerMessage)
@@ -888,51 +924,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return 'vision'
 		}
 
-		// Codebase/repository questions - comprehensive detection
-		// These questions require understanding the entire codebase structure
-		const codebaseQuestionPatterns = [
-			// Direct codebase/repo references
-			/\b(codebase|code base|repository|repo|project)\b/,
-			// Questions about structure/architecture
-			/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/,
-			/\b(project|codebase|repo|code)\b.*\b(architecture|structure|organization|layout)\b/,
-			// "What is" questions about the project
-			/^what\s+(is|does|are)\s+(my|this|the)\s+(codebase|repo|project|code|app|application)/,
-			/^what\s+(is|does|are)\s+(my|this|the)\s+\w+\s+(codebase|repo|project)/,
-			// "How many" questions (endpoints, files, routes, etc.)
-			/\bhow\s+many\s+(endpoint|api|route|file|function|class|component|module|service|controller)\b/i,
-			// Summary/explanation requests
-			/^(summarize|explain|describe|overview|analyze|break down)\s+(my|this|the)\s+(codebase|repo|project|code)/,
-			// Questions about features/capabilities
-			/\b(what|which|how)\s+(feature|capability|functionality|endpoint|api|route)\s+(does|has|supports?)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-			// Questions about dependencies/tech stack
-			/\b(what|which)\s+(technology|framework|library|dependency|package|stack)\s+(does|uses?|has)\s+(my|this|the)\s+(codebase|repo|project|app)/i,
-		]
-
-		const codebaseIndicators = [
-			'codebase', 'code base', 'repository', 'repo', 'project structure', 'architecture',
-			'endpoint', 'endpoints', 'api', 'apis', 'route', 'routes',
-			'file structure', 'code organization', 'project layout',
-		]
-
-		const questionStarters = [
-			'what is', 'what does', 'what are', 'what do',
-			'how many', 'how does', 'how do',
-			'summarize', 'explain', 'describe', 'overview', 'analyze',
-			'which', 'where',
-		]
-
-		// Check if it matches codebase question patterns
-		const matchesPattern = codebaseQuestionPatterns.some(pattern => pattern.test(lowerMessage))
-		const hasCodebaseIndicator = codebaseIndicators.some(indicator => lowerMessage.includes(indicator))
-		const startsWithQuestion = questionStarters.some(starter => lowerMessage.startsWith(starter))
-
-		// Codebase question if:
-		// 1. Matches a pattern, OR
-		// 2. Has codebase indicator AND starts with a question word
-		const isCodebaseQuestion = matchesPattern || (hasCodebaseIndicator && startsWithQuestion)
-
-		if (isCodebaseQuestion) {
+		// Codebase/repository questions — shared, word-boundary-aware detector
+		// (codebaseQuestionDetector.ts). These need to understand the whole repo.
+		if (looksLikeCodebaseQuestion(userMessage)) {
 			return 'code' // Use 'code' task type but we'll enhance scoring for codebase questions
 		}
 
@@ -1126,49 +1120,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * Detect simple/quick questions
 	 * More aggressive detection to enable low-latency routing for better UX
 	 */
-	private _detectSimpleQuestion(message: string, lowerMessage: string): boolean {
-		// Exclude complex tasks first
-		if (lowerMessage.includes('codebase') ||
-			lowerMessage.includes('repository') ||
-			lowerMessage.includes('architecture') ||
-			lowerMessage.includes('analyze') ||
-			lowerMessage.includes('refactor') ||
-			lowerMessage.includes('implement') ||
-			lowerMessage.includes('debug') ||
-			lowerMessage.includes('error') ||
-			lowerMessage.includes('fix') ||
-			lowerMessage.includes('review')) {
-			return false
-		}
-
-		// Simple questions are typically:
-		// 1. Short to medium length (< 200 chars)
-		// 2. Start with question words
-		// 3. Don't require codebase analysis
-		if (message.length < 200) {
-			const simpleQuestionStarters = [
-				'what is', 'what does', 'what are', 'what do',
-				'how do i', 'how to', 'how does', 'how can',
-				'explain', 'tell me', 'describe',
-				'when', 'where', 'why', 'who',
-				'can you', 'could you', 'would you'
-			]
-			const isQuestion = simpleQuestionStarters.some(starter => lowerMessage.startsWith(starter))
-
-			// Also check for simple question patterns
-			const simplePatterns = [
-				/^what\s+(is|does|are|do)\s+/,
-				/^how\s+(do|does|can|to)\s+/,
-				/^explain\s+/,
-				/^tell\s+me\s+/,
-				/^describe\s+/
-			]
-			const matchesPattern = simplePatterns.some(pattern => pattern.test(lowerMessage))
-
-			return (isQuestion || matchesPattern) && message.length < 200
-		}
-
-		return false
+	private _detectSimpleQuestion(message: string): boolean {
+		// Canonical implementation lives in common/routing/simpleQuestionGate.ts (pure + unit-tested).
+		return looksLikeSimpleQuestion(message)
 	}
 
 	/**
@@ -1542,7 +1496,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		chatMessages: any[],
 		modelSelection: ModelSelection | null,
 		chatMode: ChatMode,
-		repoIndexerResults: { results: string[]; metrics: any } | null | undefined
+		repoIndexerResults: { results: string[]; metrics: any } | null | undefined,
+		subagentSystemPrompt?: string,
+		allowedToolNames?: string[]
 	): string {
 		// Create stable hash from inputs
 		const modelKey = modelSelection ? `${modelSelection.providerName}:${modelSelection.modelName}` : 'null';
@@ -1552,7 +1508,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			id: m.id
 		})));
 		const repoIndexerKey = repoIndexerResults ? JSON.stringify(repoIndexerResults.results.slice(0, 10)) : 'null';
-		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}`;
+		// Include the sub-agent role so a custom-agent child never reuses a normal-turn prep (or vice-versa).
+		// Use the FULL prompt (not a length+prefix digest): two custom agents can share the same first 60
+		// chars and length yet differ later, which would collide and poison one with the other's prep.
+		// Matches the cloud system-message cache key (convertToLLMMessageService), which also keys on the
+		// full prompt.
+		const subagentKey = subagentSystemPrompt ? `sa:${subagentSystemPrompt}` : '';
+		const toolsKey = allowedToolNames ? `tools:${allowedToolNames.join('+')}` : '';
+		return `${modelKey}|${chatMode}|${messagesHash}|${repoIndexerKey}|${subagentKey}|${toolsKey}`;
 	}
 
 	/**
@@ -1907,8 +1870,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					},
 					onError: async (error) => {
-						this._setStreamState(threadId, { isRunning: undefined, error })
-						reject(error)
+						// Plan generation is an OPTIMIZATION, not required. If the model errors here (rate-limit /
+						// free-tier exhaustion / transient), do NOT dead-end on the error — fall through to direct
+						// execution, where the agent loop's model-failover escalates to another configured model
+						// (your local model, or a BYO cloud key like Pollinations). Resolving with NO plan added
+						// makes the caller proceed to the normal tool loop. Without this, a complex/destructive
+						// request (which triggers planning) stranded the user on the exhaustion message before the
+						// failover-capable loop ever ran. (findings: live free-tier-exhaustion bug)
+						console.error('[ChatThreadService] plan generation failed; proceeding to direct execution so failover can run:', error?.message)
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+						resolve()
 					},
 					onAbort: () => {
 						this._setStreamState(threadId, undefined)
@@ -1930,6 +1901,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
+
+		// Propagate the abort to any in-flight sub-agent children spawned from this thread, so stopping
+		// the parent doesn't leave a child agent running in the background. (Depth 1 — no nesting.)
+		const childThreads = this._childThreadsByParent.get(threadId)
+		if (childThreads && childThreads.size > 0) {
+			for (const childId of [...childThreads]) {
+				await this.abortRunning(childId)
+			}
+		}
 
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
@@ -1981,64 +1961,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * Example: {"name": "delete_file_or_folder", "arguments": {"uri": "/path", "is_recursive": true}}
 	 */
 	private _parseJSONToolCallFromText(text: string): { toolName: ToolName, toolParams: RawToolParamsObj } | null {
-		try {
-			// Try to find JSON object in text (may be wrapped in markdown code blocks or plain text)
-			let jsonStr = text.trim()
-
-			// Remove markdown code blocks if present
-			const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-			if (codeBlockMatch) {
-				jsonStr = codeBlockMatch[1].trim()
-			}
-
-			// Try to find JSON object pattern - be more flexible with whitespace
-			// Look for opening brace, then try to find matching closing brace
-			const openBraceIdx = jsonStr.indexOf('{')
-			if (openBraceIdx === -1) {
-				return null
-			}
-
-			// Find matching closing brace
-			let braceCount = 0
-			let closeBraceIdx = -1
-			for (let i = openBraceIdx; i < jsonStr.length; i++) {
-				if (jsonStr[i] === '{') braceCount++
-				if (jsonStr[i] === '}') {
-					braceCount--
-					if (braceCount === 0) {
-						closeBraceIdx = i
-						break
-					}
-				}
-			}
-
-			if (closeBraceIdx === -1) {
-				return null
-			}
-
-			const jsonSubstring = jsonStr.substring(openBraceIdx, closeBraceIdx + 1)
-			const parsed = JSON.parse(jsonSubstring)
-
-			// Check if it's a tool call format
-			if (typeof parsed === 'object' && parsed !== null && 'name' in parsed) {
-				const toolName = parsed.name
-				const toolParams = parsed.arguments || parsed.params || {}
-
-				// Validate tool name is a valid ToolName
-				// Note: We'll validate this when we try to use it
-				if (typeof toolName === 'string' && typeof toolParams === 'object' && toolParams !== null) {
-					return {
-						toolName: toolName as ToolName,
-						toolParams: toolParams as RawToolParamsObj
-					}
-				}
-			}
-		} catch (error) {
-			// Not valid JSON or not a tool call format
-			return null
-		}
-
-		return null
+		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the JSON
+		// tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input, incl.
+		// inside a <tool_call> wrapper) AND Anthropic's <function_calls>/<invoke>/<parameter> XML that Claude
+		// emits via gateways (Pollinations) that don't pass native tools. Param names are canonicalized
+		// (path/file -> uri) so file tools validate.
+		const r = parseTextToolCall(text)
+		return r ? { toolName: r.toolName as ToolName, toolParams: r.toolParams as RawToolParamsObj } : null
 	}
 
 	/**
@@ -2131,9 +2060,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 			}
 		} else if (lowerRequest.includes('file') && (lowerRequest.includes('create') || lowerRequest.includes('add') || lowerRequest.includes('make'))) {
-			// User wants to create a file
+			// User wants to create a file. Prefer a real filename token (something.ext) — e.g. "create a file
+			// fib.py" must yield "fib.py", NOT the trigger word "file" (the old `k.length > 3` matched "file"
+			// itself, creating a file literally named "file"). Fall back to a name after "called"/"named", then
+			// a content keyword, then a sensible default. (finding #12)
 			const keywords = extractKeywords(originalRequest)
-			const fileName = keywords.find(k => k.includes('.') || k.length > 3) || 'newfile'
+			const extMatch = originalRequest.match(/([\w\-./]+\.[a-z0-9]{1,8})(?:\b|$)/i)
+			const namedMatch = originalRequest.match(/(?:called|named)\s+([\w\-./]+)/i)
+			const fileName = (extMatch && extMatch[1])
+				|| (namedMatch && namedMatch[1])
+				|| keywords.find(k => k.includes('.'))
+				|| keywords.find(k => k.length > 3 && k.toLowerCase() !== 'file')
+				|| 'newfile.txt'
 
 			return {
 				toolName: 'create_file_or_folder',
@@ -2399,6 +2337,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		toolId: string,
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
+		isLocal: boolean = false,
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2406,14 +2345,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let toolResult: ToolResult<ToolName>
 		let toolResultStr: string
 
-		// Check if it's a built-in tool
+		// Check if it's a built-in tool. NOTE: callers canonicalize the tool name before dispatch (see the
+		// canonicalizeToolName call where `toolCall` is finalized, and the callThisToolFirst path) so that
+		// aliased names (create_file -> create_file_or_folder, run -> run_command, ...) from native tool_calls
+		// and the XML extractor resolve here instead of throwing `No tool named "create_file"` (finding #4).
 		const isBuiltInTool = isABuiltinToolName(toolName)
 
 		if (!opts.preapproved) { // skip this if pre-approved
 			// 1. validate tool params
 			try {
 				if (isBuiltInTool) {
-					const params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams)
+					// Parallel-edit phase 2: a sub-agent running in its own git worktree resolves + confines
+					// file paths to that worktree (undefined for a normal run -> validateURI behaves as before).
+					const workspaceRootOverride = this._workspaceRootOverrideByThread.get(threadId)
+					const params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams, { workspaceRootOverride })
 					toolParams = params
 				}
 				else {
@@ -2616,17 +2561,70 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// set stream state
 			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } })
 
-			if (isBuiltInTool) {
-				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
-				const interruptor = () => { interrupted = true; interruptTool?.() }
-				resolveInterruptor(interruptor)
+			// Per-agent tool allowlist (a custom sub-agent's allowedTools): the AUTHORITATIVE execution
+			// gate, beyond the prompt-level restriction. Covers builtin + MCP. attempt_completion is
+			// always allowed so a restricted sub-agent can still signal completion. A recoverable throw.
+			const agentAllowedTools = this._allowedToolsByThread.get(threadId)
+			if (agentAllowedTools && toolName !== 'attempt_completion' && !agentAllowedTools.includes(toolName)) {
+				throw new Error(`The ${toolName} tool isn't available to this sub-agent. Available tools: ${agentAllowedTools.join(', ')}, attempt_completion.`)
+			}
 
-				toolResult = await result
+			// R3: fire any pre-tool lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+			this._hooksService.runHooksForEvent({ event: 'pre-tool', toolName, threadId })
+
+			if (isBuiltInTool) {
+				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
+				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
+				// weak model can't get distracted by tools it shouldn't use.
+				if (isLocal && !(COMPACT_LOCAL_TOOLSET as Set<string>).has(toolName)) {
+					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...COMPACT_LOCAL_TOOLSET].join(', ')}.`)
+				}
+				if (toolName === 'run_subagent') {
+					// Sub-agents are executed here (they need the chat service to spawn a child agent
+					// loop), not in toolsService. Enforce no nesting: a sub-agent cannot spawn another.
+					if (this._subagentThreadIds.has(threadId)) {
+						throw new Error('A sub-agent cannot spawn another sub-agent. Complete this sub-task yourself and call attempt_completion with your result.')
+					}
+					resolveInterruptor(() => { interrupted = true })
+					toolResult = await this._runSubagent(threadId, toolParams as BuiltinToolCallParams['run_subagent'])
+				}
+				else if (toolName === 'run_parallel_subagents') {
+					// Same as run_subagent but runs N READ-ONLY children concurrently. No nesting.
+					if (this._subagentThreadIds.has(threadId)) {
+						throw new Error('A sub-agent cannot spawn sub-agents. Complete this sub-task yourself and call attempt_completion with your result.')
+					}
+					resolveInterruptor(() => { interrupted = true })
+					toolResult = await this._runParallelSubagents(threadId, toolParams as BuiltinToolCallParams['run_parallel_subagents'])
+				}
+				else if (WRITE_FILE_TOOLS.has(toolName)) {
+					// Serialize file-edit application across concurrent agent threads so a read-modify-write
+					// can't interleave + corrupt a file. No-op when no other edit is in flight.
+					toolResult = await this._editSerializer.run(async () => {
+						const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
+						resolveInterruptor(() => { interrupted = true; interruptTool?.() })
+						return await result
+					})
+				}
+				else {
+					const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as any)
+					const interruptor = () => { interrupted = true; interruptTool?.() }
+					resolveInterruptor(interruptor)
+
+					toolResult = await result
+				}
 			}
 			else {
 				const mcpTools = this._mcpService.getMCPTools()
 				const mcpTool = mcpTools?.find(t => t.name === toolName)
-				if (!mcpTool) { throw new Error(`MCP tool ${toolName} not found`) }
+				if (!mcpTool) {
+					// Weak models often hallucinate tool names. Return a clear, recoverable error
+					// (the catch below records it as a tool_error the model can self-correct from)
+					// instead of the misleading raw "MCP tool X not found".
+					// List the tools the model was actually OFFERED (curated for local models), so this
+					// error doesn't re-introduce the tools curation deliberately hid from a weak model.
+					const offered = isLocal ? [...COMPACT_LOCAL_TOOLSET] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
+					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${offered.join(', ')}`)
+				}
 
 				resolveInterruptor(() => { })
 
@@ -2665,6 +2663,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// 5. add to history and keep going
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+
+		// R3: fire any post-tool lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+		this._hooksService.runHooksForEvent({ event: 'post-tool', toolName, threadId })
 
 		// attempt_completion terminates the agent loop
 		if (isBuiltInTool && toolName === 'attempt_completion') {
@@ -2742,6 +2743,296 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 
 
+	/**
+	 * Per-turn override of the user's chat mode. For weak/local models, a trivial
+	 * general-knowledge question is answered directly (returns 'normal' → NO tools)
+	 * instead of running the agent tool-loop, which weak models tend to ramble through.
+	 * Only relaxes full 'agent' mode; the user's selected mode is unchanged in the UI.
+	 * Conservative: attachments, or anything referencing the workspace / wanting an
+	 * action, keep the full agent toolset.
+	 */
+	private _effectiveChatModeForTurn(threadId: string, userChatMode: ChatMode, modelSelection: ModelSelection | null): ChatMode {
+		if (userChatMode !== 'agent' || !modelSelection) { return userChatMode }
+		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName)
+		if (!isLocal) { return userChatMode } // scoped to local/weak models first
+		const msgs = this.state.allThreads[threadId]?.messages ?? []
+		let lastUser: (ChatMessage & { role: 'user' }) | undefined
+		for (let i = msgs.length - 1; i >= 0; i--) {
+			const m = msgs[i]
+			if (m.role === 'user') { lastUser = m; break }
+		}
+		if (!lastUser) { return userChatMode }
+		if ((lastUser.images?.length ?? 0) > 0 || (lastUser.pdfs?.length ?? 0) > 0) { return userChatMode } // attachments need agent/vision
+		const text = lastUser.content || lastUser.displayContent || ''
+		return isTriviaQuestion(text) ? 'normal' : userChatMode
+	}
+
+	/**
+	 * True for provider errors that won't improve by retrying the SAME model (bad/missing API key,
+	 * model-not-found, auth/permission). The agent loop skips same-model retries for these and escalates
+	 * straight to another configured model.
+	 */
+	private _isNonRetryableModelError(error: { message?: string } | undefined | null): boolean {
+		const msg = (error?.message || '').toLowerCase()
+		if (!msg) { return false }
+		if (/\b(401|403|404)\b/.test(msg)) { return true }
+		const needles = [
+			'unauthorized', 'forbidden', 'invalid api key', 'invalid_api_key', 'incorrect api key',
+			'no api key', 'api key not', 'missing api key', 'authentication',
+			'model not found', 'model_not_found', 'no such model', 'unknown model', 'does not exist',
+			'permission denied', 'not authorized',
+		]
+		return needles.some(n => msg.includes(n))
+	}
+
+	/**
+	 * Pick the best OTHER configured model to fail over to when the active model errors or stalls.
+	 * Enumerates every filled-in provider's visible models, enriches each with capability data, and ranks
+	 * them via the pure modelFailover policy (prefers a capable cloud model when preferNonLocal is set).
+	 * Honors routingPolicy 'local-only' (never returns a cloud model). Returns null if nothing qualifies.
+	 */
+	private async _pickNextUntriedModel(excludeKeys: ReadonlySet<string>, opts: { preferNonLocal: boolean, avoidFreeTier?: boolean }): Promise<ModelSelection | null> {
+		const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+		const state = this._settingsService.state
+		const overrides = state.overridesOfModel
+		const localOnly = state.globalSettings.routingPolicy === 'local-only'
+		const candidates: FailoverCandidate[] = []
+		for (const providerName of Object.keys(state.settingsOfProvider) as ProviderName[]) {
+			const ps = state.settingsOfProvider[providerName]
+			if (!ps._didFillInProviderSettings) { continue }
+			const isLocal = (localProviderNames as readonly ProviderName[]).includes(providerName)
+			for (const mi of ps.models) {
+				if (mi.isHidden) { continue }
+				if (excludeKeys.has(`${providerName}/${mi.modelName}`)) { continue }
+				let contextWindow = 0
+				let hasNativeToolCalls = false
+				let isCoder = isLikelyCoderModelName(mi.modelName)
+				try {
+					const caps = getModelCapabilities(providerName, mi.modelName, overrides)
+					contextWindow = caps.contextWindow ?? 0
+					hasNativeToolCalls = !!caps.specialToolFormat && !isLocal
+					isCoder = isCoder || !!caps.supportsFIM
+				} catch { /* fall back to name heuristics + zero ctx */ }
+				candidates.push({
+					providerName,
+					modelName: mi.modelName,
+					isLocal,
+					contextWindow,
+					hasNativeToolCalls,
+					isKnownCapableProvider: (KNOWN_CAPABLE_AGENTIC_PROVIDERS as readonly ProviderName[]).includes(providerName),
+					isCoder,
+					isFreeTierProvider: freeTierIdOfProviderName(providerName) !== null,
+				})
+			}
+		}
+		const pick = pickNextFailoverModel(candidates, { excludeKeys, localOnly, preferNonLocal: opts.preferNonLocal, avoidFreeTier: opts.avoidFreeTier })
+		return pick ? toModelSelection(pick) : null
+	}
+
+	// Threads currently running as sub-agents (spawned by run_subagent). Enforces no-nesting and marks
+	// child threads. Not persisted; cleared when the child finishes.
+	private readonly _subagentThreadIds = new Set<string>()
+	// Per-(sub-agent-)thread tool allowlist (a custom agent's allowedTools). Read by the _runToolCall
+	// dispatch gate to authoritatively block tools outside the agent's set. Cleared when the child ends.
+	private readonly _allowedToolsByThread = new Map<string, string[]>()
+	// Per-(sub-agent-)thread git-worktree root (parallel-edit phase 2). When set, _runToolCall passes it
+	// into validateParams so the child's file paths resolve + are confined to the worktree, not the
+	// workspace. Keyed by threadId (not runCtx) so it survives the approval-resume re-entry into
+	// _runChatAgent, which drops runCtx. Set at the top of _runChatAgent; cleared when the child ends.
+	private readonly _workspaceRootOverrideByThread = new Map<string, string>()
+	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
+	// the abort to in-flight children (depth 1, since sub-agents can't nest).
+	private readonly _childThreadsByParent = new Map<string, Set<string>>()
+	// Serializes file-edit application across ALL concurrent agent threads (foreground + background +
+	// parallel sub-agents) so concurrent edits can't corrupt a file. No-op for a single sequential agent.
+	private readonly _editSerializer = createSerializer()
+
+	/**
+	 * Execute a sub-agent (the run_subagent tool). Spawns a HIDDEN child thread seeded with ONLY the
+	 * given prompt, runs the normal agent loop on it in an isolated 'agent'-mode context (its own
+	 * streamState/checkpoints/caps), and returns the child's final summary. The child sees nothing of
+	 * the parent conversation; the parent sees only the returned summary — keeping the parent context
+	 * clean.
+	 */
+	private async _runSubagent(parentThreadId: string, params: BuiltinToolCallParams['run_subagent'], readOnly: boolean = false): Promise<BuiltinToolResultType['run_subagent']> {
+		const child = newThreadObject()
+		const childId = child.id
+		this._subagentThreadIds.add(childId)
+		// Resolve a named custom agent (.cortexide/agents/*.md), if any — it supplies the child's system
+		// prompt (runCtx.systemPromptOverride), pinned model, and tool allowlist.
+		const customAgent = params.agentType ? this._agentsService.getAgent(params.agentType) : undefined
+		// readOnly (run_parallel_subagents) forces the read-only toolset so N children can run
+		// concurrently with zero FS-collision risk; otherwise use the custom agent's allowlist (if any).
+		const effectiveAllowedTools = readOnly ? READ_ONLY_SUBAGENT_TOOLS : customAgent?.allowedTools
+		// Per-thread tool allowlist read by the _runToolCall dispatch gate (authoritative enforcement).
+		if (effectiveAllowedTools && effectiveAllowedTools.length > 0) {
+			this._allowedToolsByThread.set(childId, effectiveAllowedTools)
+		}
+		// Register the child under its parent so aborting the parent aborts the child too.
+		let siblings = this._childThreadsByParent.get(parentThreadId)
+		if (!siblings) { siblings = new Set(); this._childThreadsByParent.set(parentThreadId, siblings) }
+		siblings.add(childId)
+		// Insert the child into state (NOT into openTabs — it stays hidden from the tab bar).
+		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		console.log(`[run_subagent] spawning child ${childId}${readOnly ? ' (read-only)' : ''}${params.agentType ? ` as "${params.agentType}"` : ''}: ${params.description}`)
+		// Seed with a single user message = the self-contained task (the child's entire context). The
+		// custom agent's role now flows as a real <subagent_role> system-message block (runCtx below),
+		// not a prepend to this message.
+		this._addMessageToThread(childId, {
+			role: 'user',
+			content: params.prompt,
+			displayContent: params.prompt,
+			selections: null,
+			state: { stagingSelections: [], isBeingEdited: false },
+		})
+		// Pick the child's model: a custom agent may pin one (resolved against installed models);
+		// otherwise inherit the user's current selection. Recompute options for a pinned model the same
+		// way _currentModelSelectionProps does, so a pinned model gets its configured options (if any).
+		const parentProps = this._currentModelSelectionProps()
+		const agentModel = customAgent?.model ? resolveAgentModelSelection(customAgent.model, this._settingsService.state.settingsOfProvider) : null
+		const modelSelection = agentModel ?? parentProps.modelSelection
+		const modelSelectionOptions = agentModel
+			? this._settingsService.state.optionsOfModelSelection['Chat']?.[agentModel.providerName]?.[agentModel.modelName]
+			: parentProps.modelSelectionOptions
+		let summary = ''
+		let completed = false
+		try {
+			await this._runChatAgent({
+				threadId: childId,
+				modelSelection,
+				modelSelectionOptions,
+				runCtx: { chatModeOverride: 'agent', isSubagent: true, parentThreadId, systemPromptOverride: customAgent?.systemPrompt, allowedToolNames: effectiveAllowedTools },
+			})
+			// Extract the child's result: prefer its attempt_completion summary, else its last assistant
+			// text. Read INSIDE the try so the child's final state is captured before disposal in finally;
+			// on error we skip straight to finally and the throw propagates (parent handles it), as before.
+			const messages = this.state.allThreads[childId]?.messages ?? []
+			let lastAssistant = ''
+			for (let i = messages.length - 1; i >= 0; i--) {
+				const m = messages[i] as any
+				if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) {
+					summary = String(m.params.result)
+					completed = true
+					break
+				}
+				if (!lastAssistant && m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) {
+					lastAssistant = m.displayContent.trim()
+				}
+			}
+			if (!summary) { summary = lastAssistant || '(The sub-agent finished without producing a summary.)' }
+		} finally {
+			this._subagentThreadIds.delete(childId)
+			this._allowedToolsByThread.delete(childId)
+			this._workspaceRootOverrideByThread.delete(childId)
+			// Remove the child from its parent's sibling set, and drop the set entirely once it's empty so
+			// parents don't accumulate empty Sets over many sub-agent calls.
+			const siblings = this._childThreadsByParent.get(parentThreadId)
+			if (siblings) {
+				siblings.delete(childId)
+				if (siblings.size === 0) { this._childThreadsByParent.delete(parentThreadId) }
+			}
+			// Tear down the hidden child thread + every per-thread cache it populated. Without this, each
+			// run_subagent call leaks a full thread (with all its messages) plus its read/plan/stream
+			// caches for the lifetime of the window. Runs on the error path too (the throw still propagates).
+			this._disposeSubagentThreadState(childId)
+		}
+		console.log(`[run_subagent] child ${childId} finished (completed=${completed}); summary ${summary.length} chars`)
+		return { result: summary, childThreadId: childId, completed }
+	}
+
+	/**
+	 * Tear down a finished sub-agent's HIDDEN thread and every per-thread cache it populated. Sub-agent
+	 * child threads are ephemeral — the only child->parent channel is the returned summary — so, unlike
+	 * deleteThread, this must NOT persist, touch openTabs/currentThreadId, or open a replacement thread.
+	 * It only drops the in-memory state so repeated run_subagent calls don't leak threads + caches.
+	 */
+	private _disposeSubagentThreadState(childId: string): void {
+		if (this.state.allThreads[childId]) {
+			const rest = { ...this.state.allThreads }
+			delete rest[childId]
+			this._setState({ allThreads: rest })
+		}
+		this._fileReadCache.delete(childId)
+		this._fileReadCacheLRU.delete(childId)
+		this._planCache.delete(childId)
+		this._pendingStreamStateUpdates.delete(childId)
+		delete this._suppressPlanOnceByThread[childId]
+		delete this.streamState[childId]
+	}
+
+	/**
+	 * Run several READ-ONLY sub-agents concurrently (the run_parallel_subagents tool). Each child is
+	 * forced to the read-only toolset (no edits / no run_command), so running them with Promise.all is
+	 * safe — they can't collide on the file system. Returns every child's summary. A child that throws
+	 * degrades to a per-task error entry rather than failing the whole batch.
+	 */
+	private async _runParallelSubagents(parentThreadId: string, params: BuiltinToolCallParams['run_parallel_subagents']): Promise<BuiltinToolResultType['run_parallel_subagents']> {
+		const results = await Promise.all(params.tasks.map(async (task) => {
+			try {
+				const r = await this._runSubagent(parentThreadId, { description: task.description, prompt: task.prompt, agentType: null }, /* readOnly */ true)
+				return { description: task.description, result: r.result, completed: r.completed }
+			} catch (e) {
+				return { description: task.description, result: `(sub-agent errored: ${getErrorMessage(e)})`, completed: false }
+			}
+		}))
+		return { results }
+	}
+
+	/**
+	 * R7: start a top-level agent on a HIDDEN thread that runs without blocking the active chat. Tracked
+	 * in IBackgroundAgentsService (the "Running agents" panel can show/cancel it). Unlike a sub-agent it
+	 * has no parent and is NOT subject to the no-nesting gate; it runs the normal agent loop + approval
+	 * flow (so it never silently bypasses tool approvals). Fire-and-track: this returns the threadId
+	 * immediately while the run proceeds in the background.
+	 */
+	async startBackgroundAgent(description: string, prompt: string): Promise<string> {
+		const child = newThreadObject()
+		const childId = child.id
+		// Hidden thread: in-memory only (NOT persisted, NOT in openTabs).
+		this._setState({ allThreads: { ...this.state.allThreads, [childId]: child } })
+		this._addMessageToThread(childId, {
+			role: 'user', content: prompt, displayContent: prompt, selections: null,
+			state: { stagingSelections: [], isBeingEdited: false },
+		})
+		const props = this._currentModelSelectionProps()
+		this._backgroundAgentsService.register({
+			id: childId, description, threadId: childId, startTime: Date.now(),
+			abort: () => { void this.abortRunning(childId) },
+		})
+		this._notificationService.info(`Background agent started: ${description}`)
+
+		const extractSummary = (): string => {
+			const messages = this.state.allThreads[childId]?.messages ?? []
+			for (let i = messages.length - 1; i >= 0; i--) {
+				const m = messages[i] as any
+				if (m.role === 'tool' && m.name === 'attempt_completion' && m.params?.result) { return String(m.params.result) }
+				if (m.role === 'assistant' && typeof m.displayContent === 'string' && m.displayContent.trim()) { return m.displayContent.trim() }
+			}
+			return '(no summary produced)'
+		}
+		const stillRunning = () => this._backgroundAgentsService.state.agents.find(a => a.id === childId)?.status === 'running'
+
+		// Run the agent loop in the background — do NOT await.
+		void this._runChatAgent({
+			threadId: childId,
+			modelSelection: props.modelSelection,
+			modelSelectionOptions: props.modelSelectionOptions,
+			runCtx: { chatModeOverride: 'agent', isSubagent: false },
+		}).then(() => {
+			if (stillRunning()) { // not cancelled
+				this._backgroundAgentsService.setStatus(childId, 'completed', { resultSummary: extractSummary(), endTime: Date.now() })
+				this._notificationService.info(`Background agent finished: ${description}`)
+			}
+		}).catch((e) => {
+			if (stillRunning()) {
+				this._backgroundAgentsService.setStatus(childId, 'error', { error: getErrorMessage(e), endTime: Date.now() })
+				this._notificationService.warn(`Background agent failed: ${description} — ${getErrorMessage(e)}`)
+			}
+		})
+
+		return childId
+	}
+
 	private async _runChatAgent({
 		threadId,
 		modelSelection,
@@ -2750,6 +3041,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		earlyRequestId,
 		isAutoMode,
 		repoIndexerPromise,
+		runCtx,
 	}: {
 		threadId: string,
 		modelSelection: ModelSelection | null,
@@ -2758,7 +3050,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		earlyRequestId?: string,
 		isAutoMode?: boolean,
 		repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>,
+		// Sub-agent execution context. Undefined for a normal (top-level) chat turn, where the loop
+		// reads the user's mode from global settings as before. When a sub-agent is spawned (see
+		// run_subagent), this carries the child's own mode + provenance so the SAME loop runs in an
+		// isolated context without touching the user's UI mode.
+		runCtx?: AgentRunContext,
 	}) {
+
+		// Parallel-edit phase 2: register this run's git-worktree root (if any) keyed by threadId, so the
+		// _runToolCall dispatch path can confine file tools to the worktree. Keyed by threadId (not
+		// runCtx) because the approval-resume re-entry calls _runChatAgent WITHOUT runCtx — the entry
+		// persists until the sub-agent finishes (_runSubagent's finally clears it). Only ever populated
+		// for sub-agent runs; a normal top-level turn passes no override, so this is a no-op there.
+		if (runCtx?.workspaceRootOverride) {
+			this._workspaceRootOverrideByThread.set(threadId, runCtx.workspaceRootOverride)
+		}
 
 		// CRITICAL: Validate and resolve model selection BEFORE starting the loop
 		// This prevents wasted API calls and ensures we have a valid model
@@ -2823,10 +3129,73 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
-		const { chatMode } = this._settingsService.state.globalSettings // should not change as we loop even if user changes it, so it goes here
+		// A sub-agent runs its OWN assigned mode (runCtx.chatModeOverride); a normal turn reads the
+		// user's UI mode from global settings (frozen for the loop), unchanged from before.
+		const userChatMode = runCtx?.chatModeOverride ?? this._settingsService.state.globalSettings.chatMode
+		// Per-turn gate: a trivial general-knowledge question on a weak/local model answers directly
+		// instead of running the agent tool-loop. `chatMode` below is the EFFECTIVE mode for this turn
+		// (may be relaxed to 'normal'); the user's selected mode is unchanged. It then flows to tool
+		// gating + system message + the send call, so the whole turn is consistently tool-less.
+		// Sub-agents skip the trivia relaxation — they run the mode they were spawned with.
+		// Per-model state. These track the LIVE model and are recomputed whenever the agent fails over to a
+		// different model mid-task (see tryEscalateModel below). They are derived from the RESOLVED selection
+		// — NOT the raw 'auto' the user picked — so isLocalModel / caps / tool-curation are correct from the
+		// very first turn. (Previously these read the unresolved 'auto', so an Auto->local run silently ran
+		// with cloud caps and the local tool-curation gate disabled — findings #5/#6.)
+		let chatMode: ChatMode = userChatMode
+		let isLocalModel = false
+		let maxAgentIterations = MAX_AGENT_LOOP_ITERATIONS
+		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
+		const recomputeModelState = (m: ModelSelection | null) => {
+			chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, m)
+			isLocalModel = !!m && (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName)
+			maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
+			maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
+		}
+		recomputeModelState(resolvedModelSelection)
 		const { overridesOfModel } = this._settingsService.state
 
+		// --- Automatic model failover (findings #1/#2) ---
+		// When the active model errors, repeatedly fails its tool calls, or stalls past the step limit,
+		// escalate the SAME task to the best OTHER configured model — preferring a capable cloud model when
+		// the failing one is local. This is what makes "my local model failed but I have a capable cloud key"
+		// actually recover, regardless of whether the user picked Auto or a specific model. Honors the
+		// enableModelFallback setting and routingPolicy 'local-only' (never leaves local). State persists
+		// across the whole task (the inner-loop `triedModels` set resets every outer iteration).
+		const modelFallbackEnabled = this._settingsService.state.globalSettings.enableModelFallback !== false
+			&& !runCtx?.isSubagent // a sub-agent runs the exact model it was assigned; don't silently switch it
+		const escalationUsedModels = new Set<string>() // "provider/model" keys already run or escalated away from
+		let escalationCount = 0
+		const MAX_MODEL_ESCALATIONS = 4
+		const tryEscalateModel = async (reason: string, escOpts?: { avoidFreeTier?: boolean }): Promise<boolean> => {
+			if (!modelFallbackEnabled || escalationCount >= MAX_MODEL_ESCALATIONS) {
+				return false
+			}
+			const cur = resolvedModelSelection
+			if (cur && cur.providerName !== 'auto') { escalationUsedModels.add(`${cur.providerName}/${cur.modelName}`) }
+			// Always prefer a capable CLOUD model first (e.g. a configured BYO key like Pollinations) — that's
+			// what the user expects when a model fails; fall to local only when no cloud target qualifies.
+			// avoidFreeTier (set on rate-limit / free-tier exhaustion) pushes the throttled free providers below
+			// both BYO cloud and local, so we land on the working cloud key instead of another rate-limited one.
+			const next = await this._pickNextUntriedModel(escalationUsedModels, { preferNonLocal: true, avoidFreeTier: escOpts?.avoidFreeTier })
+			if (!next) { return false }
+			escalationCount += 1
+			resolvedModelSelection = next
+			const np = next.providerName as Exclude<ProviderName, 'auto'>
+			resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[np]?.[next.modelName]
+			recomputeModelState(next)
+			const fromLabel = cur ? `${cur.providerName}/${cur.modelName}` : 'the previous model'
+			// Surface the switch via a notification, NOT a thread message: injecting an assistant message
+			// here would leave the history ending on an assistant turn (or two assistant turns in a row),
+			// which breaks providers that require strict user/assistant alternation (e.g. Anthropic). The
+			// existing auto-fallback path switches silently for the same reason.
+			this._notificationService.info(`Switched to ${next.providerName}/${next.modelName} — ${fromLabel} ${reason}.`)
+			console.log(`[ChatThreadService] Model failover (${reason}): ${fromLabel} -> ${next.providerName}/${next.modelName}`)
+			return true
+		}
+
 		let nMessagesSent = 0
+		let consecutiveToolErrors = 0 // failed tool calls in a row; resets on any tool success
 		let shouldSendAnotherMessage = true
 		let isRunningWhenEnd: IsRunningType = undefined
 		let filesReadInQuery = 0 // Track number of files read to prevent excessive reads
@@ -3018,8 +3387,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// tool use loop
 		while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops
-			if (nMessagesSent >= MAX_AGENT_LOOP_ITERATIONS) {
-				this._notificationService.warn(`Agent loop reached maximum iterations (${MAX_AGENT_LOOP_ITERATIONS}). Stopping to prevent infinite loop.`)
+			if (nMessagesSent >= maxAgentIterations) {
+				// Before giving up: a model that burned the whole step budget without finishing is usually a
+				// weak/local model spinning. Escalate the task to a more capable model and keep going.
+				if (await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
+					nMessagesSent = 0
+					consecutiveToolErrors = 0
+					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+					continue
+				}
+				this._notificationService.warn(`Agent stopped after ${maxAgentIterations} tool iterations.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`)
 				this._setStreamState(threadId, { isRunning: undefined })
 				return
 			}
@@ -3158,7 +3535,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 			}
 
-			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+			const cacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride, runCtx?.allowedToolNames);
 			const cached = this._messagePrepCache.get(cacheKey);
 			const now = Date.now();
 
@@ -3179,7 +3556,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					chatMessages: preprocessedMessages,
 					modelSelection,
 					chatMode,
-					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+					subagentSystemPrompt: runCtx?.systemPromptOverride,
+					allowedToolNames: runCtx?.allowedToolNames
 				});
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
@@ -3204,6 +3583,62 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					contextSize,
 					timestamp: now
 				});
+			}
+
+			// --- R8: opt-in auto-compaction (NON-destructive) ---
+			// When an agent/plan run nears the model's context window, send a COMPACTED view of the
+			// conversation (keep the original request + recent messages, replace the middle with a marker)
+			// so the run continues instead of overflowing. The STORED thread is never mutated — only the
+			// messages sent to the LLM this turn are windowed — so checkpoints, the UI, and history are
+			// untouched. Best-effort: any failure falls back to the full prepared messages.
+			if ((chatMode === 'agent' || chatMode === 'plan')
+				&& this._settingsService.state.globalSettings.enableAutoCompaction
+				&& promptTokens > 0
+				&& modelSelection.providerName !== 'auto') {
+				try {
+					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
+					const contextWindow = (caps as any).contextWindow ?? 128_000
+					if (shouldCompactConversation({
+						enabled: true, chatMode, promptTokens, contextWindow,
+						messageCount: preprocessedMessages.length,
+						iterationsSinceLastCompaction: Number.POSITIVE_INFINITY, // non-destructive => re-window every over-threshold turn
+					})) {
+						const win = selectCompactionWindow(preprocessedMessages.length)
+						if (win) {
+							const omitted = win.end - win.start
+							const marker: ChatMessage = {
+								role: 'assistant',
+								displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
+								reasoning: '',
+								anthropicReasoning: null,
+							}
+							const compactedView: ChatMessage[] = [
+								...preprocessedMessages.slice(0, win.start),
+								marker,
+								...preprocessedMessages.slice(win.end),
+							]
+							const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+								chatMessages: compactedView,
+								modelSelection,
+								chatMode,
+								repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+								subagentSystemPrompt: runCtx?.systemPromptOverride,
+								allowedToolNames: runCtx?.allowedToolNames
+							})
+							if (prep2.messages && prep2.messages.length > 0) {
+								messages = prep2.messages
+								separateSystemMessage = prep2.separateSystemMessage
+								const tr2 = this._computeTokenCount(messages)
+								promptTokens = tr2.tokenCount
+								contextSize = tr2.contextSize
+								this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
+							}
+						}
+					}
+				} catch {
+					// compaction is best-effort; on any error keep the full prepared messages
+				}
 			}
 
 			// CRITICAL: Validate that messages are not empty before sending to API
@@ -3307,7 +3742,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						try {
 							console.log(`[ChatThreadService] Re-preparing messages for new model: ${modelKey}`)
 							// PERFORMANCE: Use cache for model switch too
-							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
+							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults, runCtx?.systemPromptOverride, runCtx?.allowedToolNames);
 							const switchCached = this._messagePrepCache.get(switchCacheKey);
 							const switchNow = Date.now();
 
@@ -3323,7 +3758,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									chatMessages: preprocessedMessages,
 									modelSelection,
 									chatMode,
-									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise
+									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+									subagentSystemPrompt: runCtx?.systemPromptOverride,
+									allowedToolNames: runCtx?.allowedToolNames
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;
@@ -3571,8 +4008,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: iterLabel, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
 				const llmRes = await messageIsDonePromise // wait for message to complete
 
-				// if something else started running in the meantime
-				if (this.streamState[threadId]?.isRunning !== 'LLM') {
+				// Only the SUCCESS path may bail when a newer thread took over. For our OWN error/abort result
+				// we MUST proceed to handle it: the onError handler above sets isRunning=undefined (to unstick
+				// the UI), so this generic "interrupted by a newer thread" guard was swallowing EVERY llmError —
+				// making the auto-fallback AND model-failover in the llmError branch below unreachable on every
+				// error (incl. free-tier exhaustion). Confirmed live: post-send showed isRunning=undefined.
+				if (llmRes.type !== 'llmError' && this.streamState[threadId]?.isRunning !== 'LLM') {
 					// console.log('Chat thread interrupted by a newer chat thread', this.streamState[threadId]?.isRunning)
 					return
 				}
@@ -3585,11 +4026,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// llm res error
 				else if (llmRes.type === 'llmError') {
 					const { error } = llmRes
-					// Check if this is a rate limit error (429)
-					const isRateLimitError = error?.message?.includes('429') ||
-						error?.message?.toLowerCase().includes('rate limit') ||
-						error?.message?.toLowerCase().includes('tokens per min') ||
-						error?.message?.toLowerCase().includes('tpm')
+					// Check if this is a rate limit / quota-exhaustion error. Must match the SAME shapes the
+					// service layer treats as rate-limits (it injects the "all free tiers exhausted" message on
+					// these) — notably Google's "quota exceeded" / "RESOURCE_EXHAUSTED", which the old check
+					// (only 429/rate limit/tpm) MISSED, so avoidFreeTier never engaged for gemini free-tier.
+					const _loErr = (error?.message || '').toLowerCase()
+					const isRateLimitError = _loErr.includes('429') ||
+						_loErr.includes('rate limit') || _loErr.includes('rate-limit') ||
+						_loErr.includes('tokens per min') || _loErr.includes('tpm') ||
+						_loErr.includes('quota') || _loErr.includes('resource_exhausted') || _loErr.includes('exceeded your current quota')
 
 					// In auto mode, try fallback models for ALL errors (not just rate limits)
 					// This ensures auto mode is resilient even if one model is failing
@@ -3700,6 +4145,33 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							}
 						}
 
+						// LAST-RESORT forward progress: _modelRouter.route() has no exclude-tried parameter, so
+						// both the fallbackChain loop and the re-route above can leave nextModel null whenever the
+						// top-scored model is already tried (e.g. a just-429'd gemini that keeps winning the score).
+						// That silently dead-ends the whole turn — the user's "one error after another". Guarantee
+						// progress by directly picking the best UNTRIED configured model. Prefer the largest context
+						// window so we don't fail over onto a 4096-ctx alias or a tiny coder that would just truncate.
+						if (isAutoMode && !nextModel) {
+							try {
+								const { getModelCapabilities } = await import('../common/modelCapabilities.js')
+								const overrides = this._settingsService.state.overridesOfModel
+								const untried: ModelSelection[] = []
+								for (const providerName of Object.keys(this._settingsService.state.settingsOfProvider) as ProviderName[]) {
+									const ps = this._settingsService.state.settingsOfProvider[providerName]
+									if (!ps._didFillInProviderSettings) continue
+									for (const mi of ps.models) {
+										if (mi.isHidden) continue
+										if (triedModels.has(`${providerName}/${mi.modelName}`)) continue
+										untried.push({ providerName, modelName: mi.modelName })
+									}
+								}
+								const ctxOf = (m: ModelSelection) => { try { return getModelCapabilities(m.providerName as Exclude<ProviderName, 'auto'>, m.modelName, overrides).contextWindow ?? 0 } catch { return 0 } }
+								nextModel = untried.sort((a, b) => ctxOf(b) - ctxOf(a))[0] ?? null
+							} catch (e) {
+								console.error('[ChatThreadService] last-resort fallback selection failed:', e)
+							}
+						}
+
 						// If we found a next model, switch to it and retry
 						if (nextModel) {
 							// Safety check: prevent infinite loops by limiting total model switches
@@ -3734,21 +4206,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					}
 
-					// If we're in auto mode and didn't find a fallback model, or if we're not in auto mode:
-					// For rate limit errors in non-auto mode, show error immediately
-					if (isRateLimitError && !isAutoMode) {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
-						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
-
-						this._setStreamState(threadId, { isRunning: undefined, error })
-						this._addUserCheckpoint({ threadId })
-						return
-					}
-
-					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
-					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
-					if (!isAutoMode && nAttempts < CHAT_RETRIES) {
+					// (1) Give the user's explicitly-chosen model a chance to recover from a TRANSIENT error
+					// (network blip) by retrying the same model a couple times. Skip non-retryable errors
+					// (401/403/404/model-not-found) AND rate-limits / free-tier exhaustion — retrying the SAME
+					// model won't help, so fall straight through to the escalation below. (Previously a
+					// rate-limited non-auto model returned here with a "switch to your local model manually"
+					// message; now the escalation auto-switches to another configured model — including your
+					// LOCAL model — so you keep working without touching anything.)
+					const isNonRetryable = this._isNonRetryableModelError(error)
+					if (!isAutoMode && !isNonRetryable && !isRateLimitError && nAttempts < CHAT_RETRIES) {
 						shouldRetryLLM = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 						// Faster retries for local models (they fail fast if not available)
@@ -3764,13 +4230,40 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						else
 							continue // retry
 					}
-					// error, but too many attempts or no fallback available in auto mode
-					else {
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
+					// (2) THE FIX (findings #1/#2): retries are exhausted, or the model is fundamentally broken
+					// (rate-limited / bad key / model-not-found). Escalate the SAME task to the best other
+					// configured model — preferring a capable cloud model when the failing one is local. This is
+					// what makes "my local model failed but I have a capable cloud key" actually recover, and it
+					// works whether the user picked Auto or a specific model. (Auto's own fallback above already
+					// ran; seed its tried set so we don't re-pick the same models.)
+					for (const k of triedModels) { escalationUsedModels.add(k) }
+					const escalationReason = isRateLimitError ? 'the previous model was rate-limited'
+						: isNonRetryable ? 'the previous model was unavailable'
+							: 'the previous model errored'
+					if (await tryEscalateModel(escalationReason, { avoidFreeTier: isRateLimitError })) {
+						modelSelection = resolvedModelSelection
+						modelSelectionOptions = resolvedModelSelectionOptions
+						nAttempts = 0
+						shouldRetryLLM = true
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
+						await timeout(300)
+						if (interruptedWhenIdle) {
+							this._setStreamState(threadId, undefined)
+							return
+						}
+						continue // retry the task on the escalated model
+					}
+
+					// (3) Nothing left to fall over to — surface the error (exhaustion-aware). NOTE: the onError
+					// handler already set streamState to { isRunning: undefined, error } (no llmInfo), so read
+					// any partial output defensively — llmInfo is gone by the time we reach here.
+					{
+						const llmInfo = this.streamState[threadId]?.llmInfo
+						const toolCallSoFar = llmInfo?.toolCallSoFar ?? null
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: llmInfo?.displayContentSoFar ?? '', reasoning: llmInfo?.reasoningSoFar ?? '', anthropicReasoning: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
-						this._setStreamState(threadId, { isRunning: undefined, error })
+						this._setStreamState(threadId, { isRunning: undefined, error: this._exhaustionAwareError(error) })
 						this._addUserCheckpoint({ threadId })
 						return
 					}
@@ -3787,6 +4280,18 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// llm res success
 				let { toolCall, info } = llmRes
 
+				// Native tool_calls and XML-extracted calls carry the model's RAW tool name; map known
+				// synonyms (create_file -> create_file_or_folder, done -> attempt_completion, run -> run_command,
+				// ...) once here so every downstream consumer — execution, completion detection, plan-step
+				// matching, MCP-server resolution — agrees on the canonical name (finding #4). Idempotent; the
+				// JSON-text path is already canonical.
+				if (toolCall && typeof toolCall.name === 'string') {
+					// Also normalize param names (path/file/filepath -> uri) so a native tool_call that uses a
+					// non-`uri` file param doesn't fail validation. Pollinations returns no native tool_calls
+					// (handled by the JSON-text parser below), but other gateways/models can.
+					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName, rawParams: canonicalizeToolParams(toolCall.rawParams) as typeof toolCall.rawParams }
+				}
+
 				// CRITICAL: Check if model output JSON tool call format as text
 				// Some models output tool calls as JSON text instead of using native tool calling
 				// Parse it and convert to proper tool call format
@@ -3802,33 +4307,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							isDone: true,
 							doneParams: Object.keys(parsedToolCall.toolParams)
 						}
-						// Remove the JSON from text since we're executing it as a tool call
-						// Try to remove just the JSON part, keep any surrounding text
-						const openBraceIdx = info.fullText.indexOf('{')
-						if (openBraceIdx !== -1) {
-							// Find matching closing brace
-							let braceCount = 0
-							let closeBraceIdx = -1
-							for (let i = openBraceIdx; i < info.fullText.length; i++) {
-								if (info.fullText[i] === '{') braceCount++
-								if (info.fullText[i] === '}') {
-									braceCount--
-									if (braceCount === 0) {
-										closeBraceIdx = i
-										break
-									}
-								}
-							}
-
-							if (closeBraceIdx !== -1) {
-								const beforeJson = info.fullText.substring(0, openBraceIdx).trim()
-								const afterJson = info.fullText.substring(closeBraceIdx + 1).trim()
-								info = {
-									...info,
-									fullText: [beforeJson, afterJson].filter(s => s.length > 0).join('\n\n').trim() || ''
-								}
-							}
-						}
+						// Keep ONLY the assistant's preamble before the first tool-call marker, discarding
+						// everything after it. Models like Pollinations/claude emit a FAKE multi-tool transcript
+						// in one message — <tool_call>{json}</tool_call> followed by HALLUCINATED <tool_response>
+						// results and more fake calls. We execute the (first) REAL tool call and re-prompt with the
+						// REAL result, so the hallucinated continuation must NOT leak into the shown text or the
+						// history (it would reinforce the hallucination and re-trigger the bogus uri error next turn).
+						const markers = [
+							info.fullText.indexOf('{'),
+							info.fullText.search(/<\s*tool_call\b/i),
+							info.fullText.search(/<\s*function_calls\b/i),
+							info.fullText.search(/<\s*invoke\b/i),
+						].filter(i => i >= 0)
+						const cutIdx = markers.length ? Math.min(...markers) : -1
+						info = { ...info, fullText: cutIdx > 0 ? info.fullText.substring(0, cutIdx).trim() : (cutIdx === 0 ? '' : info.fullText) }
 					}
 				}
 
@@ -3926,7 +4418,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 						// Skip synthesis if user has images and is asking about them
 						// Also skip if we've already read too many files (prevent infinite loops)
-						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
+						// Do NOT fabricate a tool call once the model has already executed a tool this turn (it
+						// acted — its trailing summary is not unfulfilled intent), or when its response reads like
+						// a conversational final answer (offers/closers). Otherwise the synthesizer fires "I'll
+						// help you... finding files" AFTER a completed task and spins the loop into a confused
+						// empty turn. (live: pollinations/claude finishing then the loop fabricating a bad call)
+						const _resp = info.fullText.toLowerCase()
+						const _looksFinal = /\b(if you'?d like|let me know|feel free|would you like|could you (please )?(let me know|share|tell)|here are (the|your)|i'?ve (deleted|created|removed|completed|finished)|all (files|done))\b/.test(_resp)
+						const _alreadyActed = toolsExecutedInRequest.length > 0
+						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && !_alreadyActed && !_looksFinal && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
 							const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 							// Also skip if synthesized call is search_for_files and images are present
 							if (synthesizedToolCall && !(hasImages && synthesizedToolCall.toolName === 'search_for_files')) {
@@ -3969,7 +4469,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									toolName as ToolName,
 									toolId,
 									mcpTool?.mcpServerName,
-									{ preapproved: false, unvalidatedToolParams: toolParams }
+									{ preapproved: false, unvalidatedToolParams: toolParams },
+									isLocalModel // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
 								)
 
 								if (interrupted) {
@@ -4064,7 +4565,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								toolName as ToolName,
 								toolId,
 								mcpTool?.mcpServerName,
-								{ preapproved: false, unvalidatedToolParams: toolParams }
+								{ preapproved: false, unvalidatedToolParams: toolParams },
+								isLocalModel // keep local-model curation consistent across all tool-dispatch paths
 							)
 
 							if (interrupted) {
@@ -4149,7 +4651,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
@@ -4170,6 +4672,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 
 					toolsExecutedInRequest.push(toolCall.name)
+
+					// Stop early if a (weak) model keeps emitting failed tool calls, rather than thrashing up to
+					// the iteration cap. Count consecutive tool errors; reset on any success.
+					const lastToolMsg = this.state.allThreads[threadId]?.messages.slice(-1)[0]
+					if (lastToolMsg?.role === 'tool') {
+						const tt = (lastToolMsg as ToolMessage<ToolName>).type
+						if (tt === 'tool_error' || tt === 'invalid_params') { consecutiveToolErrors += 1 }
+						else if (tt === 'success') { consecutiveToolErrors = 0 }
+					}
+					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+						// Before giving up: this is the single most common local-model failure mode (invents tool
+						// names, writes empty files, never converges). Escalate to a more capable model and let it
+						// recover the SAME task — it sees the failed attempts in history and corrects.
+						if (await tryEscalateModel(`the previous model failed ${consecutiveToolErrors} tool calls in a row`)) {
+							consecutiveToolErrors = 0
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+							continue
+						}
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} failed tool calls in a row.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
+						this._setStreamState(threadId, { isRunning: undefined })
+						this._addUserCheckpoint({ threadId })
+						return
+					}
 
 					// Only update plan step status if we have an active plan (skip if no plan)
 					if (activePlanTracking?.currentStep) {
@@ -4274,6 +4799,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// capture number of messages sent
 		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode })
+
+		// R3: fire any agent-stop lifecycle hooks (fire-and-forget; no-op unless enabled + configured).
+		this._hooksService.runHooksForEvent({ event: 'agent-stop', threadId, reason: 'loop_done' })
 	}
 
 
@@ -4558,6 +5086,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		return { voidFileSnapshotOfURI }
 	}
 
+
+	/**
+	 * If every configured free-tier provider is currently exhausted, replace a
+	 * raw provider error with an actionable "all free quotas exhausted" message
+	 * (offer local / BYO). Otherwise return the original error unchanged.
+	 */
+	private _exhaustionAwareError(error?: { message: string; fullError: Error | null }): { message: string; fullError: Error | null } | undefined {
+		try {
+			const exhaustion = this._modelRouter.getFreeTierExhaustion()
+			if (exhaustion.allExhausted) {
+				return { message: exhaustion.message, fullError: error?.fullError ?? null }
+			}
+		} catch (err) {
+			console.error('[ChatThreadService] getFreeTierExhaustion failed', err)
+		}
+		return error
+	}
 
 	private _addUserCheckpoint({ threadId }: { threadId: string }) {
 		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {}

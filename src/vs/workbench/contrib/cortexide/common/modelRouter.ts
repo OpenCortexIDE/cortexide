@@ -15,7 +15,10 @@ import { IStorageService } from '../../../../platform/storage/common/storage.js'
 import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 import { IFreeTierQuotaService } from './routing/freeTierQuotaService.js';
+import { freeTierIdOfProviderName } from './routing/freeTierConstants.js';
 import { buildFreeTierLadder, pickTopFromLadder } from './routing/freeTierLadder.js';
+import { describeFreeTierExhaustion, FreeTierExhaustionResult } from './routing/freeTierExhaustion.js';
+import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty } from './routing/codingModelScore.js';
 
 /**
  * Task types for automatic model selection
@@ -74,6 +77,8 @@ export interface ITaskAwareModelRouter {
 	route(context: TaskContext): Promise<RoutingDecision>;
 	getQualityReport(): import('./routingEvaluation.js').RoutingQualityReport;
 	getRoutingExplanation(context: TaskContext): Promise<string>;
+	/** Verdict on whether all configured free-tier providers are currently exhausted. */
+	getFreeTierExhaustion(): FreeTierExhaustionResult;
 }
 
 export const ITaskAwareModelRouter = createDecorator<ITaskAwareModelRouter>('TaskAwareModelRouter');
@@ -427,6 +432,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				reasoning: this.generateReasoning(best.model, context, best.score, settingsState),
 				qualityTier,
 				timeoutMs,
+				// Auto-mode failover (chatThreadService) reads this to recover when the chosen model errors
+				// (e.g. a 429/quota-exhausted gemini). The normal path below populates it too; the early-exit
+				// previously omitted it, so failover had nothing to fall back to and dead-ended on the error.
+				fallbackChain: scored.slice(1, 4).map(s => s.model),
 			};
 			this.routingCache.set(cacheKey, { decision, timestamp: Date.now() });
 			return decision;
@@ -813,6 +822,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const name = modelSelection.modelName.toLowerCase();
 		const provider = modelSelection.providerName.toLowerCase();
 		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		// Real parameter size the provider reported (ollama details.parameter_size), if known. Lets the
+		// size bonus/penalty prefer a true 7B over a tiny ":latest" coder whose tag doesn't reveal size.
+		const realParamSize: string | undefined = isLocal
+			? settingsState?.settingsOfProvider?.[modelSelection.providerName]?.models?.find((m: { modelName: string; parameterSize?: string }) => m.modelName === modelSelection.modelName)?.parameterSize
+			: undefined;
 
 		// Check Local-First AI setting
 		// PERFORMANCE: Use pre-computed value if provided, otherwise lookup (for backward compatibility)
@@ -1016,6 +1030,18 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 					score += 10; // Bonus for system message support
 				}
 
+				// Reward code-tuned models here too (not only on regular-code tasks). Without this, a
+				// coding-tuned local (qwen-coder, codestral, ...) and a weak general local tie on the
+				// code axis and a context-window/learned-score coin-flip decides — sending agentic/
+				// codebase requests to a worse model. This makes the coder reliably win among locals.
+				score += codingModelScoreBonus(name, capabilities.supportsFIM)
+
+				// Among local coders (which often share identical capability data, e.g. qwen2.5-coder
+				// :1.5b vs :latest both report 32k+FIM), prefer the larger as a tie-breaker, and
+				// decisively demote a sub-7B local coder (below the agentic floor) so a lucky
+				// learned-score swing can't hand an agentic codebase task to a 3B over a 7B.
+				if (isLocal) { score += localModelSizeBonus(name, realParamSize) + smallLocalModelCodePenalty(name, realParamSize) }
+
 				// Local models struggle more with codebase questions (need to understand many files)
 				if (isLocal) {
 					// If online models are available, strongly prefer them for codebase questions
@@ -1029,15 +1055,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// Regular code tasks (writing/editing code, implementation tasks)
 				// Implementation tasks need good code generation, not just large context
 
-				// FIM (Fill-in-Middle) is very valuable for code editing
-				if (capabilities.supportsFIM) {
-					score += 30; // FIM is very valuable for code
-				}
-
-				// Code-tuned models are excellent for implementation
-				if (name.includes('code') || name.includes('coder') || name.includes('devstral') || name.includes('codestral')) {
-					score += 25; // Increased bonus for code-tuned models on implementation tasks
-				}
+				// FIM + code-tuned name bonus (shared with the codebase-question branch above).
+				score += codingModelScoreBonus(name, capabilities.supportsFIM)
+				// Among local coders, prefer the larger model as a tie-breaker, and decisively demote
+				// a sub-7B local coder so it can't tie/beat a 7B+ coder on a code task.
+				if (isLocal) { score += localModelSizeBonus(name, realParamSize) + smallLocalModelCodePenalty(name, realParamSize) }
 
 				// High-quality models are better at code generation
 				// Claude models are particularly good at understanding requirements and generating code
@@ -1086,6 +1108,16 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 						} else {
 							score -= 15; // Moderate penalty - online code models are often better
 						}
+					}
+
+					// #9: when a capable ONLINE model is configured, prefer it for code generation / agentic
+					// edits. The codebase-question branch above already does this (-100); the regular-code path
+					// did NOT consider hasOnlineModels, so a local model could win an implementation/agentic task
+					// even with a strong cloud key present — and then lose the tool-loop, forcing a visible
+					// mid-task failover. Lighter than -100 (capable FIM/tool locals are genuinely useful for
+					// edits) and gated on !localFirstAICached so Local-First / local-only setups are untouched.
+					if (hasOnlineModels && !localFirstAICached) {
+						score -= 40;
 					}
 				}
 			}
@@ -1435,6 +1467,22 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			}
 		}
 
+		// SELF-HEALING: demote a free-tier provider whose quota is currently exhausted (a model that just
+		// 429'd, e.g. gemini-2.5-pro on a free key with limit:0). markExhausted() is recorded on the 429
+		// (sendLLMMessageService) but on the default 'auto-cheapest' scoring path was never consulted — so
+		// Auto kept re-picking the dead model every turn and chat never worked. The penalty pushes it below
+		// any working model; it auto-clears when the quota window resets. If the WHOLE free-tier fleet is
+		// exhausted they all get the same penalty, so the least-bad relative order is preserved. Cloud-only;
+		// never break routing on a quota-service hiccup.
+		if (!isLocal) {
+			try {
+				const fid = freeTierIdOfProviderName(modelSelection.providerName);
+				if (fid && this.freeTierQuotaService.getRemaining(fid, modelSelection.modelName).exhausted) {
+					score -= 1000;
+				}
+			} catch { /* never let a quota lookup break model scoring */ }
+		}
+
 		return Math.max(0, score); // Ensure non-negative
 	}
 
@@ -1486,6 +1534,20 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 * - `requiresPrivacy` short-circuits to `null` here so callers can route
 	 * to local.
 	 */
+	/**
+	 * Public verdict on free-tier exhaustion, computed from live settings +
+	 * quota state. Used by the chat UI to show an actionable "all free quotas
+	 * exhausted" message (offer local / BYO) instead of a raw provider 429.
+	 */
+	getFreeTierExhaustion(): FreeTierExhaustionResult {
+		const settingsState = this.settingsService.state;
+		return describeFreeTierExhaustion({
+			configuredModels: this.getAvailableModels(settingsState),
+			quotas: this.freeTierQuotaService.getAllRemaining(),
+			now: Date.now(),
+		});
+	}
+
 	private routeViaFreeTierLadder(
 		context: TaskContext,
 		settingsState: CortexideSettingsState,
@@ -1496,10 +1558,27 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		const configured = this.getAvailableModels(settingsState);
 		const quotas = this.freeTierQuotaService.getAllRemaining();
+
+		// Context floor: code/agentic/multi-step tasks run a tool loop whose
+		// context GROWS every turn, so demote context-starved free providers
+		// (e.g. Cerebras's 8K cap) below large-context ones (Gemini 1M, Groq
+		// 128K). Without this, the highest-qualityRank free provider wins even
+		// when its window can't hold an agentic run — the message + tool results
+		// + sub-agent summaries blow past 8K and the whole thing stalls.
+		const isAgenticOrLargeTask = context.taskType === 'code'
+			|| !!context.isMultiStepTask
+			|| !!context.requiresComplexReasoning
+			|| !!context.hasCode;
+		const minContextWindow = Math.max(
+			context.contextSize ?? 0,
+			isAgenticOrLargeTask ? 32_000 : 0,
+		);
+
 		const ladder = buildFreeTierLadder({
 			configuredModels: configured,
 			quotas,
 			privacyMode: !!context.requiresPrivacy,
+			minContextWindow,
 		});
 
 		const top = pickTopFromLadder(ladder);

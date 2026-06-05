@@ -141,7 +141,7 @@ export type InternalToolInfo = {
 
 
 const uriParam = (object: string) => ({
-	uri: { description: `The FULL path to the ${object}.` }
+	uri: { description: `Path to the ${object}, RELATIVE to the workspace root (e.g. "src/app.ts" or "notes.md"). An absolute path is accepted only if it is inside the workspace — never invent paths like "/file" or "/workspace/...".` }
 })
 
 const paginationParam = {
@@ -492,6 +492,39 @@ export const builtinTools: {
 		}
 	},
 
+	// --- delegate a scoped task to a sub-agent ---
+
+	run_subagent: {
+		name: 'run_subagent',
+		description: `Delegate a focused, self-contained sub-task to a SUB-AGENT that runs in its OWN fresh context with its own tool loop, and returns ONLY a final summary — keeping YOUR context clean. Use it for (a) deep exploration/research of part of the codebase whose intermediate output you don't need, or (b) a well-scoped implementation step you can describe completely. CRITICAL: the sub-agent sees NOTHING of this conversation except the 'prompt' you pass — make 'prompt' fully self-contained (include every file path, error message, and decision it needs). It runs the agent loop and reports back via attempt_completion. A sub-agent CANNOT spawn further sub-agents.`,
+		params: {
+			description: { description: 'A short (3-7 word) description of the sub-task, for display.' },
+			prompt: { description: 'The COMPLETE, self-contained instruction for the sub-agent. It sees ONLY this — include every file path, error, constraint, and detail it needs to do the task and report back. Tell it to call attempt_completion with its findings/summary when done.' },
+			agent_type: { description: 'Optional. Name of a predefined agent to use (from .cortexide/agents). Omit for a general-purpose agent.' },
+		}
+	},
+
+	run_parallel_subagents: {
+		name: 'run_parallel_subagents',
+		description: `Run SEVERAL READ-ONLY research sub-agents CONCURRENTLY and get all their summaries back at once — faster than sequential run_subagent calls when you need to understand multiple INDEPENDENT parts of the codebase. Each runs in its own fresh context, is restricted to READ-ONLY tools (read/search/diagnostics/LSP-navigation — it CANNOT edit files or run commands), and reports via attempt_completion. For a task that must EDIT files, use run_subagent (sequential) instead.`,
+		params: {
+			tasks: { description: 'Array of { "description": "short label", "prompt": "the COMPLETE self-contained instruction for this read-only sub-agent (include all file paths + detail; tell it to call attempt_completion with its findings)" }. Each task runs concurrently in its own context.' },
+		}
+	},
+
+	// --- persist a learned fact to project memory ---
+
+	save_memory: {
+		name: 'save_memory',
+		description: `Persist a durable, high-value fact to PROJECT MEMORY so it is available in FUTURE conversations (relevant memories are surfaced in later system prompts automatically). Use SPARINGLY and only for long-lived facts the user would want remembered across sessions: an architecture/design decision the team made, a stable user or team preference, or essential project context. Do NOT save transient task state, secrets/keys, or anything already obvious from the code or git history. Each call upserts by 'key' within its 'type'.`,
+		params: {
+			type: { description: `One of: "decision" (a choice or architecture decision), "preference" (a durable user/team preference), or "context" (essential background). Pick the closest.` },
+			key: { description: 'A short, stable, unique identifier for this fact, e.g. "test-runner" or "api-error-handling". Reusing an existing key updates that memory.' },
+			value: { description: 'The fact itself, stated concisely and self-contained (no pronouns referring to this conversation).' },
+			tags: { description: 'Optional. Array of short keywords to improve later relevance matching, e.g. ["testing","ci"].' },
+		}
+	},
+
 } satisfies { [T in keyof BuiltinToolResultType]: InternalToolInfo }
 
 
@@ -508,20 +541,59 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
-// Tools restricted to agent/plan modes only (not available in gather)
-const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion'])
+// Tools restricted to agent/plan modes only (not available in gather). run_subagent is also excluded
+// from COMPACT_LOCAL_TOOLSET below (weak/local models must not spawn sub-agents).
+const AGENT_ONLY_TOOLS = new Set<BuiltinToolName>(['attempt_completion', 'run_subagent', 'run_parallel_subagents', 'save_memory'])
 
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
+// Curated tool subset offered to weak/local models in agent/plan mode. Excludes the tools a small
+// model tends to hallucinate or misuse — persistent terminals, MCP, web, LSP nav/refactor, multi_edit —
+// while keeping file read/search/edit, diagnostics, todo, and a single run_command. Fewer tools means
+// fewer invalid tool calls and a smaller prompt for tight local context windows.
+export const COMPACT_LOCAL_TOOLSET = new Set<BuiltinToolName>([
+	'read_file', 'ls_dir', 'get_dir_tree', 'search_pathnames_only', 'search_for_files', 'search_in_file',
+	'read_lint_errors', 'grep_search', 'glob_files', 'get_diagnostics',
+	'create_file_or_folder', 'edit_file', 'rewrite_file',
+	'todo_write', 'attempt_completion', 'run_command',
+])
 
-	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
+// Read-only builtin tools a PARALLEL sub-agent is restricted to (run_parallel_subagents). No edits,
+// no run_command, no terminals — so N can run concurrently with zero file-system collision risk.
+// attempt_completion is included so each child can return its findings.
+export const READ_ONLY_SUBAGENT_TOOLS: string[] = [
+	'read_file', 'ls_dir', 'get_dir_tree', 'search_pathnames_only', 'search_for_files', 'search_in_file',
+	'read_lint_errors', 'grep_search', 'glob_files', 'get_diagnostics',
+	'go_to_definition', 'find_references', 'search_symbols', 'attempt_completion',
+]
+
+export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean, allowedToolNames?: string[] }) => {
+
+	let builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
 			!(toolName in approvalTypeOfBuiltinToolName) && !AGENT_ONLY_TOOLS.has(toolName)
 		)
 			: (chatMode === 'agent' || chatMode === 'plan') ? Object.keys(builtinTools) as BuiltinToolName[]
 				: undefined
 
+	// Weak/local models get a curated subset (and no MCP) so they can't hallucinate/misuse the
+	// long tail of tools (persistent terminals, web, refactors). See COMPACT_LOCAL_TOOLSET.
+	if (opts?.isLocal && builtinToolNames) {
+		builtinToolNames = builtinToolNames.filter(toolName => COMPACT_LOCAL_TOOLSET.has(toolName))
+	}
+
+	// Per-agent restriction (a custom sub-agent's allowedTools): intersect — only removes, never adds
+	// (so it can't escalate past the chatMode/local set). attempt_completion is always kept so a
+	// restricted sub-agent can still signal completion.
+	if (opts?.allowedToolNames && builtinToolNames) {
+		const allow = new Set(opts.allowedToolNames)
+		builtinToolNames = builtinToolNames.filter(toolName => allow.has(toolName) || toolName === 'attempt_completion')
+	}
+
 	const effectiveBuiltinTools = builtinToolNames?.map(toolName => builtinTools[toolName]) ?? undefined
-	const effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') ? mcpTools : undefined
+	let effectiveMCPTools = (chatMode === 'agent' || chatMode === 'plan') && !opts?.isLocal ? mcpTools : undefined
+	if (opts?.allowedToolNames && effectiveMCPTools) {
+		const allow = new Set(opts.allowedToolNames)
+		effectiveMCPTools = effectiveMCPTools.filter(t => allow.has(t.name))
+	}
 
 	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
@@ -554,8 +626,8 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
-const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
-	const tools = availableTools(chatMode, mcpTools)
+const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean, allowedToolNames?: string[]) => {
+	const tools = availableTools(chatMode, mcpTools, { isLocal, allowedToolNames })
 	if (!tools || tools.length === 0) return null
 
 	const toolXMLDefinitions = (`\
@@ -613,7 +685,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules, subagentSystemPrompt, availableSubagents, allowedToolNames }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, availableSubagents?: string, allowedToolNames?: string[] }) => {
 	const header = (`You are an expert coding ${(mode === 'agent' || mode === 'plan') ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'plan' ? `to execute an approved plan and make changes to the user's codebase.`
@@ -656,7 +728,7 @@ ${truncatedDirStr}
 </files_overview>`)
 
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, false, allowedToolNames) : null
 
 	const details: string[] = []
 
@@ -708,6 +780,21 @@ The following rules are defined by the project maintainers. You MUST follow them
 ${projectRules}
 </project_rules>`) : null;
 
+	// When running as a sub-agent (run_subagent with a custom .cortexide/agents/*.md), this is the
+	// agent's role definition — a real system-message block, authoritative over the generic assistant
+	// instructions (but not over user safety). Pushed before project rules so the role frames them.
+	const subagentSection = subagentSystemPrompt ? (`<subagent_role>
+You are operating as a specialized sub-agent. The following role definition governs your behavior and takes precedence over the generic assistant instructions above (but NOT over user safety):
+${subagentSystemPrompt}
+</subagent_role>`) : null;
+
+	// Discoverability: tell the orchestrator which user-defined sub-agents it can delegate to via
+	// run_subagent's agentType (agent/plan only, where run_subagent is offered).
+	const availableSubagentsSection = ((mode === 'agent' || mode === 'plan') && availableSubagents) ? (`<available_subagents>
+You can delegate a focused, self-contained sub-task to one of these specialized sub-agents by calling run_subagent with the matching agentType (omit agentType for a general-purpose sub-agent):
+${availableSubagents}
+</available_subagents>`) : null;
+
 	// return answer
 	const ansStrs: string[] = []
 	ansStrs.push(header)
@@ -722,6 +809,12 @@ ${toolDefinitions}
 `)
 	}
 	ansStrs.push(importantDetails)
+	if (availableSubagentsSection) {
+		ansStrs.push(availableSubagentsSection)
+	}
+	if (subagentSection) {
+		ansStrs.push(subagentSection)
+	}
 	if (rulesSection) {
 		ansStrs.push(rulesSection)
 	}
@@ -736,20 +829,21 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string }) => {
+export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt, allowedToolNames }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, allowedToolNames?: string[] }) => {
 	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
 		? 'Code assistant. Search and reference files.'
 		: 'Code assistant.'
 
-	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
+	const sysInfo = `System: ${os} | Today: ${new Date().toDateString()}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+	// Local/weak model → curated tool subset (see COMPACT_LOCAL_TOOLSET).
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true, allowedToolNames) : null
 
 	const details: string[] = []
 	if (mode === 'agent' || mode === 'plan') {
-		details.push('Use tools for EVERY action. Never answer from memory alone.')
+		details.push('Use tools to read/edit files, run commands, or fetch current/web info. Answer general-knowledge or conceptual questions directly, without tools.')
 		details.push('Before editing: always read_file first. After editing: read_file again to verify.')
 		details.push('For 3+ file changes: list plan first, wait for confirmation.')
 		details.push('Workflow: Explore → Plan → Execute → Verify → Report.')
@@ -766,11 +860,17 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	// Project rules — keep short for local models (token budget)
 	const rulesSection = projectRules ? `\n\n<rules>\n${projectRules.slice(0, 1000)}${projectRules.length > 1000 ? '...' : ''}\n</rules>` : ''
 
+	// Sub-agent role (run_subagent custom agent) — capped for local token budgets.
+	const subagentSection = subagentSystemPrompt ? `\n\n<subagent_role>\n${subagentSystemPrompt.slice(0, 2000)}${subagentSystemPrompt.length > 2000 ? '...' : ''}\n</subagent_role>` : ''
+
 	const ansStrs: string[] = [header, sysInfo]
 	if (toolDefinitions) {
 		ansStrs.push(`\n<tools>\n${toolDefinitions}\n</tools>`)
 	}
 	ansStrs.push(importantDetails)
+	if (subagentSection) {
+		ansStrs.push(subagentSection)
+	}
 	if (rulesSection) {
 		ansStrs.push(rulesSection)
 	}
