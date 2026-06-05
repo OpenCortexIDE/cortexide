@@ -1870,8 +1870,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					},
 					onError: async (error) => {
-						this._setStreamState(threadId, { isRunning: undefined, error })
-						reject(error)
+						// Plan generation is an OPTIMIZATION, not required. If the model errors here (rate-limit /
+						// free-tier exhaustion / transient), do NOT dead-end on the error — fall through to direct
+						// execution, where the agent loop's model-failover escalates to another configured model
+						// (your local model, or a BYO cloud key like Pollinations). Resolving with NO plan added
+						// makes the caller proceed to the normal tool loop. Without this, a complex/destructive
+						// request (which triggers planning) stranded the user on the exhaustion message before the
+						// failover-capable loop ever ran. (findings: live free-tier-exhaustion bug)
+						console.error('[ChatThreadService] plan generation failed; proceeding to direct execution so failover can run:', error?.message)
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+						resolve()
 					},
 					onAbort: () => {
 						this._setStreamState(threadId, undefined)
@@ -3157,7 +3165,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let escalationCount = 0
 		const MAX_MODEL_ESCALATIONS = 4
 		const tryEscalateModel = async (reason: string, escOpts?: { avoidFreeTier?: boolean }): Promise<boolean> => {
-			if (!modelFallbackEnabled || escalationCount >= MAX_MODEL_ESCALATIONS) { return false }
+			if (!modelFallbackEnabled || escalationCount >= MAX_MODEL_ESCALATIONS) {
+				return false
+			}
 			const cur = resolvedModelSelection
 			if (cur && cur.providerName !== 'auto') { escalationUsedModels.add(`${cur.providerName}/${cur.modelName}`) }
 			// Always prefer a capable CLOUD model first (e.g. a configured BYO key like Pollinations) — that's
@@ -3995,8 +4005,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: iterLabel, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
 				const llmRes = await messageIsDonePromise // wait for message to complete
 
-				// if something else started running in the meantime
-				if (this.streamState[threadId]?.isRunning !== 'LLM') {
+				// Only the SUCCESS path may bail when a newer thread took over. For our OWN error/abort result
+				// we MUST proceed to handle it: the onError handler above sets isRunning=undefined (to unstick
+				// the UI), so this generic "interrupted by a newer thread" guard was swallowing EVERY llmError —
+				// making the auto-fallback AND model-failover in the llmError branch below unreachable on every
+				// error (incl. free-tier exhaustion). Confirmed live: post-send showed isRunning=undefined.
+				if (llmRes.type !== 'llmError' && this.streamState[threadId]?.isRunning !== 'LLM') {
 					// console.log('Chat thread interrupted by a newer chat thread', this.streamState[threadId]?.isRunning)
 					return
 				}
@@ -4009,11 +4023,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// llm res error
 				else if (llmRes.type === 'llmError') {
 					const { error } = llmRes
-					// Check if this is a rate limit error (429)
-					const isRateLimitError = error?.message?.includes('429') ||
-						error?.message?.toLowerCase().includes('rate limit') ||
-						error?.message?.toLowerCase().includes('tokens per min') ||
-						error?.message?.toLowerCase().includes('tpm')
+					// Check if this is a rate limit / quota-exhaustion error. Must match the SAME shapes the
+					// service layer treats as rate-limits (it injects the "all free tiers exhausted" message on
+					// these) — notably Google's "quota exceeded" / "RESOURCE_EXHAUSTED", which the old check
+					// (only 429/rate limit/tpm) MISSED, so avoidFreeTier never engaged for gemini free-tier.
+					const _loErr = (error?.message || '').toLowerCase()
+					const isRateLimitError = _loErr.includes('429') ||
+						_loErr.includes('rate limit') || _loErr.includes('rate-limit') ||
+						_loErr.includes('tokens per min') || _loErr.includes('tpm') ||
+						_loErr.includes('quota') || _loErr.includes('resource_exhausted') || _loErr.includes('exceeded your current quota')
 
 					// In auto mode, try fallback models for ALL errors (not just rate limits)
 					// This ensures auto mode is resilient even if one model is failing
@@ -4233,10 +4251,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						continue // retry the task on the escalated model
 					}
 
-					// (3) Nothing left to fall over to — surface the error (exhaustion-aware).
+					// (3) Nothing left to fall over to — surface the error (exhaustion-aware). NOTE: the onError
+					// handler already set streamState to { isRunning: undefined, error } (no llmInfo), so read
+					// any partial output defensively — llmInfo is gone by the time we reach here.
 					{
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
+						const llmInfo = this.streamState[threadId]?.llmInfo
+						const toolCallSoFar = llmInfo?.toolCallSoFar ?? null
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: llmInfo?.displayContentSoFar ?? '', reasoning: llmInfo?.reasoningSoFar ?? '', anthropicReasoning: null })
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
 						this._setStreamState(threadId, { isRunning: undefined, error: this._exhaustionAwareError(error) })
