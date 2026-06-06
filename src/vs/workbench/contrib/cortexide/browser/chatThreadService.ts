@@ -20,6 +20,7 @@ import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/c
 import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
+import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -2338,6 +2339,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
 		isLocal: boolean = false,
+		chatMode: ChatMode = 'agent',
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2350,6 +2352,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// aliased names (create_file -> create_file_or_folder, run -> run_command, ...) from native tool_calls
 		// and the XML extractor resolve here instead of throwing `No tool named "create_file"` (finding #4).
 		const isBuiltInTool = isABuiltinToolName(toolName)
+
+		// --- Phase 1: dispatch-level mode/permission enforcement (the AUTHORITATIVE read-only boundary).
+		// Runs BEFORE validation/approval/checkpoint/execution so a write/delete/terminal/MCP call in a
+		// read-only mode (gather/plan) — or a network call under local-only — is hard-blocked even if a
+		// weak/cloud/prompt-injected model fabricates it. The prompt-level tool catalog is advisory only.
+		// We emit a recoverable invalid_params message (the loop's error-counter sees it) and bail; no UI
+		// changes required. Does NOT depend on auto-approve (so terminal in gather is blocked, not merely
+		// prompted). Sub-agents run with chatModeOverride 'agent', so this never blocks legitimate agent work.
+		{
+			const localOnly = this._settingsService.state.globalSettings.routingPolicy === 'local-only'
+			const perm = checkToolAllowedInMode(toolName, chatMode, { isMCPTool: !isBuiltInTool, localOnly })
+			if (!perm.allowed) {
+				this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: perm.reason ?? `Blocked: the "${toolName}" tool is not allowed in ${chatMode} mode.`, id: toolId, mcpServerName })
+				return {}
+			}
+		}
 
 		if (!opts.preapproved) { // skip this if pre-approved
 			// 1. validate tool params
@@ -3317,7 +3335,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._linkToolCallToStepInternal(threadId, callThisToolFirst.id, activePlanTracking.currentStep)
 			}
 
-			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params })
+			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params }, false, chatMode)
 			if (interrupted) {
 				this._setStreamState(threadId, undefined)
 				this._addUserCheckpoint({ threadId })
@@ -4470,7 +4488,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									toolId,
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams },
-									isLocalModel // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
+									isLocalModel, // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
+									chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
 								)
 
 								if (interrupted) {
@@ -4566,7 +4585,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								toolId,
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams },
-								isLocalModel // keep local-model curation consistent across all tool-dispatch paths
+								isLocalModel, // keep local-model curation consistent across all tool-dispatch paths
+								chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
 							)
 
 							if (interrupted) {
@@ -4651,7 +4671,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel)
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
