@@ -72,6 +72,30 @@ suite('Phase 1 — tool permission gate (gather/read-only enforcement)', () => {
 	});
 });
 
+suite('Phase 1 — workspace trust enforcement', () => {
+
+	test('UNTRUSTED workspace blocks writes/terminal/MCP even in agent mode', () => {
+		for (const tool of ['edit_file', 'rewrite_file', 'create_file_or_folder', 'delete_file_or_folder', 'run_command', 'run_persistent_command']) {
+			const r = checkToolAllowedInMode(tool, 'agent', { workspaceTrusted: false });
+			assert.strictEqual(r.allowed, false, `${tool} must be blocked in an untrusted workspace`);
+			assert.ok(r.reason && /not trusted|Workspace Trust/i.test(r.reason), `${tool} block reason should mention trust`);
+		}
+		assert.strictEqual(checkToolAllowedInMode('mcp_tool', 'agent', { isMCPTool: true, workspaceTrusted: false }).allowed, false);
+	});
+
+	test('UNTRUSTED workspace still ALLOWS read/search (safe to understand the repo)', () => {
+		for (const tool of ['read_file', 'ls_dir', 'search_for_files', 'grep_search', 'get_diagnostics']) {
+			assert.strictEqual(checkToolAllowedInMode(tool, 'agent', { workspaceTrusted: false }).allowed, true, `${tool} should be allowed read-only in untrusted workspace`);
+		}
+	});
+
+	test('TRUSTED workspace (default) allows writes in agent mode', () => {
+		assert.strictEqual(checkToolAllowedInMode('edit_file', 'agent', { workspaceTrusted: true }).allowed, true);
+		// default (no flag) is trusted, so existing behaviour is unchanged
+		assert.strictEqual(checkToolAllowedInMode('edit_file', 'agent').allowed, true);
+	});
+});
+
 suite('Phase 1 — tool capability table consistency', () => {
 
 	test('every built-in tool has a capability entry', () => {

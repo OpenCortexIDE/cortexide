@@ -132,16 +132,23 @@ export interface ToolPermissionResult {
 export function checkToolAllowedInMode(
 	toolName: string,
 	chatMode: ChatMode | null | undefined,
-	opts?: { isMCPTool?: boolean; localOnly?: boolean }
+	opts?: { isMCPTool?: boolean; localOnly?: boolean; workspaceTrusted?: boolean }
 ): ToolPermissionResult {
 	const isMCPTool = opts?.isMCPTool ?? false;
 	const localOnly = opts?.localOnly ?? false;
+	// Default trusted=true so existing callers/tests are unaffected; callers pass the real trust state.
+	const untrusted = opts?.workspaceTrusted === false;
 	const readOnly = isReadOnlyChatMode(chatMode);
 	const modeLabel = chatMode ?? 'this';
+	// Both read-only mode and an untrusted workspace restrict to read/search only.
+	const restricted = readOnly || untrusted;
+	const restrictReason = untrusted
+		? `the workspace is not trusted. Trust this workspace (Workspace Trust) to let the agent change files, run commands, or use MCP tools.`
+		: `${modeLabel} (read-only) mode. Read and search tools are available; switch to Agent mode to make changes.`;
 
 	if (isMCPTool) {
-		if (readOnly) {
-			return { allowed: false, reason: `Blocked: MCP tools are disabled in ${modeLabel} (read-only) mode. Switch to Agent mode to run tools that can change your workspace or call external services.` };
+		if (restricted) {
+			return { allowed: false, reason: `Blocked: MCP tools are disabled because ${restrictReason}` };
 		}
 		if (localOnly) {
 			return { allowed: false, reason: `Blocked: MCP tools are disabled while local-only privacy mode is on (they may make external/network calls).` };
@@ -157,8 +164,8 @@ export function checkToolAllowedInMode(
 		return { allowed: false, reason: `Blocked: the "${toolName}" tool makes network requests, which are disabled while local-only privacy mode is on.` };
 	}
 
-	if (readOnly && (caps.writesWorkspace || caps.deletesWorkspace || caps.runsCommand)) {
-		return { allowed: false, reason: `Blocked: the "${toolName}" tool can change your workspace and is not allowed in ${modeLabel} (read-only) mode. Read and search tools are available; switch to Agent mode to make changes.` };
+	if (restricted && (caps.writesWorkspace || caps.deletesWorkspace || caps.runsCommand)) {
+		return { allowed: false, reason: `Blocked: the "${toolName}" tool can change your workspace and is not allowed because ${restrictReason}` };
 	}
 
 	return { allowed: true };

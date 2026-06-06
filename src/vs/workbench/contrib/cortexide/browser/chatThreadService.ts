@@ -46,6 +46,7 @@ import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { deepClone } from '../../../../base/common/objects.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
@@ -455,6 +456,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
 		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
 		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
+		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -2363,7 +2365,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// prompted). Sub-agents run with chatModeOverride 'agent', so this never blocks legitimate agent work.
 		{
 			const localOnly = this._settingsService.state.globalSettings.routingPolicy === 'local-only'
-			const perm = checkToolAllowedInMode(toolName, chatMode, { isMCPTool: !isBuiltInTool, localOnly })
+			// Workspace Trust: in an untrusted workspace, agentic mutation/terminal/MCP is disabled
+			// (read/search still allowed) — opening a malicious repo cannot immediately drive edits.
+			const workspaceTrusted = this._workspaceTrustService.isWorkspaceTrusted()
+			const perm = checkToolAllowedInMode(toolName, chatMode, { isMCPTool: !isBuiltInTool, localOnly, workspaceTrusted })
 			if (!perm.allowed) {
 				this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: perm.reason ?? `Blocked: the "${toolName}" tool is not allowed in ${chatMode} mode.`, id: toolId, mcpServerName })
 				return {}
