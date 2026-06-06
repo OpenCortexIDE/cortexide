@@ -272,7 +272,9 @@ export class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 			} finally {
 				modelRef.dispose();
 			}
-			await this._fileService.writeFile(operation.uri, VSBuffer.fromString(operation.content));
+			// Phase 1: atomic write (temp file + rename) so a crash/ENOSPC mid-write cannot leave the
+			// file empty or half-written. The node disk provider services atomic.postfix via doWriteFileAtomic.
+			await this._fileService.writeFile(operation.uri, VSBuffer.fromString(operation.content), { atomic: { postfix: '.cortexide-tmp' } });
 		} else if (operation.type === 'edit') {
 			const modelRef = await this._textModelService.createModelReference(operation.uri);
 			try {
@@ -299,9 +301,10 @@ export class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 				modelRef.dispose();
 			}
 
-			// Also write to disk
+			// Also write to disk — atomically (temp file + rename) to avoid corrupting the file on a
+			// crash/ENOSPC partway through the write.
 			const { content } = await this._getFileContent(operation.uri);
-			await this._fileService.writeFile(operation.uri, VSBuffer.fromString(content));
+			await this._fileService.writeFile(operation.uri, VSBuffer.fromString(content), { atomic: { postfix: '.cortexide-tmp' } });
 		}
 	}
 
