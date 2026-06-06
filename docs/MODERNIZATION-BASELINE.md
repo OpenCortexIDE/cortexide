@@ -92,3 +92,37 @@ into `cortexide.contribution.ts`, so even `cortexide.global.localFirstAI` was un
   deleted the real UI source.) Edit `src/`, never `src2/`.
 - `common/diffComposerAudit.ts` is **LIVE** (used at runtime by `composerPanel.ts`), not dead.
 - Real built-in tool count is **35**, not 27 (claimed) or 17 (audit estimate).
+
+### Phase 1 — Protect User Workspaces ⚠️ PARTIAL (5 commits)
+
+Done + tested (cortexide common subset 222 → **243 passing, 0 failing**, tsgo clean throughout):
+- **#3 Gather/read-only enforced at DISPATCH** (the keystone critical bug): new pure
+  `common/toolPermissions.ts` (capability table + `checkToolAllowedInMode`); `_runToolCall` now
+  gates every call (any parse path) BEFORE validation/approval/execution. `toolPermissions.test.ts`.
+- **#4 Terminal danger now BLOCKS**: new pure `common/commandRisk.ts` classifier wired into the
+  terminal approval gate — dangerous commands can't be auto-approved, catastrophic ones are refused.
+  `commandRisk.test.ts`.
+- **#1 Atomic writes (partial)**: `applyEngineV2` create+edit now request temp-file+rename atomic
+  writes. `applyEngineV2.test.ts` asserts it via a capturing mock.
+- **#6 Workspace Trust enforced at dispatch**: untrusted workspace blocks write/terminal/MCP (read
+  allowed); `IWorkspaceTrustManagementService` injected into `chatThreadService`.
+- **#5 Secret redaction**: VERIFIED already implemented + secure-by-default (audit was WRONG that it
+  was "completely unmitigated"). `sendLLMMessageService` redacts the outbound payload across all
+  provider message formats; `cortexide.secretDetection.enabled` defaults true, `mode` defaults
+  'redact', `block` mode honored. No code change needed.
+
+NOT done (DoD not met — Phase 1 is NOT complete; require core changes + live verification):
+- **#1 agent-path atomic** — `editCodeService → cortexideModelService.saveModel → textFileService.save`
+  is still non-atomic (`save` has no atomic option; a direct atomic write there desyncs the editor's
+  dirty/etag state). Needs a core `textFileEditorModel` atomic-save option. **Top follow-up.**
+- **#2 Durable checkpoint/rollback** — still can't recreate deleted / remove created files, doesn't
+  persist to disk, swallows errors (chatThreadService:5193-5298, editCodeService restore). L-effort,
+  entangled, needs live verification.
+- Terminal **cwd-inside-workspace containment** (toolsService:503 / terminalToolService:128) — not
+  yet added. (Mitigation: the sendLLMMessageService secret redaction already scrubs `run_command`
+  output before it reaches the LLM, contrary to the audit's leak claim.)
+
+### Audit reliability note
+Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
+secure-by-default; `react/src/` is the live source, not dead). Re-verify every audit claim in code
+before acting on it.
