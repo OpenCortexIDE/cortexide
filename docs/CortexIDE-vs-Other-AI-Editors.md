@@ -7,6 +7,19 @@ This comparison is based on:
 - **Competitors**: Public information from official websites, documentation, and announcements
 - **Unknown**: Marked when information cannot be verified from public sources
 
+> **⚠️ Accuracy notice (under correction — `modernize-agentic-editor-foundation`).**
+> An audit found that "verified in code" here often meant "code exists", not "feature works".
+> Several CortexIDE entries below were overstated and are being corrected. Ground truth until this
+> notice is removed (see [`docs/MODERNIZATION-BASELINE.md`](./MODERNIZATION-BASELINE.md)):
+> - **"Enterprise-Grade RAG" / tree-sitter / vector store is NOT working today** — retrieval is
+>   lexical **BM25 only**; AST extraction is non-functional and the vector store is experimental,
+>   off by default, and needs an embedding provider that is not yet bundled. (Phase 4.)
+> - **Audit log + rollback are experimental/opt-in**, not a delivered enterprise guarantee. (Phase 1.)
+> - **Apply is not yet atomic; "read-only" mode is not yet enforced below the prompt layer** — both
+>   are being fixed in Phase 1. Do not represent these as safety guarantees yet.
+> - **Competitor rows may be stale** (e.g. Claude Code *does* support MCP). Treat competitor columns
+>   as "best-effort, may be out of date", not authoritative.
+
 ## Quick Comparison Table
 
 | Feature | CortexIDE | Cursor | Antigravity | Void | Continue.dev | Claude Code | Windsurf |
@@ -23,7 +36,7 @@ This comparison is based on:
 | **Native MCP Tool Calling** | ✅ Yes (verified in code: `mcpChannel.ts`, `mcpService.ts`) | ✅ Yes | ❓ Unknown | ⚠️ Limited | ❓ Unknown | ❌ No | ❓ Unknown |
 | **FIM / Code Completion** | ✅ Yes (verified in code: `autocompleteService.ts`, `sendLLMMessage.impl.ts`) | ✅ Yes | ❓ Unknown | ⚠️ Limited | ❓ Unknown | ❌ No | ❓ Unknown |
 | **Agent Mode** | ✅ Yes (verified in code: `chatThreadService.ts`) | ✅ Yes | ❓ Unknown | ⚠️ Limited | ❓ Unknown | ❌ No | ❓ Unknown |
-| **Audit Log + Rollback** | ✅ Yes (verified in code: `auditLogService.ts`, `rollbackSnapshotService.ts`) | ❓ Unknown | ❓ Unknown | ❌ No | ❓ Unknown | ❌ No | ❓ Unknown |
+| **Audit Log + Rollback** | ⚠️ Experimental / opt-in (`auditLogService.ts`, `rollbackSnapshotService.ts`; both off by default) | ❓ Unknown | ❓ Unknown | ❌ No | ❓ Unknown | ❓ Unknown | ❓ Unknown |
 | **Privacy Mode / No Telemetry** | ✅ Yes (verified in code: `telemetryUtils.ts`, `cortexideStatusBar.ts`) | ✅ Yes | ❓ Unknown | ❌ No | ❓ Unknown | ❓ Unknown | ❓ Unknown |
 | **Installer Packages (Win/Mac/Linux)** | ✅ Yes (verified in code: `product.json`, build configs) | ✅ Yes | ❓ Unknown | ✅ Yes | ✅ Yes | ❌ No | ✅ Yes |
 | **Extensibility (Custom tools/scripts/agents)** | ✅ Yes (verified in code: MCP tool calling, custom providers) | ✅ Yes | ❓ Unknown | ⚠️ Limited | ❓ Unknown | ❌ No | ❓ Unknown |
@@ -141,13 +154,13 @@ This comparison is based on:
 
 ### RAG / Codebase Indexing
 
-**CortexIDE**: ✅ **Yes** - Advanced RAG implementation verified in code:
-- Tree-sitter AST parsing (verified in `treeSitterService.ts:248-310`)
-- Hybrid BM25 + vector search (verified in `repoIndexerService.ts:868-1155`)
-- Symbol extraction and indexing (verified in `repoIndexerService.ts:443-508`)
-- Vector store support (Qdrant, Chroma) (verified in `vectorStore.ts:377-435`)
+**CortexIDE**: ⚠️ **Partial** - Lexical indexing works; semantic/vector indexing does not yet:
+- ✅ Lexical **BM25** retrieval, queried on every turn (`repoIndexerService.ts`) — this is what actually runs today
+- ⚠️ Tree-sitter AST parsing (`treeSitterService.ts`) — _experimental, currently non-functional_ (Phase 4)
+- ⚠️ Hybrid BM25 + vector search (`repoIndexerService.ts`) — _code path exists but never activates without an embedding provider (none bundled)_
+- ⚠️ Vector store (Qdrant, Chroma) (`vectorStore.ts`) — _experimental, off by default (`cortexide.rag.vectorStore`), needs embeddings_
 
-**Cursor**: ✅ **Yes** - Codebase indexing and context retrieval.
+**Cursor**: ✅ **Yes** - Codebase indexing and context retrieval (semantic embeddings).
 
 **Antigravity**: ❓ **Unknown** - Cannot verify from public sources.
 
@@ -212,7 +225,7 @@ This comparison is based on:
 
 **Continue.dev**: ❓ **Unknown** - Cannot verify MCP support.
 
-**Claude Code**: ❌ **No** - No MCP tool calling.
+**Claude Code**: ✅ **Yes** - Claude Code supports MCP (stdio and remote servers). _(Corrected: the previous "No MCP" claim was factually wrong.)_
 
 **Windsurf**: ❓ **Unknown** - Cannot verify from public sources.
 
@@ -252,15 +265,15 @@ This comparison is based on:
 
 **Continue.dev**: ❓ **Unknown** - Cannot verify agent mode.
 
-**Claude Code**: ❌ **No** - No agent mode.
+**Claude Code**: ✅ **Yes** - Claude Code is a terminal-first agent. _(Corrected: the previous "No agent mode" claim was wrong.)_
 
 **Windsurf**: ❓ **Unknown** - Cannot verify from public sources.
 
 ### Audit Log + Rollback
 
-**CortexIDE**: ✅ **Yes** - Audit logging and rollback verified in code:
-- Audit log service (verified in `auditLogService.ts`)
-- Rollback snapshot service (verified in `rollbackSnapshotService.ts:32-218`)
+**CortexIDE**: ⚠️ **Experimental / opt-in** - the code exists but both are off by default and not yet a delivered guarantee:
+- Audit log service (`auditLogService.ts`) — opt-in via `cortexide.audit.enable` (default off)
+- Rollback snapshot service (`rollbackSnapshotService.ts`) — opt-in via `cortexide.safety.rollback.enable` (default off), Composer "Apply All" path only; being hardened into durable, operation-level rollback in Phase 1
 - Automatic snapshot creation before applies (verified in `composerPanel.ts:1420-1560`)
 - Git auto-stash integration (verified in `gitAutoStashService.ts`)
 
@@ -417,17 +430,17 @@ Based on verified code, CortexIDE offers several unique advantages:
 - Fallback chains and speculative escalation
 - 15+ provider support
 
-### 4. **Enterprise-Grade RAG Pipeline**
-- Tree-sitter AST parsing for accurate code understanding
-- Hybrid BM25 + vector search
-- Symbol extraction and indexing
-- Vector store integration (Qdrant, Chroma)
+### 4. **Codebase RAG Pipeline** _(lexical today; semantic in progress)_
+- Lexical **BM25** retrieval, queried on every turn (working)
+- ⚠️ Tree-sitter AST symbol extraction — _experimental, currently non-functional_ (Phase 4)
+- ⚠️ Hybrid BM25 + vector search and Qdrant/Chroma vector store — _experimental, off by default,_
+  _requires an embedding provider that is not yet bundled_ (Phase 4)
 
-### 5. **Complete Audit Trail**
-- Audit logging service (verified in `auditLogService.ts`)
-- Automatic snapshot creation before applies
-- Rollback capabilities with git integration
-- Recovery mechanisms
+### 5. **Audit Trail & Recovery** _(experimental / opt-in)_
+- Audit logging service (`auditLogService.ts`) — opt-in via `cortexide.audit.enable` (default off)
+- Git auto-stash before multi-file Composer applies (on by default)
+- ⚠️ Snapshot rollback — opt-in (`cortexide.safety.rollback.enable`, default off), Composer path only;
+  being hardened into a real recovery mechanism in Phase 1
 
 ### 6. **True Offline Mode**
 - Privacy mode that routes only to local models
