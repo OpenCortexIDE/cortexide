@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { classifyCommandRisk } from '../../common/commandRisk.js';
+import { classifyCommandRisk, cwdEscapesWorkspace } from '../../common/commandRisk.js';
 
 suite('Phase 1 — command risk classifier (terminal safety)', () => {
 
@@ -84,5 +84,42 @@ suite('Phase 1 — command risk classifier (terminal safety)', () => {
 		assert.strictEqual(r.hardBlock, false);
 		// non-recursive rm is "normal" (still needs the standard terminal approval, but not force-approval)
 		assert.strictEqual(r.requiresApproval, false);
+	});
+});
+
+suite('Phase 1 — terminal cwd containment', () => {
+	const ws = ['/home/me/project'];
+
+	test('absolute cwd OUTSIDE the workspace escapes (requires approval)', () => {
+		assert.strictEqual(cwdEscapesWorkspace('/etc', ws), true);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/other', ws), true);
+		assert.strictEqual(cwdEscapesWorkspace('/tmp', ws), true);
+	});
+
+	test('cwd at or under a workspace folder does NOT escape', () => {
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project', ws), false);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/src', ws), false);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/', ws), false);
+	});
+
+	test('relative cwd or no cwd does not escape (resolves within workspace)', () => {
+		assert.strictEqual(cwdEscapesWorkspace('src', ws), false);
+		assert.strictEqual(cwdEscapesWorkspace('./scripts', ws), false);
+		assert.strictEqual(cwdEscapesWorkspace(null, ws), false);
+		assert.strictEqual(cwdEscapesWorkspace('', ws), false);
+	});
+
+	test('prefix sibling is not treated as inside (/home/me/project2 vs /home/me/project)', () => {
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project2', ws), true);
+	});
+
+	test('absolute cwd with no workspace folders is treated as an escape', () => {
+		assert.strictEqual(cwdEscapesWorkspace('/anything', []), true);
+	});
+
+	test('multi-root: cwd inside any workspace folder is allowed', () => {
+		const multi = ['/a/one', '/b/two'];
+		assert.strictEqual(cwdEscapesWorkspace('/b/two/sub', multi), false);
+		assert.strictEqual(cwdEscapesWorkspace('/c/three', multi), true);
 	});
 });

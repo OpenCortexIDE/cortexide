@@ -81,6 +81,26 @@ const NORMAL: RegExp[] = [
 	/\bmv\b[^\n]*\s\.\.\//i, /\bcp\b[^\n]*\s\.\.\//i,
 ];
 
+/**
+ * True if an explicit terminal `cwd` escapes the workspace. A relative cwd (or none) resolves
+ * inside the workspace and is fine; an ABSOLUTE cwd is an escape unless it is at/under a workspace
+ * folder. Used to force explicit approval for commands that would run outside the workspace
+ * (the audit found terminal cwd was an unvalidated raw string — a model could `cwd: '/etc'`).
+ */
+export function cwdEscapesWorkspace(cwd: string | null | undefined, workspaceFsPaths: readonly string[]): boolean {
+	const c = (cwd ?? '').trim();
+	if (!c) { return false; } // no cwd -> default to the workspace/terminal cwd
+	const isAbsolute = c.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(c) || c.startsWith('\\\\');
+	if (!isAbsolute) { return false; } // relative paths resolve within the workspace
+	if (!workspaceFsPaths.length) { return true; } // absolute cwd with no workspace -> treat as escape
+	const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+	const cn = norm(c);
+	return !workspaceFsPaths.some(root => {
+		const rn = norm(root);
+		return cn === rn || cn.startsWith(rn + '/');
+	});
+}
+
 export function classifyCommandRisk(command: string): CommandRisk {
 	const cmd = (command ?? '').trim();
 	if (!cmd) { return { level: 'safe', categories: [], requiresApproval: false, hardBlock: false }; }

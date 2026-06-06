@@ -21,7 +21,7 @@ import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
-import { classifyCommandRisk } from '../common/commandRisk.js';
+import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -2439,6 +2439,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							// A dangerous command can never be auto-approved — force explicit user approval.
 							shouldAutoApprove = false;
 							this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: risk.categories.join(',') });
+						}
+					}
+					// cwd containment: a command whose working directory escapes the workspace must not
+					// auto-run — force explicit approval (the model can't silently `cwd: '/etc'`).
+					const cwd = (toolParams as BuiltinToolCallParams['run_command']).cwd ?? null;
+					if (shouldAutoApprove && cwd) {
+						const workspaceFsPaths = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+						if (cwdEscapesWorkspace(cwd, workspaceFsPaths)) {
+							shouldAutoApprove = false;
+							this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
 						}
 					}
 				}
