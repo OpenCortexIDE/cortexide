@@ -106,21 +106,31 @@ Done + tested (cortexide common subset 222 → **243 passing, 0 failing**, tsgo 
   writes. `applyEngineV2.test.ts` asserts it via a capturing mock.
 - **#6 Workspace Trust enforced at dispatch**: untrusted workspace blocks write/terminal/MCP (read
   allowed); `IWorkspaceTrustManagementService` injected into `chatThreadService`.
+- **#4 Terminal cwd containment**: new pure `cwdEscapesWorkspace()`; a command whose cwd escapes the
+  workspace can no longer be auto-approved (forces explicit approval). Multi-root aware. Tested.
 - **#5 Secret redaction**: VERIFIED already implemented + secure-by-default (audit was WRONG that it
   was "completely unmitigated"). `sendLLMMessageService` redacts the outbound payload across all
   provider message formats; `cortexide.secretDetection.enabled` defaults true, `mode` defaults
   'redact', `block` mode honored. No code change needed.
 
-NOT done (DoD not met — Phase 1 is NOT complete; require core changes + live verification):
+**Build verification (real build, not piecemeal esbuild):**
+- `npm run compile-check-ts-native` (tsgo, whole project): **0 errors**.
+- `npm run buildreact`: success (onboarding bundle builds with dynamic `builtinToolCount`).
+- `node build/next/index.ts transpile`: 5942 files, ok.
+- `test-node` cortexide common subset: **249 passing, 0 failing**.
+- NOTE: earlier `tsgo` runs were wrapped in `timeout` (absent on macOS) and silently no-op'd; the
+  real runs above confirm 0 errors. A real transpile also surfaced + fixed a suite-crashing broken
+  test (`test/common/ssrfGuard.test.ts` imported the browser layer → `MouseEvent` crash; deleted).
+
+NOT done (DoD not met — Phase 1 is NOT complete; require core changes + LIVE app verification):
 - **#1 agent-path atomic** — `editCodeService → cortexideModelService.saveModel → textFileService.save`
   is still non-atomic (`save` has no atomic option; a direct atomic write there desyncs the editor's
-  dirty/etag state). Needs a core `textFileEditorModel` atomic-save option. **Top follow-up.**
+  dirty/etag state). Needs a core `textFileEditorModel` atomic-save option + a running app to verify
+  dirty-state behavior. **Top follow-up.**
 - **#2 Durable checkpoint/rollback** — still can't recreate deleted / remove created files, doesn't
   persist to disk, swallows errors (chatThreadService:5193-5298, editCodeService restore). L-effort,
   entangled, needs live verification.
-- Terminal **cwd-inside-workspace containment** (toolsService:503 / terminalToolService:128) — not
-  yet added. (Mitigation: the sendLLMMessageService secret redaction already scrubs `run_command`
-  output before it reaches the LLM, contrary to the audit's leak claim.)
+- These two need a build+launch+exercise loop (CDP smoke), not just unit tests, to change safely.
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
