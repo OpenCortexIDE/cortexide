@@ -6,6 +6,7 @@
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
 import { CORTEXIDE_CONFIG_KEYS, cortexideConfigKeyNames, getCortexideConfigKeyDef } from '../../common/cortexideConfigKeys.js';
+import { builtinToolNames, builtinToolCount } from '../../common/builtinToolNames.js';
 
 /**
  * Phase 0 claim-verification test.
@@ -100,5 +101,27 @@ suite('Phase 0 — claim verification (config registration)', () => {
 		assert.strictEqual(getCortexideConfigKeyDef('cortexide.safety.autostash.enable')!.default, true);
 		assert.strictEqual(getCortexideConfigKeyDef('cortexide.safety.rollback.maxSnapshotBytes')!.default, 5_000_000);
 		assert.strictEqual(getCortexideConfigKeyDef('cortexide.audit.rotationSizeMB')!.default, 10);
+	});
+});
+
+suite('Phase 0 — built-in tool count honesty', () => {
+
+	test('builtinToolNames is the real registry count (onboarding "N built-ins" claim)', () => {
+		// The onboarding screen claimed "27 built-ins" — wrong. The real registry has 35 tools.
+		// This pins the number; the Record<BuiltinToolName, true> in builtinToolNames.ts makes
+		// adding a tool to the type without listing it a COMPILE error, and this assertion fails
+		// if the count changes, forcing the onboarding/docs claim to be updated in lock-step.
+		assert.strictEqual(builtinToolCount, 35, 'built-in tool count changed — update onboarding/docs claims to match');
+		assert.strictEqual(builtinToolNames.length, builtinToolCount);
+	});
+
+	test('no duplicate tool names', () => {
+		assert.strictEqual(builtinToolNames.length, new Set(builtinToolNames).size, 'duplicate built-in tool name');
+	});
+
+	test('every tool name is non-empty snake_case', () => {
+		for (const name of builtinToolNames) {
+			assert.ok(/^[a-z][a-z0-9_]*$/.test(name), `unexpected tool name format: ${name}`);
+		}
 	});
 });
