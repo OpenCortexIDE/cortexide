@@ -21,6 +21,7 @@ import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
+import { classifyCommandRisk } from '../common/commandRisk.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -2413,6 +2414,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// If autoApprove is undefined for 'edits', default to true (basic operations should work by default)
 				if (approvalType === 'edits' && shouldAutoApprove === undefined) {
 					shouldAutoApprove = true;
+				}
+
+				// Phase 1: terminal command risk gate. Previously _detectCommandDanger only fired a
+				// non-blocking notification, so with autoApprove.terminal=true a destructive command ran
+				// anyway. Now: a DANGEROUS command can never be auto-approved (force explicit approval,
+				// mirroring the HIGH-risk-edit override), and a CATASTROPHIC command is refused outright.
+				// Applies to run_command / run_persistent_command (run_nl_command is parsed later).
+				if (approvalType === 'terminal' && isBuiltInTool && (toolName === 'run_command' || toolName === 'run_persistent_command')) {
+					const command = (toolParams as BuiltinToolCallParams['run_command'] | BuiltinToolCallParams['run_persistent_command']).command;
+					if (typeof command === 'string' && command.trim()) {
+						const risk = classifyCommandRisk(command);
+						if (risk.hardBlock) {
+							this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: risk.categories.join(',') });
+							this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${risk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
+							return {};
+						}
+						if (risk.requiresApproval && shouldAutoApprove) {
+							// A dangerous command can never be auto-approved — force explicit user approval.
+							shouldAutoApprove = false;
+							this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: risk.categories.join(',') });
+						}
+					}
 				}
 				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
 
