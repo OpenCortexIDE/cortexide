@@ -18,7 +18,7 @@ import { IAuditLogService } from '../../common/auditLogService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
-import { ApplyEngineV2, FileEditOperation } from '../../common/applyEngineV2.js';
+import { ApplyEngineV2 } from '../../common/applyEngineV2.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 
