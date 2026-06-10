@@ -381,11 +381,18 @@ capability-less object / forced XML tool mode; common same-case path byte-identi
 reasoning inverted** (deepseek-chat/V3 advertised reasoning, deepseek-reasoner/R1 didn't; swapped the
 spread bases, which differ only in reasoningCapabilities). tsgo 0; subset **405 -> 414 passing**;
 adversarial high-blast-radius review = both correct/safe; LIVE 11/11 + 7B atomic-edit (registry resolves
-ollama caps every turn). **AUDIT BACKLOG (confirmed bugs, follow-up commits):**
-- 3 last-match-wins `modelOptionsFallback` orderings (anthropic ~918-928, openAI ~1151-1163, xAI
-  ~1258-1261): broad substring checks run AFTER specific ones, so variant names ('gpt-5-mini-2025',
-  'grok-3-mini-beta', 'claude-opus-4-8-latest') collapse to the broad parent -> mis-cost + stripped
-  reasoning. Fix = return-early on first (most-specific) match.
+ollama caps every turn).
+
+Third increment (`894c7a2c42b`): FIXED the **3 last-match-wins `modelOptionsFallback` orderings**
+(anthropic/openAI/xAI) -> first-match-wins (`ret(k)` + return-early). The review found this was
+collapsing nearly EVERY dated variant to its broad parent (gpt-5-mini-2025->gpt-5, o3-mini->o3,
+claude-opus-4-8-latest->legacy 4.0, grok-4-0709->grok-3). Required moving openAI's gpt-3.5 above the
+broad gpt-5 and tightening the broad gpt-5/gpt-5.1/gpt-4.1 to precise `includes('gpt-N')` (the old
+`gpt && '5'` matched a date's stray '5' -> a regression the new tests CAUGHT). tsgo 0; subset
+**414 -> 418 passing** (+4 tests); adversarial old-vs-new differential (battery from out/) =
+correct/safe; LIVE 11/11 + 7B atomic-edit (no agent-flow regression).
+
+**REMAINING AUDIT BACKLOG (confirmed bugs, follow-up):**
 - electron-main `toOpenAICompatibleTool` (sendLLMMessage.impl.ts ~489): builds `paramsWithType` then
   emits the untyped `params` -> OpenAI/groq/deepseek/mistral/openRouter tool schemas ship without JSON-
   Schema types. Best fixed by extracting the builder to common/ (node-testable) + emitting paramsWithType.
