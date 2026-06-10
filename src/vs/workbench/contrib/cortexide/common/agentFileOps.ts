@@ -16,7 +16,7 @@
  * The disk I/O is injected (`FileOpIO`) so the reversal logic is fully node-unit-testable.
  */
 
-export type AgentFileOpType = 'create' | 'delete';
+export type AgentFileOpType = 'create' | 'delete' | 'modify';
 
 export interface AgentFileOpRecord {
 	/** The checkpoint message index this op happened AFTER (used to decide what a rollback must undo). */
@@ -54,6 +54,20 @@ export interface FileOpIO {
 export async function undoAgentFileOp(io: FileOpIO, record: AgentFileOpRecord): Promise<UndoResult> {
 	const { fsPath, opType, isFolder, existedBefore, beforeContent } = record;
 	try {
+		if (opType === 'modify') {
+			// The agent edited an existing file → restore the prior content. (If it didn't exist before,
+			// the edit effectively created it — remove it.)
+			if (existedBefore && beforeContent !== null) {
+				await io.writeFileAtomic(fsPath, beforeContent);
+				return { fsPath, ok: true, action: 'restored' };
+			}
+			if (!existedBefore) {
+				if (await io.exists(fsPath)) { await io.del(fsPath, { recursive: false }); }
+				return { fsPath, ok: true, action: 'removed' };
+			}
+			return { fsPath, ok: true, action: 'noop' };
+		}
+
 		if (opType === 'create') {
 			// The agent created (or overwrote) this path.
 			if (!existedBefore) {

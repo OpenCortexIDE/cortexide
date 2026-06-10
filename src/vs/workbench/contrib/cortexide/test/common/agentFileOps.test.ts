@@ -68,6 +68,32 @@ suite('Phase 1 #2 — durable agent file-op rollback (undoAgentFileOp)', () => {
 		assert.ok(r.error && r.error.includes('simulated write failure'));
 	});
 
+	test('undo MODIFY restores the prior content (edit rollback on disk)', async () => {
+		const io = makeIO({ '/ws/doc.txt': 'VERSION_TWO_EDITED' });
+		const r = await undoAgentFileOp(io, rec({ fsPath: '/ws/doc.txt', opType: 'modify', existedBefore: true, beforeContent: 'VERSION_ONE' }));
+		assert.strictEqual(r.action, 'restored');
+		assert.strictEqual(io.files.get('/ws/doc.txt'), 'VERSION_ONE');
+	});
+
+	test('undo MODIFY of a file the edit created (existed=false) removes it', async () => {
+		const io = makeIO({ '/ws/doc.txt': 'EDIT_CREATED_THIS' });
+		const r = await undoAgentFileOp(io, rec({ fsPath: '/ws/doc.txt', opType: 'modify', existedBefore: false, beforeContent: null }));
+		assert.strictEqual(r.action, 'removed');
+		assert.strictEqual(io.files.has('/ws/doc.txt'), false);
+	});
+
+	test('sequential edits undo in reverse to the original content', async () => {
+		// edit1: V1->V2 (before=V1), edit2: V2->V3 (before=V2). Undo both (reverse) -> V1.
+		const io = makeIO({ '/ws/doc.txt': 'V3' });
+		const journal: AgentFileOpRecord[] = [
+			{ checkpointIdx: 1, fsPath: '/ws/doc.txt', opType: 'modify', isFolder: false, existedBefore: true, beforeContent: 'V1' },
+			{ checkpointIdx: 1, fsPath: '/ws/doc.txt', opType: 'modify', isFolder: false, existedBefore: true, beforeContent: 'V2' },
+		];
+		const { results } = await undoFileOpsAfterCheckpoint(io, journal, 0);
+		assert.strictEqual(results.length, 2);
+		assert.strictEqual(io.files.get('/ws/doc.txt'), 'V1', 'reverse replay must land on the original content');
+	});
+
 	test('undo of a create whose file is already gone is a safe no-op success', async () => {
 		const io = makeIO({});
 		const r = await undoAgentFileOp(io, rec({ fsPath: '/ws/new.txt', opType: 'create', existedBefore: false }));

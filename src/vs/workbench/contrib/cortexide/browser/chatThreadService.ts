@@ -22,7 +22,7 @@ import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
-import { AgentFileOpRecord, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
+import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -2408,6 +2408,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				const p = toolParams as BuiltinToolCallParams['delete_file_or_folder']
 				await this._recordFileOpBeforeMutation(threadId, p.uri, 'delete', !!p.isFolder)
 			}
+			// Phase 1 #2: journal the BEFORE-content of edits too — the in-memory checkpoint only captures
+			// a snapshot when the file already had a live editor model, so an edit to an unopened file
+			// could not be rolled back. The durable journal is authoritative for the on-disk rollback.
+			if (toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'multi_edit') {
+				const uri = (toolParams as BuiltinToolCallParams['edit_file' | 'rewrite_file' | 'multi_edit']).uri
+				await this._recordFileOpBeforeMutation(threadId, uri, 'modify', false)
+			}
 
 			// 2. if tool requires approval, break from the loop, awaiting approval
 
@@ -2917,7 +2924,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	private readonly _childThreadsByParent = new Map<string, Set<string>>()
 
 	/** Records the on-disk BEFORE-state of a create/delete so a checkpoint rollback can reverse it. */
-	private async _recordFileOpBeforeMutation(threadId: string, uri: URI, opType: 'create' | 'delete', isFolder: boolean) {
+	private async _recordFileOpBeforeMutation(threadId: string, uri: URI, opType: AgentFileOpType, isFolder: boolean) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return
 		let existedBefore = false
