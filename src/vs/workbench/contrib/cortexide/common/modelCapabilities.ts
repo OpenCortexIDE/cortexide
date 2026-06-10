@@ -1434,14 +1434,14 @@ const geminiSettings: VoidStaticProviderInfo = {
 // ---------------- DEEPSEEK API ----------------
 const deepseekModelOptions = {
 	'deepseek-chat': {
-		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		...openSourceModelOptions_assumingOAICompat.deepseekCoderV2, // DeepSeek-V3 chat is NON-reasoning
 		contextWindow: 64_000, // https://api-docs.deepseek.com/quick_start/pricing
 		reservedOutputTokenSpace: 8_000, // 8_000,
 		cost: { cache_read: .07, input: .27, output: 1.10, },
 		downloadable: false,
 	},
 	'deepseek-reasoner': {
-		...openSourceModelOptions_assumingOAICompat.deepseekCoderV2,
+		...openSourceModelOptions_assumingOAICompat.deepseekR1, // DeepSeek-R1 reasoner IS reasoning
 		contextWindow: 64_000,
 		reservedOutputTokenSpace: 8_000, // 8_000,
 		cost: { cache_read: .14, input: .55, output: 2.19, },
@@ -2232,7 +2232,10 @@ export const getModelCapabilities = (
 	for (const modelName_ in modelOptions) {
 		const lowercaseModelName_ = modelName_.toLowerCase()
 		if (lowercaseModelName === lowercaseModelName_) {
-			return { ...modelOptions[modelName], ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+			// Use the MATCHED registry key (modelName_), not the caller's possibly different-cased modelName:
+			// `modelOptions[modelName]` is undefined for e.g. 'GPT-4o' vs the 'gpt-4o' key, which used to
+			// return a capability-less object (no contextWindow / specialToolFormat -> forced XML tool mode).
+			return { ...modelOptions[modelName_], ...overrides, modelName, recognizedModelName: modelName_, isUnrecognizedModel: false };
 		}
 	}
 
