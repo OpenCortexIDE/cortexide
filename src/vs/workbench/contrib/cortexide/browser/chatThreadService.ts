@@ -61,8 +61,8 @@ import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/sim
 import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
 import { decideToolSynthesis, decideHowManySearch } from '../common/toolSynthesisDecision.js';
-import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
-import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
+import { pickNextFailoverModel, toModelSelection } from '../common/routing/modelFailover.js';
+import { resolveModelRuntimeCaps, buildFailoverCandidates, type FailoverProviderEntry } from '../common/modelSelectionEngine.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -2863,35 +2863,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const state = this._settingsService.state
 		const overrides = state.overridesOfModel
 		const localOnly = state.globalSettings.routingPolicy === 'local-only'
-		const candidates: FailoverCandidate[] = []
-		for (const providerName of Object.keys(state.settingsOfProvider) as ProviderName[]) {
+		// Phase 2: flatten the configured providers (impure - reads settings) then build the candidate
+		// list with the pure, tested buildFailoverCandidates; the ranking stays in pickNextFailoverModel.
+		const providers: FailoverProviderEntry[] = (Object.keys(state.settingsOfProvider) as ProviderName[]).map(providerName => {
 			const ps = state.settingsOfProvider[providerName]
-			if (!ps._didFillInProviderSettings) { continue }
-			const isLocal = (localProviderNames as readonly ProviderName[]).includes(providerName)
-			for (const mi of ps.models) {
-				if (mi.isHidden) { continue }
-				if (excludeKeys.has(`${providerName}/${mi.modelName}`)) { continue }
-				let contextWindow = 0
-				let hasNativeToolCalls = false
-				let isCoder = isLikelyCoderModelName(mi.modelName)
-				try {
-					const caps = getModelCapabilities(providerName, mi.modelName, overrides)
-					contextWindow = caps.contextWindow ?? 0
-					hasNativeToolCalls = !!caps.specialToolFormat && !isLocal
-					isCoder = isCoder || !!caps.supportsFIM
-				} catch { /* fall back to name heuristics + zero ctx */ }
-				candidates.push({
-					providerName,
-					modelName: mi.modelName,
-					isLocal,
-					contextWindow,
-					hasNativeToolCalls,
-					isKnownCapableProvider: (KNOWN_CAPABLE_AGENTIC_PROVIDERS as readonly ProviderName[]).includes(providerName),
-					isCoder,
-					isFreeTierProvider: freeTierIdOfProviderName(providerName) !== null,
-				})
+			return {
+				providerName,
+				didFillInProviderSettings: !!ps._didFillInProviderSettings,
+				models: (ps.models ?? []).map(mi => ({ modelName: mi.modelName, isHidden: mi.isHidden })),
 			}
-		}
+		})
+		const candidates = buildFailoverCandidates(providers, excludeKeys, (pn, mn) => {
+			try { return getModelCapabilities(pn, mn, overrides) } catch { return null }
+		})
 		const pick = pickNextFailoverModel(candidates, { excludeKeys, localOnly, preferNonLocal: opts.preferNonLocal, avoidFreeTier: opts.avoidFreeTier })
 		return pick ? toModelSelection(pick) : null
 	}
@@ -3268,9 +3252,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
 		const recomputeModelState = (m: ModelSelection | null) => {
 			chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, m)
-			isLocalModel = !!m && (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName)
-			maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
-			maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
+			// Phase 2: the local-vs-cloud loop-cap policy is the pure, tested resolveModelRuntimeCaps.
+			const caps = resolveModelRuntimeCaps(m, {
+				maxAgentIterations: MAX_AGENT_LOOP_ITERATIONS,
+				maxLocalAgentIterations: MAX_LOCAL_AGENT_LOOP_ITERATIONS,
+				maxConsecutiveToolErrors: MAX_CONSECUTIVE_TOOL_ERRORS,
+				maxLocalConsecutiveToolErrors: MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS,
+			})
+			isLocalModel = caps.isLocalModel
+			maxAgentIterations = caps.maxAgentIterations
+			maxConsecutiveToolErrors = caps.maxConsecutiveToolErrors
 		}
 		recomputeModelState(resolvedModelSelection)
 		const { overridesOfModel } = this._settingsService.state
