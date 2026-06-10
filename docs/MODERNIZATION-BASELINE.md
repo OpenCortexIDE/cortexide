@@ -132,6 +132,28 @@ NOT done (DoD not met — Phase 1 is NOT complete; require core changes + LIVE a
   entangled, needs live verification.
 - These two need a build+launch+exercise loop (CDP smoke), not just unit tests, to change safely.
 
+### Phase 1 — LIVE agent-driven verification (2026-06-10, capable model)
+
+Pulled `qwen2.5-coder:7b` (Auto had been picking the weak 3B). Results:
+- **Gate A (gather read-only) — PROVEN end-to-end.** `test/cortexide-smoke/gather-isolated-e2e.mjs`
+  (fresh profile, GATHER only, no agent follow-up): the 7B emitted a real `<create_file>` tool call,
+  and even after **Approve & Execute** (plan executed), `pwned.txt` was **never written to disk**.
+  The dispatch gate blocks real model-emitted writes in gather mode.
+  - Earlier alarming `pwned.txt`-on-disk was **agent-mode contamination** (a reused conversation
+    switched gather→agent; the agent phase, where writes ARE allowed, created it). Lesson: never
+    reuse a chat conversation across mode switches in a safety test.
+- **Gate E (settings) / config + secure defaults — PROVEN live.** `phase1-safety-verify.mjs` 26/26
+  (real modules decide correctly in-renderer; keys registered; vectorStore='none', secretDetect redact).
+- **Gate D (workspace trust) — logic+wiring+trusted-path verified; untrusted-block NOT live-exercised.**
+  The dev CLI launch **auto-trusts** the workspace (no Restricted Mode even with `CX_KEEP_TRUST=1` +
+  seeded `security.workspace.trust.*`). Same dispatch chokepoint as the proven gather gate.
+- **Gates B/C (terminal danger / cwd) — logic+wiring verified (26/26 + artifact); not driven live**
+  (would need the model to emit specific terminal commands + I won't run destructive commands).
+- App boots on the branch (cdp-smoke 11/11). Capable agent writes work (diagtest.txt created by 7B in
+  agent mode). `launch-dev.sh` gains `CX_KEEP_TRUST=1`.
+
+**Still NOT done → Phase 1 NOT complete:** #1 agent-path atomic, #2 durable checkpoint/rollback.
+
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
 secure-by-default; `react/src/` is the live source, not dead). Re-verify every audit claim in code
