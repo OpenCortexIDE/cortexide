@@ -140,3 +140,56 @@ export function decideToolSynthesis(p: ToolSynthesisInputs): ToolSynthesisDecisi
 
 	return { shouldSynthesize, isActionRequest, isCodebaseQuery, isWebQuery, shouldUseTools, isImageAnalysisQuery, looksFinal, alreadyActed };
 }
+
+/** Nouns a "how many X" question can count - if any appears, the question needs a codebase search (4625-4630). */
+const HOW_MANY_NOUNS = ['endpoint', 'api', 'route', 'file', 'function', 'class', 'method', 'component', 'module', 'service', 'controller', 'handler'];
+/** Phrases/nouns whose presence (with a digit) means the reply already answered the count (4638-4642). */
+const COUNT_IN_RESPONSE_TERMS = ['endpoint', 'api', 'route', 'file', 'function', 'class', 'there are', 'i found', 'total'];
+
+export interface HowManySearchInputs {
+	/** whether the model already produced a tool call this turn */
+	readonly hasToolCall: boolean;
+	/** the model's full text reply (raw; lowercased internally where the inline code did) */
+	readonly fullText: string;
+	/** whether an originating user message exists */
+	readonly hasOriginalUserMessage: boolean;
+	/** originalUserMessage.displayContent?.toLowerCase() || '' (caller lowercases, matching 4621) */
+	readonly userRequest: string;
+	/** toolsExecutedInRequest - this gate only applies AFTER at least one tool ran */
+	readonly toolsExecuted: readonly string[];
+	readonly hasSynthesizedForRequest: boolean;
+	readonly filesReadInQuery: number;
+	readonly maxFilesReadPerQuery: number;
+}
+
+export interface HowManySearchDecision {
+	readonly isHowManyQuestion: boolean;
+	readonly needsMoreSearch: boolean;
+}
+
+/**
+ * The SECOND synthesis trigger (chatThreadService:4620-4645): after the model executed at least one
+ * tool but replied with text and no tool call, a "how many X" question that hasn't actually searched or
+ * read - and whose reply has no count - should be nudged into one more search_for_files. Mirrors the
+ * inline gate byte-for-byte; the caller owns the synthesis action + its search_for_files-only guard.
+ */
+export function decideHowManySearch(p: HowManySearchInputs): HowManySearchDecision {
+	// Outer guard (4620): no tool call yet, non-empty reply, at least one tool already ran, a user message.
+	if (p.hasToolCall || p.fullText.trim().length === 0 || p.toolsExecuted.length === 0 || !p.hasOriginalUserMessage) {
+		return { isHowManyQuestion: false, needsMoreSearch: false };
+	}
+
+	const userRequest = p.userRequest;
+	const isHowManyQuestion = userRequest.includes('how many') && HOW_MANY_NOUNS.some(n => userRequest.includes(n));
+
+	const hasSearched = p.toolsExecuted.includes('search_for_files') || p.toolsExecuted.includes('search_pathnames_only');
+	const hasRead = p.toolsExecuted.includes('read_file');
+
+	const responseText = p.fullText.toLowerCase();
+	const hasCountInResponse = /\d+/.test(responseText) && COUNT_IN_RESPONSE_TERMS.some(t => responseText.includes(t));
+
+	const needsMoreSearch = isHowManyQuestion && !hasSearched && !hasRead && !hasCountInResponse
+		&& !p.hasSynthesizedForRequest && p.filesReadInQuery < p.maxFilesReadPerQuery;
+
+	return { isHowManyQuestion, needsMoreSearch };
+}

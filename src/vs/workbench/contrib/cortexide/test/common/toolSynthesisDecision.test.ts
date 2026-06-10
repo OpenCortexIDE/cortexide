@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { decideToolSynthesis, type ToolSynthesisInputs } from '../../common/toolSynthesisDecision.js';
+import { decideToolSynthesis, decideHowManySearch, type ToolSynthesisInputs, type HowManySearchInputs } from '../../common/toolSynthesisDecision.js';
 
 // A baseline that DOES synthesize: agent mode, action request, first retry done, model supports tools.
 const base = (over: Partial<ToolSynthesisInputs> = {}): ToolSynthesisInputs => ({
@@ -120,5 +120,72 @@ suite('decideToolSynthesis', () => {
 		// hasImages + userRequest includes 'this' negates isCodebaseQuery (likely about the image)
 		const d = decideToolSynthesis(base({ hasImages: true, userRequest: 'what is this in the codebase' }));
 		assert.strictEqual(d.isCodebaseQuery, false);
+	});
+});
+
+// The SECOND synthesis trigger: a "how many X" question that explored but didn't answer.
+const baseHM = (over: Partial<HowManySearchInputs> = {}): HowManySearchInputs => ({
+	hasToolCall: false,
+	fullText: 'I explored the code structure.', // non-empty, no digit/count
+	hasOriginalUserMessage: true,
+	userRequest: 'how many endpoints are there', // lowercased
+	toolsExecuted: ['get_dir_tree'], // a tool ran, but not search/read
+	hasSynthesizedForRequest: false,
+	filesReadInQuery: 0,
+	maxFilesReadPerQuery: 10,
+	...over,
+});
+
+suite('decideHowManySearch', () => {
+
+	test('baseline how-many question that explored but did not answer: needs more search', () => {
+		const d = decideHowManySearch(baseHM());
+		assert.strictEqual(d.isHowManyQuestion, true);
+		assert.strictEqual(d.needsMoreSearch, true);
+	});
+
+	// outer-gate failures
+	test('already has a tool call: no follow-up search', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ hasToolCall: true })).needsMoreSearch, false);
+	});
+	test('no tools executed yet (gate only applies AFTER a tool ran): no follow-up', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ toolsExecuted: [] })).needsMoreSearch, false);
+	});
+	test('empty reply: no follow-up', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ fullText: '  ' })).needsMoreSearch, false);
+	});
+	test('no original user message: no follow-up', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ hasOriginalUserMessage: false })).needsMoreSearch, false);
+	});
+
+	// inner logic
+	test('"how many" without a countable noun is not a how-many question', () => {
+		const d = decideHowManySearch(baseHM({ userRequest: 'how many times should i retry' }));
+		assert.strictEqual(d.isHowManyQuestion, false);
+		assert.strictEqual(d.needsMoreSearch, false);
+	});
+	test('already searched (search_for_files ran): no more search', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ toolsExecuted: ['search_for_files'] })).needsMoreSearch, false);
+	});
+	test('already searched (search_pathnames_only ran): no more search', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ toolsExecuted: ['search_pathnames_only'] })).needsMoreSearch, false);
+	});
+	test('already read a file: no more search', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ toolsExecuted: ['read_file'] })).needsMoreSearch, false);
+	});
+	test('reply already contains a count (digit + count term): no more search', () => {
+		const d = decideHowManySearch(baseHM({ fullText: 'There are 5 endpoints in the app.' }));
+		assert.strictEqual(d.isHowManyQuestion, true);
+		assert.strictEqual(d.needsMoreSearch, false);
+	});
+	test('a digit without a count term does NOT count as an answer (still needs search)', () => {
+		// '3' present but no count noun/phrase -> hasCountInResponse false -> still needs search
+		assert.strictEqual(decideHowManySearch(baseHM({ fullText: 'I looked at 3 directories so far.' })).needsMoreSearch, true);
+	});
+	test('already synthesized this request: no more search (one-shot)', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ hasSynthesizedForRequest: true })).needsMoreSearch, false);
+	});
+	test('files read at cap: no more search', () => {
+		assert.strictEqual(decideHowManySearch(baseHM({ filesReadInQuery: 10, maxFilesReadPerQuery: 10 })).needsMoreSearch, false);
 	});
 });

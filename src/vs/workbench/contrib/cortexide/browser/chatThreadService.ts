@@ -60,7 +60,7 @@ import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDet
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
 import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
-import { decideToolSynthesis } from '../common/toolSynthesisDecision.js';
+import { decideToolSynthesis, decideHowManySearch } from '../common/toolSynthesisDecision.js';
 import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
 import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -4619,32 +4619,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// For "how many endpoints" type questions, we need to ensure model searches for endpoints
 				if (!toolCall && info.fullText.trim() && toolsExecutedInRequest.length > 0 && originalUserMessage) {
 					const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
-
-					// Check if this is a "how many" question that requires searching files
-					// Expanded pattern matching for better detection
-					const isHowManyQuestion = userRequest.includes('how many') && (
-						userRequest.includes('endpoint') || userRequest.includes('api') || userRequest.includes('route') ||
-						userRequest.includes('file') || userRequest.includes('function') || userRequest.includes('class') ||
-						userRequest.includes('method') || userRequest.includes('component') || userRequest.includes('module') ||
-						userRequest.includes('service') || userRequest.includes('controller') || userRequest.includes('handler')
-					)
-
-					// Check if we've searched or read files (needed to determine if more search is needed)
-					const hasSearched = toolsExecutedInRequest.includes('search_for_files') || toolsExecutedInRequest.includes('search_pathnames_only')
-					const hasRead = toolsExecutedInRequest.includes('read_file')
-
-					// Check if model's response actually contains an answer (has numbers or count indicators)
-					const responseText = info.fullText.toLowerCase()
-					const hasCountInResponse = /\d+/.test(responseText) && (
-						responseText.includes('endpoint') || responseText.includes('api') || responseText.includes('route') ||
-						responseText.includes('file') || responseText.includes('function') || responseText.includes('class') ||
-						responseText.includes('there are') || responseText.includes('i found') || responseText.includes('total')
-					)
-
-					// If it's a "how many" question and we haven't searched/read, and response doesn't contain answer, synthesize search
-					const needsMoreSearch = isHowManyQuestion && !hasSearched && !hasRead && !hasCountInResponse && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY
-
-					if (needsMoreSearch) {
+					// Phase 2: the "how many X" follow-up-search decision is delegated to the pure, tested
+					// decision fn (common/toolSynthesisDecision.ts); the synthesis ACTION stays inline below.
+					const howManyDecision = decideHowManySearch({
+						hasToolCall: !!toolCall,
+						fullText: info.fullText,
+						hasOriginalUserMessage: true,
+						userRequest,
+						toolsExecuted: toolsExecutedInRequest,
+						hasSynthesizedForRequest: !!hasSynthesizedForRequest,
+						filesReadInQuery,
+						maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+					})
+					if (howManyDecision.needsMoreSearch) {
 						const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 						if (synthesizedToolCall && synthesizedToolCall.toolName === 'search_for_files') {
 							const { toolName, toolParams } = synthesizedToolCall
