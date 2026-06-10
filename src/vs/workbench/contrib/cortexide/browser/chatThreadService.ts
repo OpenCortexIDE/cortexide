@@ -4435,6 +4435,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// using native tool calling - common for local Ollama coders and some gateways. The pure
 				// recognizer (common/toolCallRecognition.ts) also strips any hallucinated multi-tool transcript
 				// after the first real call so it can't leak into the shown text or the conversation history.
+				// B1: did the model emit structured tool-call markup we could not parse? (set below)
+				let attemptedMalformedToolCall = false
 				if (!toolCall && info.fullText.trim()) {
 					const recognized = recognizeTextToolCall(info.fullText)
 					if (recognized.parsed) {
@@ -4447,6 +4449,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							doneParams: Object.keys(recognized.parsed.toolParams)
 						}
 						info = { ...info, fullText: recognized.preamble }
+					} else {
+						attemptedMalformedToolCall = recognized.attemptedButMalformed
 					}
 				}
 
@@ -4672,6 +4676,37 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							continue // Continue loop with the new tool result
 						}
 					}
+				}
+
+				// B1 fix: the model emitted structured tool-call markup (<tool_call/<function_calls/<invoke)
+				// that could not be parsed AND no real/synthesized tool ran. That is an ATTEMPTED tool call that
+				// failed - an agent error, NOT a finished answer. Without this, the loop would commit the
+				// malformed text as the assistant's final reply and exit as if done (the silent-no-op-success
+				// bug). Count it toward the SAME consecutive-tool-error cap and re-prompt so the model can
+				// self-correct (the file-read-limit path below uses the same assistant-note + re-prompt shape);
+				// at the cap, escalate or stop honestly. Gated on the structured markers only (a correctly
+				// formed call would have parsed) so a genuine prose answer is never misclassified.
+				if (attemptedMalformedToolCall && !toolCall && (chatMode === 'agent' || chatMode === 'plan')) {
+					consecutiveToolErrors += 1
+					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+						if (await tryEscalateModel(`the previous model emitted ${consecutiveToolErrors} unparseable tool calls in a row`)) {
+							consecutiveToolErrors = 0
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+							continue
+						}
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} unparseable tool calls in a row.${isLocalModel ? ' Small/local models can struggle with the tool-call format - try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
+						this._setStreamState(threadId, { isRunning: undefined })
+						this._addUserCheckpoint({ threadId })
+						return
+					}
+					// Corrective feedback as a USER turn (NOT assistant): the malformed text was just committed
+					// as the assistant message, so a user turn keeps strict user/assistant alternation intact
+					// (Anthropic/Gemini) - the same reason tryEscalateModel avoids injecting assistant messages.
+					const malformedNote = `Your previous tool call was malformed and could not be parsed. Re-emit it as a single valid tool call.`
+					this._addMessageToThread(threadId, { role: 'user', content: malformedNote, displayContent: malformedNote, selections: null, state: defaultMessageState })
+					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+					shouldSendAnotherMessage = true
+					continue
 				}
 
 				// The agent loop terminates naturally when no tool call is present.

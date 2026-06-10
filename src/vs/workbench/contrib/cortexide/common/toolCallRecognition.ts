@@ -37,6 +37,39 @@ export interface TextToolCallRecognition {
 	 * when nothing is parsed, this is the original text unchanged.
 	 */
 	readonly preamble: string;
+	/**
+	 * B1: true when NOTHING parsed but the text still carries a STRUCTURED tool-call marker
+	 * (<tool_call / <function_calls / <invoke) - i.e. the model ATTEMPTED a tool call but emitted
+	 * unparseable markup. The loop treats this as an agent error (not a finished answer) so it doesn't
+	 * silently no-op. Deliberately NOT set for a bare `{`: legitimate answers contain JSON/code that
+	 * parses to no tool, and flagging those would misclassify real final answers.
+	 */
+	readonly attemptedButMalformed: boolean;
+}
+
+/**
+ * The structured tool-call wrappers a correctly-formed call would have parsed from. Only the two
+ * unambiguous WRAPPER tags: `<tool_call>` and Anthropic's `<function_calls>`. Standalone `<invoke>` is
+ * deliberately EXCLUDED - it collides with legitimate content (JSX `<Invoke/>` components, SOAP/XML,
+ * Apache config), and a real Anthropic attempt always carries the `<function_calls>` wrapper anyway.
+ */
+const STRUCTURED_TOOL_CALL_MARKERS: readonly RegExp[] = [/<\s*tool_call\b/i, /<\s*function_calls\b/i];
+
+/** Strip fenced ```...``` blocks and inline `...` code so a marker that is merely QUOTED/illustrated in code does not count. */
+function stripCodeSpans(text: string): string {
+	return text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
+}
+
+/**
+ * True iff the text contains a structured tool-call wrapper (`<tool_call` or `<function_calls`) OUTSIDE
+ * of any code span. Used to tell an attempted-but-malformed tool call apart from a genuine prose answer.
+ * A bare `{` is intentionally NOT a marker (legitimate answers contain JSON/code), standalone `<invoke>`
+ * is excluded (JSX/XML collisions), and markers quoted inside code fences/backticks are ignored - so a
+ * model that merely DOCUMENTS or shows the tool-call format is not misclassified as having botched one.
+ */
+export function hasStructuredToolCallMarker(text: string): boolean {
+	const outsideCode = stripCodeSpans(text);
+	return STRUCTURED_TOOL_CALL_MARKERS.some(re => re.test(outsideCode));
 }
 
 /**
@@ -51,7 +84,9 @@ export interface TextToolCallRecognition {
 export function recognizeTextToolCall(fullText: string): TextToolCallRecognition {
 	const parsed = parseTextToolCall(fullText);
 	if (!parsed) {
-		return { parsed: null, preamble: fullText };
+		// Nothing parsed. If the text still carries a structured tool-call marker, the model attempted a
+		// tool call but botched the markup (B1) - flag it; otherwise it's a genuine prose answer.
+		return { parsed: null, preamble: fullText, attemptedButMalformed: hasStructuredToolCallMarker(fullText) };
 	}
 	const markers = [
 		fullText.indexOf('{'),
@@ -61,5 +96,5 @@ export function recognizeTextToolCall(fullText: string): TextToolCallRecognition
 	].filter(i => i >= 0);
 	const cutIdx = markers.length ? Math.min(...markers) : -1;
 	const preamble = cutIdx > 0 ? fullText.substring(0, cutIdx).trim() : (cutIdx === 0 ? '' : fullText);
-	return { parsed, preamble };
+	return { parsed, preamble, attemptedButMalformed: false };
 }
