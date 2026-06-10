@@ -29,7 +29,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -3518,7 +3518,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			if (nMessagesSent >= maxAgentIterations) {
 				// Before giving up: a model that burned the whole step budget without finishing is usually a
 				// weak/local model spinning. Escalate the task to a more capable model and keep going.
-				if (await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
+				// Phase 2: the escalate-or-stop gate is the pure shouldEscalateModel(); tryEscalateModel still
+				// performs the switch. shouldCallEscalate==false exactly when fallback is off or the escalation
+				// budget is spent -- in which case tryEscalateModel would itself return false (its own guard),
+				// so short-circuiting is behavior-identical and just avoids a no-op await.
+				const escDec = shouldEscalateModel({
+					triggerSite: 'iterCap',
+					modelFallbackEnabled, escalationCount, MAX_MODEL_ESCALATIONS,
+					nMessagesSent, maxAgentIterations,
+					consecutiveToolErrors, maxConsecutiveToolErrors,
+					isAutoMode: false, autoFallbackExhausted: true,
+					isRateLimitError: false, isNonRetryableError: false,
+					nAttempts: 0, CHAT_RETRIES,
+				})
+				if (escDec.shouldCallEscalate && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
 					nMessagesSent = 0
 					consecutiveToolErrors = 0
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
