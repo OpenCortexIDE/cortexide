@@ -39,14 +39,23 @@ reversible/blocked; every user-facing claim maps to working, tested code.
   - #6 Workspace Trust at dispatch (`IWorkspaceTrustManagementService` injected).
   - Residuals (documented, not blockers): gate D untrusted-block + B/C real destructive commands not
     *driven* live (dev launch auto-trusts; won't run `rm -rf`) — same chokepoint is live-proven via gather.
-- **Phase 2 — Testable agent runtime: 🔄 IN PROGRESS.**
-  - DONE (zero-risk): `common/agentLoopDecisions.ts` (5 pure decision fns) + **57 tests**. No wiring yet.
-  - **NEXT: wire the loop to delegate to those fns** — see `docs/PHASE2-WIRING-PLAN.md` (exact edits).
+- **Phase 2 — Testable agent runtime: 🔄 IN PROGRESS (wiring landed).**
+  - DONE (zero-risk): `common/agentLoopDecisions.ts` (5 pure decision fns) + **57 tests**.
+  - DONE (behavior-preserving + live-validated): **Edits A/D/B WIRED** — the loop now delegates the
+    tool-error cap (`updateConsecutiveToolErrors`, `db1bbdb0abd`), compaction+overflow
+    (`computeCompactionOverflowDecision`, `53f6a12d0c0`), and the iter-cap escalation gate
+    (`shouldEscalateModel`, `cac44f0039a`). Verified by a 6-agent adversarial review (0 reachable
+    divergences) + CDP live (7B happy-path completes; 1.5b thrash -> escalation fires). See
+    `docs/MODERNIZATION-BASELINE.md` "Phase 2 — wiring Edits A/D/B".
+  - **NEXT (own reviewed PRs):** Edit C (llmError gate), Edit E (completion routing), the
+    parse-classifier (`classifyToolCallFromLLMResponse`); then the module split (AgentLoopController /
+    ToolCallParser / ToolPermissionEngine / AgentPlanner / ModelSelectionEngine / AgentContextBuilder
+    / AgentSessionStore / AgentVerifier). `docs/PHASE2-WIRING-PLAN.md` still holds the Edit C/E sketches.
 - **Phases 3-10 — NOT STARTED.** (provider platform / RAG / apply-UX / agentic-UX / MCP+plugins /
   privacy / CI / positioning). Original spec is in section 7 below.
 
 **Tests:** cortexide node suite **320 passing, 0 failing**. tsgo 0 errors. CDP smoke 11/11. Renderer
-safety checks 26/26.
+safety checks 26/26. Phase 2 wiring live-validated (happy path + cap/escalation).
 
 ---
 
@@ -123,20 +132,26 @@ All in `common/`, node-unit-tested, no VS Code runtime deps (type-only imports w
 
 ---
 
-## 4. IMMEDIATE next work — Phase 2 wiring
+## 4. IMMEDIATE next work — Phase 2 (Edits A/D/B DONE; C/E + classifier + split remain)
 
-Execute **`docs/PHASE2-WIRING-PLAN.md`** (saved from a verified 7-agent mapping workflow). Order:
-1. **Edit A** (tool-error cap, chatThreadService.ts ~4807-4826) — lowest risk. Replace inline counting
-   with `updateConsecutiveToolErrors(...)` and `tryEscalateModel` on `escalate_and_reset`.
-2. **Edit D** (compaction/overflow, ~3721-3800) — also a cleanup (de-dupes the getModelCapabilities call);
-   replace with `computeCompactionOverflowDecision(...)`.
-3. **Edit B** (iteration cap, ~3517-3529) — replace with `decideLoopContinuation`/`shouldEscalateModel`.
-4. **Defer** Edit C (llmError gate) + Edit E (completion routing) + the parse-classifier (function #6) to
-   their own reviewed PRs (highest risk).
-Each edit: behavior-preserving, own commit, `tsgo` 0, then **live-validate** (a normal agent task still
-completes; the caps still fire — see the plan's live-validation list). Then proceed to the larger
-**module split** (AgentLoopController / ToolCallParser / ToolPermissionEngine / AgentPlanner /
-ModelSelectionEngine / AgentContextBuilder / AgentSessionStore / AgentVerifier) per section 7.
+Edits A, D, B from **`docs/PHASE2-WIRING-PLAN.md`** are LANDED, behavior-preserving (6-agent
+adversarial review: 0 reachable divergences), and live-validated (7B happy path completes; 1.5b
+thrash escalates). Commits `db1bbdb0abd` (A) / `53f6a12d0c0` (D) / `cac44f0039a` (B).
+
+Remaining Phase 2, each its own reviewed PR (tsgo 0 + live-validate; highest risk last):
+1. **Edit C** (llmError escalation gate, ~4344-4382) -> `shouldEscalateModel('llmError')`. CARE:
+   `autoFallbackExhausted` must reflect the final `nextModel` state after the auto-fallback chain
+   (4168-4332); `nextModel` scope at the escalation site. Keep the retry block (4344-4359) verbatim.
+2. **Edit E** (completion routing, ~4730-4892 + synth gates) -> `classifyCompletionState`. Do in two
+   steps: first add a dev-only assertion that the pure fn AGREES with the existing inline branch
+   across real tasks, then flip control flow. Don't convert `await-user` into a `continue`.
+3. **Parse-classifier** (function #6, `classifyToolCallFromLLMResponse`) — its own PR (densest
+   heuristics + injected callbacks). This is where to DELIBERATELY fix latent bug **B1** (unparseable
+   tool call should be an agent error hitting the tool-error cap, not silently exhausting the iteration
+   cap) — but ONLY after the behavior-preserving wiring above is stable, and as a separate, tested change.
+Then the larger **module split** (AgentLoopController / ToolCallParser / ToolPermissionEngine /
+AgentPlanner / ModelSelectionEngine / AgentContextBuilder / AgentSessionStore / AgentVerifier) per
+section 7. New reusable live harness: `test/cortexide-smoke/phase2-cap-escalation-probe.mjs`.
 
 **Mandatory behaviors for the agent runtime (from the spec):** an unparseable tool call IS an agent
 error (today it's the latent bug B1 — gibberish exhausts the iteration cap, not the tool-error cap; fix

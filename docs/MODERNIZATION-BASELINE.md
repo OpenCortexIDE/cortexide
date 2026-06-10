@@ -202,6 +202,52 @@ delegate to these (Edit A tool-error cap, then compaction, then iter-cap; defer 
 + llmError-gate to their own PRs), then the larger module split (AgentLoopController / ToolCallParser
 / AgentPlanner / etc.) per the user's Phase 2 spec.
 
+### Phase 2 — wiring Edits A/D/B LANDED + live-validated (2026-06-10)
+
+Step 2 done: the agent loop now DELEGATES to the pure decision fns (the tested module is the code
+that runs, not a parallel copy that can drift). Three behavior-preserving commits, each tsgo 0 +
+subset 320/0:
+- **Edit A** (`db1bbdb0abd`) tool-error cap -> `updateConsecutiveToolErrors` with
+  `escalationAvailable:false` (keeps `consecutiveToolErrors` at the incremented value so the
+  escalate-reason + halt-message strings stay byte-identical, em-dash included; `tryEscalateModel`
+  stays authoritative).
+- **Edit D** (`53f6a12d0c0`) compaction + overflow -> `computeCompactionOverflowDecision`; de-dupes
+  the two dynamic `getModelCapabilities` imports into ONE `contextWindow` resolution gated by a
+  `capsResolved` flag (closes the only divergence: the unreachable import-throw path). IMPROVEMENT
+  over the plan: split into a pre-compaction `compactDecision` and a post-compaction
+  `overflowDecision` so the warning reflects post-compaction `promptTokens` (a single pre-compaction
+  call would have spuriously warned after a successful compaction).
+- **Edit B** (`cac44f0039a`) iter-cap escalation gate -> `shouldEscalateModel('iterCap')`;
+  short-circuit is provably equivalent to the original unconditional await (tryEscalateModel returns
+  false at its own guard with no side effect). `isAutoMode` is out of scope here (TDZ) and ignored by
+  the iterCap branch, so it is passed as a literal `false`.
+
+**Adversarial verification (6-agent Workflow, `.../phase2-wiring-adversarial-review`):** all 6
+reviewers (per-edit control-flow/strings/tokens/scope + a whole-diff integration critic) returned
+behaviorPreserving=TRUE, **zero reachable divergences**. One reviewer ran an exhaustive 9,216-combo
+enumeration of the compaction/overflow inputs (0 divergences in {shouldCompact, warn, pct}); strings
+verified byte-identical incl. the U+2014 em-dash; B1/B2 latent behaviors confirmed preserved. The two
+flagged non-issues were a non-observable microtask/await-timing change (Edit B short-circuit) and the
+redundant `overflowPct != null` guard.
+
+**Live validation (CDP, post-wiring build, fresh ws):**
+- boot smoke `cdp-smoke.mjs` 11/11.
+- HAPPY PATH: `atomic-edit-e2e.mjs` with `qwen2.5-coder:7b` in Agent mode rewrote target.txt
+  correctly (marker present, not empty, no .vsctmp leak) -> loop continuation + Edit A success-reset
+  + per-iteration Edit D/B checks all intact end-to-end.
+- CAP/ESCALATION PATH: new `phase2-cap-escalation-probe.mjs` with `qwen2.5-coder:1.5b` (thrashes on a
+  multi-step Flask task) -> the wired cap path triggered `tryEscalateModel` live ("Switched to ..."
+  detected) -> the escalation wiring fires under real model thrash. (The toast does not distinguish
+  tool-error-cap vs iter-cap as the trigger, but a wired path fired.)
+
+Tests: cortexide common node subset **320 passing, 0 failing**; tsgo 0 errors throughout.
+
+Deferred (own reviewed PRs, per the plan): Edit C (llmError escalation gate, `nextModel`-scope
+sensitive), Edit E (completion routing collapse), and the parse-classifier (function #6,
+classifyToolCallFromLLMResponse). Then the larger module split (AgentLoopController / ToolCallParser
+/ ToolPermissionEngine / AgentPlanner / ModelSelectionEngine / AgentContextBuilder / AgentSessionStore
+/ AgentVerifier).
+
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
 hardening; CI/release; positioning. Multi-session work.
