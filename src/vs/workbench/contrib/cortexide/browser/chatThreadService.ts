@@ -28,8 +28,8 @@ import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
-import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { selectCompactionWindow } from '../common/compactionPolicy.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -3719,49 +3719,66 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// so the run continues instead of overflowing. The STORED thread is never mutated — only the
 			// messages sent to the LLM this turn are windowed — so checkpoints, the UI, and history are
 			// untouched. Best-effort: any failure falls back to the full prepared messages.
-			if ((chatMode === 'agent' || chatMode === 'plan')
-				&& this._settingsService.state.globalSettings.enableAutoCompaction
-				&& promptTokens > 0
-				&& modelSelection.providerName !== 'auto') {
+			// Phase 2: resolve the model context window ONCE (de-dupes the two former dynamic
+			// getModelCapabilities imports) and delegate the compaction + overflow-warning decisions
+			// to the pure, tested fn (common/agentLoopDecisions.ts). capsResolved gates both so an
+			// import failure skips them, exactly as the old per-block try/catch did. The compaction
+			// decision uses the CURRENT prompt tokens; the overflow warning is re-decided AFTER
+			// compaction (which may shrink promptTokens) so it reflects the post-compaction size.
+			let contextWindow = 128_000
+			let capsResolved = false
+			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
 				try {
 					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
 					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
-					const contextWindow = (caps as any).contextWindow ?? 128_000
-					if (shouldCompactConversation({
-						enabled: true, chatMode, promptTokens, contextWindow,
-						messageCount: preprocessedMessages.length,
-						iterationsSinceLastCompaction: Number.POSITIVE_INFINITY, // non-destructive => re-window every over-threshold turn
-					})) {
-						const win = selectCompactionWindow(preprocessedMessages.length)
-						if (win) {
-							const omitted = win.end - win.start
-							const marker: ChatMessage = {
-								role: 'assistant',
-								displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
-								reasoning: '',
-								anthropicReasoning: null,
-							}
-							const compactedView: ChatMessage[] = [
-								...preprocessedMessages.slice(0, win.start),
-								marker,
-								...preprocessedMessages.slice(win.end),
-							]
-							const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
-								chatMessages: compactedView,
-								modelSelection,
-								chatMode,
-								repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-								subagentSystemPrompt: runCtx?.systemPromptOverride,
-								allowedToolNames: runCtx?.allowedToolNames
-							})
-							if (prep2.messages && prep2.messages.length > 0) {
-								messages = prep2.messages
-								separateSystemMessage = prep2.separateSystemMessage
-								const tr2 = this._computeTokenCount(messages)
-								promptTokens = tr2.tokenCount
-								contextSize = tr2.contextSize
-								this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
-							}
+					contextWindow = (caps as any).contextWindow ?? 128_000
+					capsResolved = true
+				} catch {
+					// getModelCapabilities import may fail for some providers; leave capsResolved false to skip
+				}
+			}
+			const compactDecision = capsResolved
+				? computeCompactionOverflowDecision({
+					chatMode,
+					enableAutoCompaction: !!this._settingsService.state.globalSettings.enableAutoCompaction,
+					promptTokens,
+					contextWindow,
+					providerName: modelSelection.providerName,
+					messageCount: preprocessedMessages.length,
+					existingThreadMessages: this.state.allThreads[threadId]?.messages ?? [],
+				})
+				: { shouldCompact: false, shouldWarnOverflow: false, overflowPct: null }
+			if (compactDecision.shouldCompact) {
+				try {
+					const win = selectCompactionWindow(preprocessedMessages.length)
+					if (win) {
+						const omitted = win.end - win.start
+						const marker: ChatMessage = {
+							role: 'assistant',
+							displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
+							reasoning: '',
+							anthropicReasoning: null,
+						}
+						const compactedView: ChatMessage[] = [
+							...preprocessedMessages.slice(0, win.start),
+							marker,
+							...preprocessedMessages.slice(win.end),
+						]
+						const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+							chatMessages: compactedView,
+							modelSelection,
+							chatMode,
+							repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+							subagentSystemPrompt: runCtx?.systemPromptOverride,
+							allowedToolNames: runCtx?.allowedToolNames
+						})
+						if (prep2.messages && prep2.messages.length > 0) {
+							messages = prep2.messages
+							separateSystemMessage = prep2.separateSystemMessage
+							const tr2 = this._computeTokenCount(messages)
+							promptTokens = tr2.tokenCount
+							contextSize = tr2.contextSize
+							this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
 						}
 					}
 				} catch {
@@ -3777,27 +3794,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				return
 			}
 
-			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context window.
-			// We only check this in agent mode (where conversations grow large) and only once per conversation
-			// to avoid spamming. Uses the static context window from getModelCapabilities; falls back to 128k.
-			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
-				try {
-					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
-					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
-					const contextWindow = (caps as any).contextWindow ?? 128_000
-					const usagePct = promptTokens / contextWindow
-					const existingMsgs = this.state.allThreads[threadId]?.messages ?? []
-					const alreadyWarned = existingMsgs.some(m => m.role === 'assistant' && m.displayContent?.includes('context window'))
-					if (usagePct >= 0.7 && !alreadyWarned) {
-						const pct = Math.round(usagePct * 100)
-						this._notificationService.warn(
-							`Context is ${pct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
-							`The agent may start losing earlier context. Consider starting a new thread.`
-						)
-					}
-				} catch {
-					// getModelCapabilities import may fail for some providers; ignore
-				}
+			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context
+			// window. Re-evaluated AFTER compaction so it reflects the post-compaction prompt size; warns
+			// at most once per conversation (the pure fn scans the stored thread for a prior warning).
+			const overflowDecision = capsResolved
+				? computeCompactionOverflowDecision({
+					chatMode,
+					enableAutoCompaction: !!this._settingsService.state.globalSettings.enableAutoCompaction,
+					promptTokens,
+					contextWindow,
+					providerName: modelSelection.providerName,
+					messageCount: preprocessedMessages.length,
+					existingThreadMessages: this.state.allThreads[threadId]?.messages ?? [],
+				})
+				: { shouldCompact: false, shouldWarnOverflow: false, overflowPct: null }
+			if (overflowDecision.shouldWarnOverflow && overflowDecision.overflowPct != null) {
+				this._notificationService.warn(
+					`Context is ${overflowDecision.overflowPct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
+					`The agent may start losing earlier context. Consider starting a new thread.`
+				)
 			}
 
 			// CRITICAL: Check again after async operation (plan might have been added during prep)
