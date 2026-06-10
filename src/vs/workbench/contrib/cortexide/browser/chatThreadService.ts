@@ -60,6 +60,7 @@ import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDet
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
 import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
+import { decideToolSynthesis } from '../common/toolSynthesisDecision.js';
 import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
 import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -4505,62 +4506,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				if ((chatMode === 'agent' || chatMode === 'plan') && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
 					if (originalUserMessage) {
 						const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
-						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure']
-						const codebaseQueryWords = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about']
-						const webQueryWords = ['search the web', 'search online', 'check the web', 'check the internet', 'check internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url']
-
-						const isActionRequest = actionWords.some(word => userRequest.includes(word)) &&
-							!userRequest.startsWith('explain') &&
-							!userRequest.startsWith('what') &&
-							!userRequest.startsWith('how') &&
-							!userRequest.startsWith('why')
-
-						// Also treat codebase queries as requiring tools (need to read files to answer accurately)
-						// BUT: If images are present, "what" questions are likely about the image, not the codebase
 						const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0
-						const isCodebaseQuery = codebaseQueryWords.some(word => userRequest.includes(word)) &&
-							(userRequest.includes('what') || userRequest.includes('how many') || userRequest.includes('about')) &&
-							!(hasImages && (userRequest.includes('image') || userRequest.includes('this') || userRequest.includes('that')))
-
-						// Treat web search queries as requiring tools (need to search the web to answer)
-						const isWebQuery = webQueryWords.some(word => userRequest.includes(word)) ||
-							(userRequest.includes('search for') && (userRequest.includes('on the web') || userRequest.includes('on the internet'))) ||
-							(userRequest.includes('tell me what you know about') || userRequest.includes('what do you know about')) ||
-							((userRequest.includes('what is') || userRequest.includes('who is') || userRequest.includes('when did')) &&
-								(userRequest.includes('latest') || userRequest.includes('current') || userRequest.includes('recent') || userRequest.includes('2024') || userRequest.includes('2025')))
-
-						const shouldUseTools = (isActionRequest || isCodebaseQuery || isWebQuery) &&
-							!info.fullText.toLowerCase().includes('<read_file>') &&
-							!info.fullText.toLowerCase().includes('<edit_file>') &&
-							!info.fullText.toLowerCase().includes('<search_for_files>') &&
-							!info.fullText.toLowerCase().includes('<create_file') &&
-							!info.fullText.toLowerCase().includes('<run_command>') &&
-							!info.fullText.toLowerCase().includes('<web_search>') &&
-							!info.fullText.toLowerCase().includes('<browse_url>')
-
-						// If model refused to use tools after first attempt, synthesize immediately
-						// Skip the retry loop entirely for stubborn models
-						// BUT: Don't synthesize file search tools if images are present (user likely wants image analysis, not file search)
-						const isEmptyOrShort = !userRequest || userRequest.trim().length < 20
-						const isImageAnalysisQuery = hasImages && (
-							isEmptyOrShort ||
-							userRequest.toLowerCase().includes('image') ||
-							userRequest.toLowerCase().includes('what') && (userRequest.toLowerCase().includes('about') || userRequest.toLowerCase().includes('show')) ||
-							userRequest.toLowerCase().includes('describe') ||
-							userRequest.toLowerCase().includes('analyze')
-						)
-
-						// Skip synthesis if user has images and is asking about them
-						// Also skip if we've already read too many files (prevent infinite loops)
-						// Do NOT fabricate a tool call once the model has already executed a tool this turn (it
-						// acted — its trailing summary is not unfulfilled intent), or when its response reads like
-						// a conversational final answer (offers/closers). Otherwise the synthesizer fires "I'll
-						// help you... finding files" AFTER a completed task and spins the loop into a confused
-						// empty turn. (live: pollinations/claude finishing then the loop fabricating a bad call)
-						const _resp = info.fullText.toLowerCase()
-						const _looksFinal = /\b(if you'?d like|let me know|feel free|would you like|could you (please )?(let me know|share|tell)|here are (the|your)|i'?ve (deleted|created|removed|completed|finished)|all (files|done))\b/.test(_resp)
-						const _alreadyActed = toolsExecutedInRequest.length > 0
-						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && !_alreadyActed && !_looksFinal && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
+						// Phase 2: the (intricate, weak-model-critical) decision of WHETHER to fabricate a tool
+						// call from the model's prose is delegated to the pure, tested decision fn
+						// (common/toolSynthesisDecision.ts). The synthesis ACTION + its result-dependent guard
+						// stay inline below; this is byte-for-byte the same gate as the previous inline conditions.
+						const synthDecision = decideToolSynthesis({
+							chatMode,
+							hasToolCall: !!toolCall,
+							fullText: info.fullText,
+							hasOriginalUserMessage: true,
+							userRequest,
+							hasImages: !!hasImages,
+							hasSynthesizedForRequest: !!hasSynthesizedForRequest,
+							filesReadInQuery,
+							maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+							fileReadLimitExceeded,
+							modelSupportsTools,
+							nAttempts,
+							toolsExecutedCount: toolsExecutedInRequest.length,
+						})
+						if (synthDecision.shouldSynthesize) {
 							const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 							// Also skip if synthesized call is search_for_files and images are present
 							if (synthesizedToolCall && !(hasImages && synthesizedToolCall.toolName === 'search_for_files')) {
