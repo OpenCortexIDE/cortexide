@@ -5,7 +5,7 @@ import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, FileSystemProviderCapabilities } from '../../../../platform/files/common/files.js';
 import { FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { LRUCache } from '../../../../base/common/map.js';
 
@@ -26,7 +26,7 @@ export interface ICortexideModelService {
 
 export const ICortexideModelService = createDecorator<ICortexideModelService>('cortexideModelService');
 
-class CortexideModelService extends Disposable implements ICortexideModelService {
+export class CortexideModelService extends Disposable implements ICortexideModelService {
 	_serviceBrand: undefined;
 	static readonly ID = 'cortexideModelService';
 	private readonly _modelRefOfURI: Record<string, IReference<IResolvedTextEditorModel>> = {};
@@ -47,8 +47,16 @@ class CortexideModelService extends Disposable implements ICortexideModelService
 	}
 
 	saveModel = async (uri: URI) => {
+		// Phase 1: persist AI edits with an ATOMIC (temp file + rename) write so a crash/ENOSPC mid-write
+		// cannot leave the user's file empty or half-written. This goes through the normal save path
+		// (textFileService.save -> textFileEditorModel.doSave), so the working copy's dirty/etag/saved
+		// state stays correct — only the underlying disk write becomes atomic. Guarded by the provider's
+		// FileAtomicWrite capability: on providers that don't support it (e.g. some remote/virtual file
+		// systems) we fall back to the normal save instead of throwing.
+		const atomicWrite = this._fileService.hasCapability(uri, FileSystemProviderCapabilities.FileAtomicWrite)
 		await this._textFileService.save(uri, { // we want [our change] -> [save] so it's all treated as one change.
-			skipSaveParticipants: true // avoid triggering extensions etc (if they reformat the page, it will add another item to the undo stack)
+			skipSaveParticipants: true, // avoid triggering extensions etc (if they reformat the page, it will add another item to the undo stack)
+			atomicWrite
 		})
 	}
 

@@ -939,7 +939,10 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 						encoding: this.getEncoding(),
 						etag: (options.ignoreModifiedSince || !this.filesConfigurationService.preventSaveConflicts(lastResolvedFileStat.resource, resolvedTextFileEditorModel.getLanguageId())) ? ETAG_DISABLED : lastResolvedFileStat.etag,
 						unlock: options.writeUnlock,
-						writeElevated: options.writeElevated
+						writeElevated: options.writeElevated,
+						// Opt-in atomic save (temp file + rename) — crash/ENOSPC mid-write can't corrupt the
+						// target. Goes through the normal save path so dirty/etag/saved-state stay correct.
+						atomic: options.atomicWrite ? { postfix: '.vsctmp' } : undefined
 					});
 
 					this.handleSaveSuccess(stat, versionId, options);
