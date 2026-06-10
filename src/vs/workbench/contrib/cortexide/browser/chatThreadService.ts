@@ -29,6 +29,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
+import { updateConsecutiveToolErrors, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -4804,13 +4805,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 					// Stop early if a (weak) model keeps emitting failed tool calls, rather than thrashing up to
 					// the iteration cap. Count consecutive tool errors; reset on any success.
+					// Phase 2: delegate the consecutive-tool-error counting + cap check to the pure, tested
+					// decision fn (common/agentLoopDecisions.ts). escalationAvailable:false keeps
+					// consecutiveToolErrors holding the incremented value, so the escalate-reason and halt
+					// messages below interpolate the identical count; tryEscalateModel stays authoritative.
 					const lastToolMsg = this.state.allThreads[threadId]?.messages.slice(-1)[0]
-					if (lastToolMsg?.role === 'tool') {
-						const tt = (lastToolMsg as ToolMessage<ToolName>).type
-						if (tt === 'tool_error' || tt === 'invalid_params') { consecutiveToolErrors += 1 }
-						else if (tt === 'success') { consecutiveToolErrors = 0 }
-					}
-					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+					const lastToolMessageType: ToolMessageType | null = lastToolMsg?.role === 'tool'
+						? (lastToolMsg as ToolMessage<ToolName>).type
+						: null
+					const errDec = updateConsecutiveToolErrors(consecutiveToolErrors, lastToolMessageType, maxConsecutiveToolErrors, /* escalationAvailable */ false)
+					consecutiveToolErrors = errDec.nextConsecutiveToolErrors
+					if (errDec.action === 'halt') {
 						// Before giving up: this is the single most common local-model failure mode (invents tool
 						// names, writes empty files, never converges). Escalate to a more capable model and let it
 						// recover the SAME task — it sees the failed attempts in history and corrects.
