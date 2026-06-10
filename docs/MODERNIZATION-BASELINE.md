@@ -372,6 +372,26 @@ need SDK-type extraction or a mock-fetch harness to test; per-model capability r
 fallback ordering; provider tool-format fixes; model-health UI; first-class OpenAI-compatible config;
 native Bedrock (or label proxy-only).
 
+Second increment (`bdd8d94e6cc`): a 4-agent audit (`.../phase3-capability-provider-audit` workflow)
+found multiple real bugs in the 0-test `common/modelCapabilities.ts` registry. Added the registry test
+suite (`test/common/modelCapabilities.test.ts`, 9 cases pinning the resolution contract +
+unrecognized-defaults + override precedence) and FIXED the two highest-severity bugs: (1) **mixed-case
+exact-match** (`modelOptions[modelName]` -> `modelOptions[modelName_]`; 'GPT-4o' used to return a
+capability-less object / forced XML tool mode; common same-case path byte-identical); (2) **deepseek
+reasoning inverted** (deepseek-chat/V3 advertised reasoning, deepseek-reasoner/R1 didn't; swapped the
+spread bases, which differ only in reasoningCapabilities). tsgo 0; subset **405 -> 414 passing**;
+adversarial high-blast-radius review = both correct/safe; LIVE 11/11 + 7B atomic-edit (registry resolves
+ollama caps every turn). **AUDIT BACKLOG (confirmed bugs, follow-up commits):**
+- 3 last-match-wins `modelOptionsFallback` orderings (anthropic ~918-928, openAI ~1151-1163, xAI
+  ~1258-1261): broad substring checks run AFTER specific ones, so variant names ('gpt-5-mini-2025',
+  'grok-3-mini-beta', 'claude-opus-4-8-latest') collapse to the broad parent -> mis-cost + stripped
+  reasoning. Fix = return-early on first (most-specific) match.
+- electron-main `toOpenAICompatibleTool` (sendLLMMessage.impl.ts ~489): builds `paramsWithType` then
+  emits the untyped `params` -> OpenAI/groq/deepseek/mistral/openRouter tool schemas ship without JSON-
+  Schema types. Best fixed by extracting the builder to common/ (node-testable) + emitting paramsWithType.
+- `extensiveModelOptionsFallback` llama shadowing (~645-651): 'llama-3.1-8b' -> 10M-ctx llama4-scout;
+  'maverick' mis-maps; the llama3.1/3.2/3.3 branches are unreachable (llama3 matches first).
+
 ### Phases 4-10 — NOT STARTED
 Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
