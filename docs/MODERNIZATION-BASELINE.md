@@ -327,7 +327,31 @@ tested across `agentLoopDecisions` (caps/escalation/compaction; A/D/B wired), `t
 stateful orchestration: the **AgentLoopController** (the `while` loop itself + tryEscalateModel's async
 side effects), **AgentContextBuilder** (message prep + the prep cache), **AgentSessionStore** (thread
 persistence), **AgentVerifier**, **AgentPlanner**. These are class/state refactors, not pure-fn
-extractions; AgentLoopController is the keystone (and the home to later make Edit E + the B1 fix clean).
+extractions; AgentLoopController is the keystone.
+
+### Phase 2 — B1 FIXED: unparseable tool-call attempt is now an agent error (2026-06-10, FIRST behavior change)
+
+`028e3a16ca7` -- the first DELIBERATE behavior change of the Phase 2 work (all prior commits were
+behavior-preserving). A 4-agent investigation established B1's REAL manifestation (the old "exhausts the
+iteration cap" comment was WRONG): a model that emits structured tool-call markup which fails to parse
+(`<tool_call>{broken</tool_call>`) had the malformed text committed as its FINAL answer and the loop
+exited via terminate_natural -- the agent appeared done but did nothing, recording no error
+(**silent-no-op-success**). Fix: `recognizeTextToolCall` now reports `attemptedButMalformed` (+ exported
+`hasStructuredToolCallMarker`) -- conservative detection (only the `<tool_call`/`<function_calls`
+WRAPPER markers; standalone `<invoke>` EXCLUDED to avoid JSX/XML collisions; bare `{` not a marker;
+markers QUOTED in code fences/backticks ignored). The loop now counts such an attempt toward the SAME
+consecutive-tool-error cap and re-prompts (corrective feedback as a USER turn, to preserve
+Anthropic/Gemini alternation); at the cap it escalates or stops honestly. Bounded (counter rises to the
+cap; iteration cap is a backstop), no double-count (mutually exclusive with the post-dispatch counter),
+resets on a later real tool success. Verification: tsgo 0; subset **378 -> 388 passing, 0 failing**;
+adversarial review (correctness-focused) -- it surfaced 2 real issues (false positives on quoted/JSX
+markers; consecutive-assistant alternation) which were FIXED (wrapper-only + code-strip detection; user
+re-prompt turn). LIVE: cdp-smoke 11/11 + atomic-edit-e2e (7B) still completes -> the branch does NOT
+false-fire on the normal path (the key regression check). New `b1-malformed-toolcall-probe.mjs` attempts
+the positive firing path but is INCONCLUSIVE (the 7B won't emit malformed markup on demand -- capable
+models round-trip it); the firing path is unit-tested + reviewed and reuses the cap/escalation machinery
+proven live earlier. RESIDUAL: live-firing not driven (needs a model that emits malformed markup or a
+synthetic-response test hook).
 
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy

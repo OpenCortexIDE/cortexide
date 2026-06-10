@@ -156,11 +156,12 @@ Remaining Phase 2, each its own reviewed PR (tsgo 0 + live-validate):
    (resolveAutoModelSelection / failover / coding-score are already pure in `common/routing/*` — wrap
    the loop's selection state), (c) AgentContextBuilder (message prep). AgentLoopController is the big
    one and the natural home to later make Edit E + the B1 fix clean.
-2. **B1 fix (deliberate, tested).** Once recognition/routing are centralized: an unparseable would-be
-   tool call should be an agent error that counts toward the tool-error cap, not silently treated as
-   natural text that burns the iteration cap. Fix in `toolCallRecognition.ts` + the loop, with a live
-   repro (a weak model emitting near-miss tool calls). B1's runtime vector is the SYNTHESIS machinery
-   (4527+/4676+), so understand that first.
+2. **B1 fix -- DONE** (`028e3a16ca7`). An investigation found the real defect was
+   silent-no-op-success (a malformed structured tool-call attempt was committed as a final answer and
+   the loop exited as if done), NOT iteration-cap waste. Now `recognizeTextToolCall.attemptedButMalformed`
+   (wrapper-marker-only, code-strip-guarded) makes the loop count it toward the tool-error cap +
+   re-prompt (user-turn corrective) / honest stop. RESIDUAL: live-firing not driven (the 7B won't emit
+   malformed markup on demand); needs a synthetic-response test hook to drive the firing path live.
 3. **Edit C** (llmError escalation gate, ~4344-4382) -> `shouldEscalateModel('llmError')` — OPTIONAL /
    lowest payoff per the plan; `autoFallbackExhausted` must reflect the final `nextModel` after the
    auto-fallback chain (4168-4332). Defer unless cleaning up that area anyway.
