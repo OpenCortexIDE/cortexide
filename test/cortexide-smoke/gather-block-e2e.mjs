@@ -57,6 +57,22 @@ async function setMode(mode) {
 	return '(mode trigger not found)';
 }
 
+async function selectModel(re) {
+	// pick a capable local coder so the agent actually emits tool calls (Auto can land on a weak 3B)
+	const trigger = win.locator('button').filter({ hasText: /^(Auto|gemini|gpt|claude|qwen|llama|deepseek|mistral|grok)/i }).first();
+	if (await trigger.count().then(c => c > 0).catch(() => false)) {
+		await trigger.click().catch(() => {}); await sleep(900);
+		const opt = win.locator(`text=${re}`).first();
+		if (await opt.count().then(c => c > 0).catch(() => false)) {
+			await opt.click().catch(() => {}); await sleep(800);
+		} else {
+			await win.keyboard.press('Escape').catch(() => {});
+		}
+		return ((await trigger.textContent().catch(() => '')) || '').trim();
+	}
+	return '(model trigger not found)';
+}
+
 async function send(prompt) {
 	const ta = win.locator('textarea').last();
 	await ta.click({ timeout: 5000 });
@@ -85,6 +101,10 @@ try {
 		const b = win.locator(`text=${label}`).first();
 		if (await b.count().then(c => c > 0).catch(() => false)) { await b.click().catch(() => {}); await sleep(600); break; }
 	}
+
+	// select a capable coder (7B) so the agent reliably emits tool calls
+	const model = await selectModel(/qwen2\.5-coder:(7b|latest)/i);
+	log('model =', model);
 
 	// ---------- 1) GATHER: a write attempt must NOT touch disk ----------
 	const gm = await setMode('Gather');
