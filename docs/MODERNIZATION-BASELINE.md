@@ -162,7 +162,31 @@ fall back, no throw). tsgo 0 errors; unit `cortexideModelServiceSave.test.ts` (3
 LIVE E2E (`atomic-edit-e2e.mjs`, real 7B): rewrote target.txt → correct content, no `.vsctmp` leak,
 editor stable. (applyEngineV2 was already atomic.)
 
-**Still NOT done → Phase 1 NOT complete:** #2 durable checkpoint/rollback.
+### Phase 1 #2 — durable checkpoint/rollback ✅ DONE + LIVE-VALIDATED (2026-06-10)
+
+Edit restore now PERSISTS to disk (editCodeService awaits atomic `saveModel`). New pure
+`common/agentFileOps.ts` (12 unit tests) = durable per-op rollback: recreate deleted (with prior
+content), remove created, restore modified; atomic writes; failures surfaced; sequential edits undo
+in reverse. `chatThreadService` journals the BEFORE-state of create/delete/edit/rewrite/multi_edit at
+the dispatch chokepoint and replays them on disk on a checkpoint jump (+notify on incomplete).
+tsgo 0; subset **263/0**. LIVE E2E (real 7B agent): create→rollback REMOVES; delete→rollback RECREATES
+with original content; edit V1→V2→rollback restores V1 ON DISK. (Lesson: a checkpoint jump no-ops
+while the agent is running — wait for idle.) Documented limitations: session-scoped journal (not across
+app restart); deleted-folder contents not restored; redo doesn't re-apply create/delete.
+
+### Phase 1 — FUNCTIONALLY COMPLETE
+All 6 items implemented, unit-tested (**263 passing, 0 failing**), tsgo 0 errors, and the
+safety-critical behaviours live-validated end-to-end:
+- #1 atomic writes ✅ (applyEngineV2 + agent-path saveModel; live: edit persists, no temp leak)
+- #2 durable rollback ✅ (create/delete/edit restore on disk — live)
+- #3 gather read-only at dispatch ✅ (live: blocks a real model-emitted write)
+- #4 terminal danger-block + cwd containment ✅ (logic+wiring+renderer-tested; not driven with real destructive commands)
+- #5 secret redaction before LLM ✅ (verified secure-by-default, live config)
+- #6 workspace trust ✅ (logic+wiring+trusted-path live; untrusted-block NOT live — dev launch auto-trusts)
+
+Honest residuals: gate D untrusted-block and gates B/C with real destructive commands are not
+*driven* live (dev auto-trust; won't run `rm -rf`), but they share the dispatch chokepoint that IS
+live-proven via the gather gate, and their decision logic is renderer-tested (26/26).
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
