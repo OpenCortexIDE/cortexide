@@ -58,7 +58,8 @@ import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
-import { parseTextToolCall, canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
+import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
+import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
 import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
 import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -1967,16 +1968,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * Some models output tool calls as JSON text instead of using native tool calling.
 	 * Example: {"name": "delete_file_or_folder", "arguments": {"uri": "/path", "is_recursive": true}}
 	 */
-	private _parseJSONToolCallFromText(text: string): { toolName: ToolName, toolParams: RawToolParamsObj } | null {
-		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the JSON
-		// tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input, incl.
-		// inside a <tool_call> wrapper) AND Anthropic's <function_calls>/<invoke>/<parameter> XML that Claude
-		// emits via gateways (Pollinations) that don't pass native tools. Param names are canonicalized
-		// (path/file -> uri) so file tools validate.
-		const r = parseTextToolCall(text)
-		return r ? { toolName: r.toolName as ToolName, toolParams: r.toolParams as RawToolParamsObj } : null
-	}
-
 	/**
 	 * Synthesizes a tool call from user intent when the model refuses to use tools.
 	 * This ensures Agent Mode works even with models that don't follow tool calling instructions.
@@ -4448,35 +4439,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName, rawParams: canonicalizeToolParams(toolCall.rawParams) as typeof toolCall.rawParams }
 				}
 
-				// CRITICAL: Check if model output JSON tool call format as text
-				// Some models output tool calls as JSON text instead of using native tool calling
-				// Parse it and convert to proper tool call format
+				// CRITICAL: Check if the model output a tool call as TEXT (JSON or Anthropic XML) instead of
+				// using native tool calling - common for local Ollama coders and some gateways. The pure
+				// recognizer (common/toolCallRecognition.ts) also strips any hallucinated multi-tool transcript
+				// after the first real call so it can't leak into the shown text or the conversation history.
 				if (!toolCall && info.fullText.trim()) {
-					const parsedToolCall = this._parseJSONToolCallFromText(info.fullText)
-					if (parsedToolCall) {
-						// Found JSON tool call in text - convert to proper format
+					const recognized = recognizeTextToolCall(info.fullText)
+					if (recognized.parsed) {
 						const toolId = generateUuid()
 						toolCall = {
-							name: parsedToolCall.toolName,
-							rawParams: parsedToolCall.toolParams,
+							name: recognized.parsed.toolName as ToolName,
+							rawParams: recognized.parsed.toolParams as RawToolParamsObj,
 							id: toolId,
 							isDone: true,
-							doneParams: Object.keys(parsedToolCall.toolParams)
+							doneParams: Object.keys(recognized.parsed.toolParams)
 						}
-						// Keep ONLY the assistant's preamble before the first tool-call marker, discarding
-						// everything after it. Models like Pollinations/claude emit a FAKE multi-tool transcript
-						// in one message — <tool_call>{json}</tool_call> followed by HALLUCINATED <tool_response>
-						// results and more fake calls. We execute the (first) REAL tool call and re-prompt with the
-						// REAL result, so the hallucinated continuation must NOT leak into the shown text or the
-						// history (it would reinforce the hallucination and re-trigger the bogus uri error next turn).
-						const markers = [
-							info.fullText.indexOf('{'),
-							info.fullText.search(/<\s*tool_call\b/i),
-							info.fullText.search(/<\s*function_calls\b/i),
-							info.fullText.search(/<\s*invoke\b/i),
-						].filter(i => i >= 0)
-						const cutIdx = markers.length ? Math.min(...markers) : -1
-						info = { ...info, fullText: cutIdx > 0 ? info.fullText.substring(0, cutIdx).trim() : (cutIdx === 0 ? '' : info.fullText) }
+						info = { ...info, fullText: recognized.preamble }
 					}
 				}
 
