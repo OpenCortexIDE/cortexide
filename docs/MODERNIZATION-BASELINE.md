@@ -305,6 +305,30 @@ AND-chain verbatim; `!!` coercions safe). Verification: tsgo 0; `toolSynthesisDe
 (33 total) -> subset **350 -> 363 passing, 0 failing**; adversarial review with a 2,000,000-case
 differential fuzz: 0 mismatches; LIVE cdp-smoke 11/11 + atomic-edit-e2e (7B) completes.
 
+**Fourth module-split increment LANDED -- ModelSelectionEngine** (`520da9299c9`): extracted the two
+remaining inline, untested pieces of model selection into pure `common/modelSelectionEngine.ts` (the
+failover RANKING was already pure+tested in `routing/modelFailover.pickNextFailoverModel`):
+`resolveModelRuntimeCaps` (the local-vs-cloud loop-cap POLICY -- local models get the tighter 30/3 caps;
+replaces `recomputeModelState`'s cap logic) and `buildFailoverCandidates` (turns providers/models into
+`FailoverCandidate[]` with the eligibility rules: skip unconfigured/hidden/tried, a LOCAL model never
+reports native tool calls, coder = name||FIM; replaces `_pickNextUntriedModel`'s gather loop -- the
+caller still flattens settings + supplies a getCaps wrapper, and pickNextFailoverModel/toModelSelection
+are unchanged). Drops the now-unused chatThreadService imports (isLikelyCoderModelName /
+KNOWN_CAPABLE_AGENTIC_PROVIDERS / FailoverCandidate type / freeTierIdOfProviderName; localProviderNames
+stays). Behavior-preserving (byte-for-byte; candidate order preserved). Verification: tsgo 0; new
+`test/common/modelSelectionEngine.test.ts` (15 cases) -> subset **363 -> 378 passing, 0 failing**;
+adversarial 8000-run differential fuzz 0 mismatches; LIVE cdp-smoke 11/11 + atomic-edit-e2e (7B)
+completes (resolveModelRuntimeCaps drives every turn). buildFailoverCandidates is byte-identical to the
+escalation path proven live earlier (the cap-escalation probe), so not separately re-driven.
+
+**Phase 2 module-split status:** the agent loop's PURE decision/selection surface is now extracted +
+tested across `agentLoopDecisions` (caps/escalation/compaction; A/D/B wired), `toolCallRecognition`,
+`toolSynthesisDecision` (2 fns), and `modelSelectionEngine` (2 fns). What remains is genuinely
+stateful orchestration: the **AgentLoopController** (the `while` loop itself + tryEscalateModel's async
+side effects), **AgentContextBuilder** (message prep + the prep cache), **AgentSessionStore** (thread
+persistence), **AgentVerifier**, **AgentPlanner**. These are class/state refactors, not pure-fn
+extractions; AgentLoopController is the keystone (and the home to later make Edit E + the B1 fix clean).
+
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
 hardening; CI/release; positioning. Multi-session work.
