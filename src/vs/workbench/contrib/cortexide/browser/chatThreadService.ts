@@ -22,6 +22,8 @@ import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { AgentFileOpRecord, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -2397,6 +2399,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// once validated, add checkpoint for edit
 			if (toolName === 'edit_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['edit_file']).uri }) }
 			if (toolName === 'rewrite_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['rewrite_file']).uri }) }
+			// Phase 1 #2: journal the BEFORE-state of create/delete (the in-memory checkpoint can't undo these).
+			if (toolName === 'create_file_or_folder') {
+				const p = toolParams as BuiltinToolCallParams['create_file_or_folder']
+				await this._recordFileOpBeforeMutation(threadId, p.uri, 'create', !!p.isFolder)
+			}
+			if (toolName === 'delete_file_or_folder') {
+				const p = toolParams as BuiltinToolCallParams['delete_file_or_folder']
+				await this._recordFileOpBeforeMutation(threadId, p.uri, 'delete', !!p.isFolder)
+			}
 
 			// 2. if tool requires approval, break from the loop, awaiting approval
 
@@ -2896,9 +2907,62 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// workspace. Keyed by threadId (not runCtx) so it survives the approval-resume re-entry into
 	// _runChatAgent, which drops runCtx. Set at the top of _runChatAgent; cleared when the child ends.
 	private readonly _workspaceRootOverrideByThread = new Map<string, string>()
+	// Phase 1 #2: durable create/delete rollback. Per-thread journal of the BEFORE-state of every
+	// create_file_or_folder / delete_file_or_folder the agent runs (the in-memory checkpoint system
+	// only restores EDITS with a live model — it can't recreate a deleted file or remove a created one).
+	// On a checkpoint jump we replay these in reverse on disk. See common/agentFileOps.ts.
+	private readonly _fileOpJournalByThread = new Map<string, AgentFileOpRecord[]>()
 	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
 	// the abort to in-flight children (depth 1, since sub-agents can't nest).
 	private readonly _childThreadsByParent = new Map<string, Set<string>>()
+
+	/** Records the on-disk BEFORE-state of a create/delete so a checkpoint rollback can reverse it. */
+	private async _recordFileOpBeforeMutation(threadId: string, uri: URI, opType: 'create' | 'delete', isFolder: boolean) {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+		let existedBefore = false
+		let beforeContent: string | null = null
+		try {
+			existedBefore = await this._fileService.exists(uri)
+			if (existedBefore && !isFolder) {
+				const stat = await this._fileService.stat(uri)
+				// avoid snapshotting huge / binary files (best-effort guard)
+				if (!stat.isDirectory && (stat.size ?? 0) <= 5_000_000) {
+					beforeContent = (await this._fileService.readFile(uri)).value.toString()
+				}
+			}
+		} catch { /* best-effort: if we can't read, record what we know */ }
+		const checkpointIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'checkpoint') ?? -1
+		const journal = this._fileOpJournalByThread.get(threadId) ?? []
+		journal.push({ checkpointIdx, fsPath: uri.fsPath, opType, isFolder, existedBefore, beforeContent })
+		this._fileOpJournalByThread.set(threadId, journal)
+	}
+
+	private _makeFileOpIO(): FileOpIO {
+		return {
+			exists: (p) => this._fileService.exists(URI.file(p)),
+			writeFileAtomic: async (p, content) => { await this._fileService.writeFile(URI.file(p), VSBuffer.fromString(content), { atomic: { postfix: '.cortexide-tmp' } }) },
+			createFolder: async (p) => { await this._fileService.createFolder(URI.file(p)) },
+			del: async (p, opts) => { await this._fileService.del(URI.file(p), { recursive: opts.recursive, useTrash: false }) },
+			readText: async (p) => (await this._fileService.readFile(URI.file(p))).value.toString(),
+		}
+	}
+
+	/** Reverses (on disk) every journalled create/delete that happened after the target checkpoint. */
+	private async _restoreFileOpsForJump(threadId: string, toIdx: number) {
+		const journal = this._fileOpJournalByThread.get(threadId)
+		if (!journal || journal.length === 0) return
+		const { results, incomplete } = await undoFileOpsAfterCheckpoint(this._makeFileOpIO(), journal, toIdx - 1)
+		// drop the ops we just reversed so a later jump doesn't re-undo them
+		this._fileOpJournalByThread.set(threadId, journal.filter(r => r.checkpointIdx < toIdx))
+		const undone = results.filter(r => r.ok && r.action !== 'noop').length
+		if (incomplete) {
+			const failed = results.filter(r => !r.ok)
+			this._notificationService.warn(localize('cortexide.rollback.incomplete', 'Rollback incomplete: could not restore {0} file(s): {1}', failed.length, failed.map(f => f.fsPath).join(', ')))
+		} else if (undone > 0) {
+			this._notificationService.info(localize('cortexide.rollback.restored', 'Rolled back {0} created/deleted file(s) on disk.', undone))
+		}
+	}
 	// Serializes file-edit application across ALL concurrent agent threads (foreground + background +
 	// parallel sub-agents) so concurrent edits can't corrupt a file. No-op for a single sequential agent.
 	private readonly _editSerializer = createSerializer()
@@ -5316,6 +5380,9 @@ We only need to do it for files that were edited since `to`, ie files between to
 					break
 				}
 			}
+			// Phase 1 #2: durable disk-level rollback of create/delete ops after the target checkpoint
+			// (the in-memory restore above only handles edited files that still have a live model).
+			this._restoreFileOpsForJump(threadId, toIdx).catch(err => console.error('[ChatThreadService] file-op rollback failed', err))
 		}
 
 		/*

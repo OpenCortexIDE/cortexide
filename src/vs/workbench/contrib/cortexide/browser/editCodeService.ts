@@ -768,11 +768,16 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		}
 		this._onDidAddOrDeleteDiffZones.fire({ uri })
 
-		// restore file content
+		// restore file content (in-memory model)
 		this._writeURIText(uri, entireModelCode,
 			'wholeFileRange',
 			{ shouldRealignDiffAreas: false }
 		)
+		// Phase 1 #2: PERSIST the restored content to disk (atomically). Previously the restore only
+		// rewrote the in-memory buffer and never saved, so rolling back to a checkpoint left the
+		// agent's edits on disk (the rollback was illusory). saveModel is a no-op if there is no live
+		// model for the URI; that case is handled by the durable create/delete restore in chatThreadService.
+		await this._cortexideModelService.saveModel(uri)
 		// this._noLongerNeedModelReference(uri)
 	}
 
@@ -803,8 +808,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	}
 
 
-	public restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): void {
-		this._restoreCortexideFileSnapshot(uri, snapshot)
+	public restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): Promise<void> {
+		// returns a promise so callers (checkpoint rollback) can await the disk persist + surface errors
+		return this._restoreCortexideFileSnapshot(uri, snapshot)
 	}
 
 
