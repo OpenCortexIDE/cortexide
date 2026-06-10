@@ -14,7 +14,8 @@ import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, S
 import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
-import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent } from '../../common/providerToolFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -505,63 +506,14 @@ const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | u
 }
 
 
-// convert LLM tool call to our tool format
-const rawToolCallObjOfParamsStr = (name: string, toolParamsStr: string, id: string): RawToolCallObj | null => {
-	let input: unknown
-	try { input = JSON.parse(toolParamsStr) }
-	catch (e) { return null }
-
-	if (input === null) return null
-	if (typeof input !== 'object') return null
-
-	const rawParams: RawToolParamsObj = input
-	return { id, name, rawParams, doneParams: Object.keys(rawParams), isDone: true }
-}
-
-
+// Convert an Anthropic tool-use block to our tool format (shared core lives in common/providerToolFormat).
 const rawToolCallObjOfAnthropicParams = (toolBlock: Anthropic.Messages.ToolUseBlock): RawToolCallObj | null => {
-	const { id, name, input } = toolBlock
-
-	if (input === null) return null
-	if (typeof input !== 'object') return null
-
-	const rawParams: RawToolParamsObj = input
-	return { id, name, rawParams, doneParams: Object.keys(rawParams), isDone: true }
+	return buildRawToolCallObj(toolBlock.id, toolBlock.name, toolBlock.input)
 }
 
 
 // ------------ OPENAI-COMPATIBLE ------------
 
-
-// Placeholder for empty message content; Vertex/Pollinations require "non-whitespace text", not just a space.
-const EMPTY_CONTENT_PLACEHOLDER = '(no content)'
-
-/**
- * Sanitize messages for APIs (e.g. Vertex, Pollinations) that require non-empty, non-whitespace content
- * in every message except the optional final assistant message.
- * Only mutates messages that have a 'content' field (OpenAI/Anthropic style); Gemini-style (parts) are passed through.
- */
-const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]): LLMChatMessage[] => {
-	if (!messages?.length) return messages
-	const lastIdx = messages.length - 1
-	const result = messages.map((msg, i) => {
-		if (!('content' in msg)) return msg
-		const content = (msg as { role: string; content: string | unknown[] }).content
-		const isLastAndAssistant = i === lastIdx && msg.role === 'assistant'
-		if (typeof content === 'string') {
-			if (content.trim().length > 0) return msg
-			if (isLastAndAssistant) return msg
-			return { ...msg, content: EMPTY_CONTENT_PLACEHOLDER }
-		}
-		if (Array.isArray(content)) {
-			const hasNonEmptyPart = content.some((p: any) => (p.type === 'text' && p.text?.trim?.()) || (p.type === 'image_url' && p.image_url?.url))
-			if (hasNonEmptyPart || isLastAndAssistant) return msg
-			return { ...msg, content: [{ type: 'text', text: EMPTY_CONTENT_PLACEHOLDER }] }
-		}
-		return msg
-	})
-	return result as LLMChatMessage[]
-}
 
 const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
 	const {
