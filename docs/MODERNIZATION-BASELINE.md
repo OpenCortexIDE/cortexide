@@ -188,6 +188,24 @@ Honest residuals: gate D untrusted-block and gates B/C with real destructive com
 *driven* live (dev auto-trust; won't run `rm -rf`), but they share the dispatch chokepoint that IS
 live-proven via the gather gate, and their decision logic is renderer-tested (26/26).
 
+### Phase 2 — testable agent runtime (IN PROGRESS)
+
+Step 1 done (zero-risk): the agent loop's pure DECISION logic is extracted into
+`common/agentLoopDecisions.ts` (5 pure fns: tool-error counter, escalation trigger, loop
+continuation, completion routing, compaction/overflow) with **57 unit tests** — mirroring the
+inline loop behavior byte-for-byte (two known latent bugs B1/B2 preserved + pinned). NO wiring yet,
+so zero runtime risk. Design came from a 7-agent mapping workflow (`.claude/phase2-map-workflow.js`)
+that verified every line/constant against source. tsgo 0; subset **263 -> 320 passing, 0 failing**.
+
+Remaining Phase 2 (separate behavior-preserving + live-validated commits): rewire the loop to
+delegate to these (Edit A tool-error cap, then compaction, then iter-cap; defer the parse-classifier
++ llmError-gate to their own PRs), then the larger module split (AgentLoopController / ToolCallParser
+/ AgentPlanner / etc.) per the user's Phase 2 spec.
+
+### Phases 3-10 — NOT STARTED
+Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
+hardening; CI/release; positioning. Multi-session work.
+
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
 secure-by-default; `react/src/` is the live source, not dead). Re-verify every audit claim in code
