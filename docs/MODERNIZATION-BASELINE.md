@@ -293,6 +293,18 @@ cdp-smoke 11/11 + atomic-edit-e2e (7B) completes (extraction did not break the l
 follow-ups): the native-call canonicalization (~4439, already pure 1-liner) and the `needsMoreSearch`
 "how many X" gate (~4676).
 
+**Third module-split increment LANDED** (`5a3da8388c7`): extracted the agent loop's SECOND synthesis
+trigger -- the `needsMoreSearch` "how many X" follow-up-search gate (~4620-4645) -- into pure
+`common/toolSynthesisDecision.decideHowManySearch`. With `recognizeTextToolCall` +
+`decideToolSynthesis` + `decideHowManySearch`, the tool-call recognition / synthesis-decision surface
+(the parse-classifier / **ToolCallParser is now functionally COMPLETE**) is fully extracted + tested;
+only the trivial already-pure native-call canonicalization one-liner remains inline by design.
+Behavior-preserving (HOW_MANY_NOUNS 12 / COUNT_IN_RESPONSE_TERMS 9 match the inline arrays exactly and
+correctly differ; `.some(includes)` == the `||` chains; outer guard is the De Morgan dual; inner
+AND-chain verbatim; `!!` coercions safe). Verification: tsgo 0; `toolSynthesisDecision.test.ts` +13
+(33 total) -> subset **350 -> 363 passing, 0 failing**; adversarial review with a 2,000,000-case
+differential fuzz: 0 mismatches; LIVE cdp-smoke 11/11 + atomic-edit-e2e (7B) completes.
+
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
 hardening; CI/release; positioning. Multi-session work.
