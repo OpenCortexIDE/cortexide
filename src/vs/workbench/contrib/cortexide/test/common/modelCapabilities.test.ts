@@ -83,3 +83,41 @@ suite('getModelCapabilities - bug regressions', () => {
 		assert.ok(reasoner && (reasoner as any).supportsReasoning === true, 'deepseek-reasoner should support reasoning');
 	});
 });
+
+suite('getModelCapabilities - fallback ordering (variant/dated names)', () => {
+	const rec = (p: string, m: string) => caps(p, m).recognizedModelName;
+
+	test('FIXED: anthropic variant names resolve to the SPECIFIC entry, not legacy 4.0', () => {
+		assert.strictEqual(rec('anthropic', 'claude-opus-4-8-latest'), 'claude-opus-4-8');
+		assert.strictEqual(rec('anthropic', 'claude-sonnet-4-6-latest'), 'claude-sonnet-4-6');
+		assert.strictEqual(rec('anthropic', 'claude-opus-4-5-latest'), 'claude-opus-4-5-20251101');
+		assert.strictEqual(rec('anthropic', 'claude-opus-4-1-20250805-x'), 'claude-opus-4-1-20250805');
+		// legacy 4.0 broad match still works for an actual 4.0 name:
+		assert.strictEqual(rec('anthropic', 'claude-4-opus-preview'), 'claude-opus-4-20250514');
+	});
+
+	test('FIXED: openAI variant names resolve to the specific sub-model, not the broad parent', () => {
+		assert.strictEqual(rec('openAI', 'gpt-5.1-preview'), 'gpt-5.1');
+		assert.strictEqual(rec('openAI', 'gpt-5-mini-2025-08'), 'gpt-5-mini');
+		assert.strictEqual(rec('openAI', 'gpt-5-nano-x'), 'gpt-5-nano');
+		assert.strictEqual(rec('openAI', 'gpt-4.1-mini-2025'), 'gpt-4.1-mini');
+		assert.strictEqual(rec('openAI', 'o3-mini-2025-01'), 'o3-mini');
+		assert.strictEqual(rec('openAI', 'o3-pro-preview'), 'o3-pro');
+		assert.strictEqual(rec('openAI', 'gpt-4o-mini-2024'), 'gpt-4o-mini'); // was collapsing to gpt-4o
+		// broad parents still resolve when no specific sub-model is named:
+		assert.strictEqual(rec('openAI', 'gpt-5-2025-08'), 'gpt-5');
+	});
+
+	test('PRESERVED: legacy gpt-3.5 still maps to gpt-4o-mini (not the broad gpt-5)', () => {
+		// the broad gpt-5 check matches "...5"; moving the 3.5 check first keeps this correct under return-early
+		assert.strictEqual(rec('openAI', 'gpt-3.5-turbo'), 'gpt-4o-mini');
+		assert.strictEqual(rec('openAI', 'gpt-3.5-turbo-0125'), 'gpt-4o-mini');
+	});
+
+	test('FIXED: xAI variant names resolve to the right grok generation, not the broad grok-3', () => {
+		assert.strictEqual(rec('xAI', 'grok-4-0709'), 'grok-4'); // was collapsing to grok-3
+		assert.strictEqual(rec('xAI', 'grok-2-vision-1212'), 'grok-2');
+		assert.strictEqual(rec('xAI', 'grok-3-0625'), 'grok-3'); // a dated grok-3 variant (non-exact) falls back to grok-3
+		assert.strictEqual(rec('xAI', 'grok-beta'), 'grok-3'); // broad fallback for an unversioned grok
+	});
+});

@@ -912,29 +912,28 @@ const anthropicSettings: VoidStaticProviderInfo = {
 	modelOptions: anthropicModelOptions,
 	modelOptionsFallback: (modelName) => {
 		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof anthropicModelOptions | null = null
+		const ret = (k: keyof typeof anthropicModelOptions) => ({ modelName: k, recognizedModelName: k, ...anthropicModelOptions[k] })
 		// Claude 4.8 / 4.6 models (current flagship) — match BEFORE 4.5 so 'claude-opus-4-8-latest' etc.
 		// don't fall through to the 4096 default:
-		if (lower.includes('claude-opus-4-8') || lower.includes('claude-4-8-opus') || (lower.includes('claude-opus') && lower.includes('4.8'))) fallbackName = 'claude-opus-4-8'
-		if (lower.includes('claude-sonnet-4-6') || lower.includes('claude-4-6-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.6'))) fallbackName = 'claude-sonnet-4-6'
+		if (lower.includes('claude-opus-4-8') || lower.includes('claude-4-8-opus') || (lower.includes('claude-opus') && lower.includes('4.8'))) return ret('claude-opus-4-8')
+		if (lower.includes('claude-sonnet-4-6') || lower.includes('claude-4-6-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.6'))) return ret('claude-sonnet-4-6')
 		// Claude 4.5 models (latest):
-		if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) fallbackName = 'claude-opus-4-5-20251101'
-		if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) fallbackName = 'claude-sonnet-4-5-20250929'
-		if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) fallbackName = 'claude-haiku-4-5-20251001'
+		if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) return ret('claude-opus-4-5-20251101')
+		if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) return ret('claude-sonnet-4-5-20250929')
+		if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) return ret('claude-haiku-4-5-20251001')
 		// Claude 4.1 models:
-		if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) fallbackName = 'claude-opus-4-1-20250805'
+		if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) return ret('claude-opus-4-1-20250805')
 		// Claude 4.0 models (legacy):
-		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4') || lower.includes('claude-opus-4-0')) fallbackName = 'claude-opus-4-20250514'
-		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4') || lower.includes('claude-sonnet-4-0')) fallbackName = 'claude-sonnet-4-20250514'
+		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4') || lower.includes('claude-opus-4-0')) return ret('claude-opus-4-20250514')
+		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4') || lower.includes('claude-sonnet-4-0')) return ret('claude-sonnet-4-20250514')
 		// Claude 3.7 models
-		if (lower.includes('claude-3-7-sonnet') || lower.includes('claude-3-7-sonnet-latest')) fallbackName = 'claude-3-7-sonnet-20250219'
+		if (lower.includes('claude-3-7-sonnet') || lower.includes('claude-3-7-sonnet-latest')) return ret('claude-3-7-sonnet-20250219')
 		// Claude 3.5 models
-		if (lower.includes('claude-3-5-sonnet') || lower.includes('claude-3-5-sonnet-latest')) fallbackName = 'claude-3-5-sonnet-20241022'
-		if (lower.includes('claude-3-5-haiku') || lower.includes('claude-3-5-haiku-latest')) fallbackName = 'claude-3-5-haiku-20241022'
+		if (lower.includes('claude-3-5-sonnet') || lower.includes('claude-3-5-sonnet-latest')) return ret('claude-3-5-sonnet-20241022')
+		if (lower.includes('claude-3-5-haiku') || lower.includes('claude-3-5-haiku-latest')) return ret('claude-3-5-haiku-20241022')
 		// Claude 3 models (legacy)
-		if (lower.includes('claude-3-opus') || lower.includes('claude-3-opus-latest')) fallbackName = 'claude-3-opus-20240229'
-		if (lower.includes('claude-3-sonnet') || lower.includes('claude-3-sonnet-latest')) fallbackName = 'claude-3-sonnet-20240229'
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }
+		if (lower.includes('claude-3-opus') || lower.includes('claude-3-opus-latest')) return ret('claude-3-opus-20240229')
+		if (lower.includes('claude-3-sonnet') || lower.includes('claude-3-sonnet-latest')) return ret('claude-3-sonnet-20240229')
 		return null
 	},
 }
@@ -1144,36 +1143,35 @@ const openAISettings: VoidStaticProviderInfo = {
 	modelOptions: openAIModelOptions,
 	modelOptionsFallback: (modelName) => {
 		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof openAIModelOptions | null = null
+		const ret = (k: keyof typeof openAIModelOptions) => ({ modelName: k, recognizedModelName: k, ...openAIModelOptions[k] })
+		// Legacy 3.5 FIRST: the broad gpt-5 check below also matches '...5' (incl. 'gpt-3.5'), so this
+		// must resolve before it. (Previously it relied on last-match-wins to override the broad gpt-5.)
+		if (lower.includes('gpt-3.5') || lower.includes('3.5-turbo')) return ret('gpt-4o-mini')
 		// GPT-5.1 series (latest, check first):
-		if (lower.includes('gpt-5.1') || (lower.includes('gpt') && lower.includes('5.1'))) { fallbackName = 'gpt-5.1' }
+		if (lower.includes('gpt-5.1')) { return ret('gpt-5.1') }
 		// GPT-5 series:
-		if (lower.includes('gpt-5') && lower.includes('pro')) { fallbackName = 'gpt-5-pro' }
-		if (lower.includes('gpt-5') && lower.includes('nano')) { fallbackName = 'gpt-5-nano' }
-		if (lower.includes('gpt-5') && lower.includes('mini')) { fallbackName = 'gpt-5-mini' }
-		if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) { fallbackName = 'gpt-5' }
+		if (lower.includes('gpt-5') && lower.includes('pro')) { return ret('gpt-5-pro') }
+		if (lower.includes('gpt-5') && lower.includes('nano')) { return ret('gpt-5-nano') }
+		if (lower.includes('gpt-5') && lower.includes('mini')) { return ret('gpt-5-mini') }
+		// precise 'gpt-5' only: the old `gpt && '5'` also matched a stray '5' in a date (e.g.
+		// 'gpt-4.1-mini-2025'), which under return-early would wrongly collapse such names to gpt-5.
+		if (lower.includes('gpt-5')) { return ret('gpt-5') }
 		// GPT-4.1 series:
-		if (lower.includes('gpt-4.1') && lower.includes('nano')) { fallbackName = 'gpt-4.1-nano' }
-		if (lower.includes('gpt-4.1') && lower.includes('mini')) { fallbackName = 'gpt-4.1-mini' }
-		if (lower.includes('gpt-4.1') || (lower.includes('gpt') && lower.includes('4.1'))) { fallbackName = 'gpt-4.1' }
+		if (lower.includes('gpt-4.1') && lower.includes('nano')) { return ret('gpt-4.1-nano') }
+		if (lower.includes('gpt-4.1') && lower.includes('mini')) { return ret('gpt-4.1-mini') }
+		if (lower.includes('gpt-4.1')) { return ret('gpt-4.1') }
 		// Reasoning models (o-series, check before GPT-4o):
-		if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) { fallbackName = 'o3-deep-search' }
-		if (lower.includes('o3') && lower.includes('pro')) { fallbackName = 'o3-pro' }
-		if (lower.includes('o3') && lower.includes('mini')) { fallbackName = 'o3-mini' }
-		if (lower.includes('o3')) { fallbackName = 'o3' }
-		if (lower.includes('o4') && lower.includes('mini')) { fallbackName = 'o4-mini' }
-		if (lower.includes('o1') && lower.includes('pro')) { fallbackName = 'o1-pro' }
-		if (lower.includes('o1') && lower.includes('mini')) { fallbackName = 'o1-mini' }
-		if (lower.includes('o1')) { fallbackName = 'o1' }
+		if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) { return ret('o3-deep-search') }
+		if (lower.includes('o3') && lower.includes('pro')) { return ret('o3-pro') }
+		if (lower.includes('o3') && lower.includes('mini')) { return ret('o3-mini') }
+		if (lower.includes('o3')) { return ret('o3') }
+		if (lower.includes('o4') && lower.includes('mini')) { return ret('o4-mini') }
+		if (lower.includes('o1') && lower.includes('pro')) { return ret('o1-pro') }
+		if (lower.includes('o1') && lower.includes('mini')) { return ret('o1-mini') }
+		if (lower.includes('o1')) { return ret('o1') }
 		// GPT-4o series:
-		if (lower.includes('gpt-4o') && lower.includes('mini')) { fallbackName = 'gpt-4o-mini' }
-		if (lower.includes('gpt-4o') || lower.includes('4o')) { fallbackName = 'gpt-4o' }
-		// Legacy models:
-		if (lower.includes('gpt-3.5') || lower.includes('3.5-turbo')) {
-			// Fallback to gpt-4o-mini for legacy 3.5-turbo requests
-			fallbackName = 'gpt-4o-mini'
-		}
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }
+		if (lower.includes('gpt-4o') && lower.includes('mini')) { return ret('gpt-4o-mini') }
+		if (lower.includes('gpt-4o') || lower.includes('4o')) { return ret('gpt-4o') }
 		return null
 	},
 	providerReasoningIOSettings: {
@@ -1253,13 +1251,12 @@ const xAISettings: VoidStaticProviderInfo = {
 	modelOptions: xAIModelOptions,
 	modelOptionsFallback: (modelName) => {
 		const lower = modelName.toLowerCase()
-		let fallbackName: keyof typeof xAIModelOptions | null = null
+		const ret = (k: keyof typeof xAIModelOptions) => ({ modelName: k, recognizedModelName: k, ...xAIModelOptions[k] })
 		// Check latest first:
-		if (lower.includes('grok-4')) fallbackName = 'grok-4'
-		if (lower.includes('grok-2')) fallbackName = 'grok-2'
-		if (lower.includes('grok-3')) fallbackName = 'grok-3'
-		if (lower.includes('grok')) fallbackName = 'grok-3'
-		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...xAIModelOptions[fallbackName] }
+		if (lower.includes('grok-4')) return ret('grok-4')
+		if (lower.includes('grok-2')) return ret('grok-2')
+		if (lower.includes('grok-3')) return ret('grok-3')
+		if (lower.includes('grok')) return ret('grok-3')
 		return null
 	},
 	// same implementation as openai
