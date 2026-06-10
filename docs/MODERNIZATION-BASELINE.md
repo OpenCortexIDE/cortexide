@@ -353,9 +353,27 @@ models round-trip it); the firing path is unit-tested + reviewed and reuses the 
 proven live earlier. RESIDUAL: live-firing not driven (needs a model that emits malformed markup or a
 synthetic-response test hook).
 
-### Phases 3-10 — NOT STARTED
-Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
-hardening; CI/release; positioning. Multi-session work.
+### Phase 3 — Model-agnostic provider platform (STARTED 2026-06-10)
+
+First increment (`b6773313bee`): the 18-provider dispatch
+(`electron-main/llmMessage/sendLLMMessage.impl.ts`, 0 tests -- the node runner excludes electron-main
+since it imports the Anthropic/OpenAI/Gemini/Ollama SDKs) now has its PURE, SDK-free tool-call-capture +
+message-format helpers extracted into node-tested `common/providerToolFormat.ts`: `buildRawToolCallObj`
+(shared core), `rawToolCallObjOfParamsStr` (OpenAI-compat streaming-args JSON -> our tool format), and
+`sanitizeOpenAIMessagesForEmptyContent` (the Vertex/Pollinations non-empty-content quirk). These govern
+correctness across the OpenAI-compatible family (openAI/groq/deepSeek/mistral/openRouter/xAI) +
+Anthropic (`rawToolCallObjOfAnthropicParams` keeps its SDK param type but delegates to the shared core).
+Behavior-preserving (bodies copied byte-for-byte; adversarial byte-identity review passed). tsgo 0; new
+`test/common/providerToolFormat.test.ts` (17 cases) -> subset **388 -> 405 passing, 0 failing**. LIVE:
+cdp-smoke 11/11 + atomic-edit-e2e (7B) -> `sendOllamaChat` exercises the extracted sanitizer and the
+edit completes (live-validated on the ollama path). REMAINING Phase 3: the SDK-typed tool-schema
+builders (toAnthropicTool/toGeminiFunctionDecl/openAITools) + the per-provider request/response paths
+need SDK-type extraction or a mock-fetch harness to test; per-model capability registry; llama3.x
+fallback ordering; provider tool-format fixes; model-health UI; first-class OpenAI-compatible config;
+native Bedrock (or label proxy-only).
+
+### Phases 4-10 — NOT STARTED
+Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +

@@ -51,8 +51,13 @@ reversible/blocked; every user-facing claim maps to working, tested code.
     parse-classifier (`classifyToolCallFromLLMResponse`); then the module split (AgentLoopController /
     ToolCallParser / ToolPermissionEngine / AgentPlanner / ModelSelectionEngine / AgentContextBuilder
     / AgentSessionStore / AgentVerifier). `docs/PHASE2-WIRING-PLAN.md` still holds the Edit C/E sketches.
-- **Phases 3-10 — NOT STARTED.** (provider platform / RAG / apply-UX / agentic-UX / MCP+plugins /
-  privacy / CI / positioning). Original spec is in section 7 below.
+- **Phase 3 — Model-agnostic provider platform: 🔄 STARTED.** First increment (`b6773313bee`):
+  pure SDK-free tool-call-capture + message-format helpers extracted from the electron-main 18-provider
+  dispatch into node-tested `common/providerToolFormat.ts` (the node runner excludes electron-main). See
+  `docs/MODERNIZATION-BASELINE.md` "Phase 3". Remaining: SDK-typed schema builders / per-provider
+  request-response need SDK-type extraction or a mock-fetch harness; capability registry; fallback order.
+- **Phases 4-10 — NOT STARTED.** (RAG / apply-UX / agentic-UX / MCP+plugins / privacy / CI / positioning).
+  Original spec is in section 7 below.
 
 **Tests:** cortexide node suite **320 passing, 0 failing**. tsgo 0 errors. CDP smoke 11/11. Renderer
 safety checks 26/26. Phase 2 wiring live-validated (happy path + cap/escalation).
