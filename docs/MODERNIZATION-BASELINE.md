@@ -248,6 +248,33 @@ classifyToolCallFromLLMResponse). Then the larger module split (AgentLoopControl
 / ToolPermissionEngine / AgentPlanner / ModelSelectionEngine / AgentContextBuilder / AgentSessionStore
 / AgentVerifier).
 
+### Phase 2 — Edit E investigated + DEFERRED; first module-split (ToolCallParser core) LANDED (2026-06-10)
+
+**Edit E (completion-routing collapse) was mapped and DEFERRED as not worth doing now.** A 4-agent
+mapping workflow (`.../phase2-editE-routing-map`) produced a full terminus table of the LLM-turn block
+and concluded: the genuinely valuable full-collapse (Option A) is UNSAFE because the
+`interrupted`/`completionSignaled` returns sit BEFORE the consecutive-tool-error cap + plan-step
+bookkeeping while the `await`/`continue` decision sits AFTER -- collapsing them into one
+`classifyCompletionState` switch would reorder side effects. The safe minimal wiring (Option B) only
+wraps the trivial `awaitingUserApproval ? await : continue` + the two skip flags in verbose pure-fn
+calls (all other inputs hard-coded false) -- low value, added verbosity, no reliability/testability
+gain. So `classifyCompletionState` (and `decideLoopContinuation`, which overlaps what A/B already
+wired) stay UNWIRED by choice; they remain tested. Conclusion: the cleanly-wireable pure decisions are
+all wired (A/D/B); the remaining two model routing the real loop cannot cleanly separate.
+
+**First module-split increment LANDED** (`a99767686cd`): extracted the agent loop's text-fallback
+tool-call recognition into pure `common/toolCallRecognition.ts` (`recognizeTextToolCall`) and removed
+the single-use private `_parseJSONToolCallFromText`. This is the safe core of the deferred
+parse-classifier (ToolCallParser) and centralizes + TESTS the previously-untested preamble/marker-cut
+logic that strips a model's hallucinated multi-tool transcript (the #1 weak/local-model robustness
+hazard). Behavior-preserving (mirrors the inline block byte-for-byte: same parseTextToolCall, same
+4-marker cut, same cutIdx>0/===0/===-1 preamble ternary, same toolCall build). The latent bug B1
+(unparseable would-be tool call silently treated as natural text) is PRESERVED; its deliberate fix
+belongs in this module in a later tested change (documented in the module header). Verification: tsgo 0;
+new `test/common/toolCallRecognition.test.ts` (10 cases) -> subset **320 -> 330 passing, 0 failing**;
+adversarial review (21-input equivalence fuzz) byte-identical; LIVE cdp-smoke 11/11 + atomic-edit-e2e
+with `qwen2.5-coder:7b` (which emits the tool call as TEXT) recognized + executed -> file rewritten.
+
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
 hardening; CI/release; positioning. Multi-session work.

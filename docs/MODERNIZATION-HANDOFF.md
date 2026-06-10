@@ -138,20 +138,35 @@ Edits A, D, B from **`docs/PHASE2-WIRING-PLAN.md`** are LANDED, behavior-preserv
 adversarial review: 0 reachable divergences), and live-validated (7B happy path completes; 1.5b
 thrash escalates). Commits `db1bbdb0abd` (A) / `53f6a12d0c0` (D) / `cac44f0039a` (B).
 
-Remaining Phase 2, each its own reviewed PR (tsgo 0 + live-validate; highest risk last):
-1. **Edit C** (llmError escalation gate, ~4344-4382) -> `shouldEscalateModel('llmError')`. CARE:
-   `autoFallbackExhausted` must reflect the final `nextModel` state after the auto-fallback chain
-   (4168-4332); `nextModel` scope at the escalation site. Keep the retry block (4344-4359) verbatim.
-2. **Edit E** (completion routing, ~4730-4892 + synth gates) -> `classifyCompletionState`. Do in two
-   steps: first add a dev-only assertion that the pure fn AGREES with the existing inline branch
-   across real tasks, then flip control flow. Don't convert `await-user` into a `continue`.
-3. **Parse-classifier** (function #6, `classifyToolCallFromLLMResponse`) — its own PR (densest
-   heuristics + injected callbacks). This is where to DELIBERATELY fix latent bug **B1** (unparseable
-   tool call should be an agent error hitting the tool-error cap, not silently exhausting the iteration
-   cap) — but ONLY after the behavior-preserving wiring above is stable, and as a separate, tested change.
-Then the larger **module split** (AgentLoopController / ToolCallParser / ToolPermissionEngine /
-AgentPlanner / ModelSelectionEngine / AgentContextBuilder / AgentSessionStore / AgentVerifier) per
-section 7. New reusable live harness: `test/cortexide-smoke/phase2-cap-escalation-probe.mjs`.
+**Status update (2026-06-10):** Edit E was MAPPED and DEFERRED (not worth doing now); the module split
+has BEGUN with the ToolCallParser core. Details:
+- **Edit E (completion routing) — DEFERRED by choice.** A mapping workflow showed the valuable
+  full-collapse is unsafe (the `interrupted`/`completion` returns sit before the tool-error cap +
+  plan-step bookkeeping; the `await`/`continue` decision sits after — collapsing reorders side
+  effects), and the safe minimal wiring is low-value ceremony (wraps a trivial ternary). So
+  `classifyCompletionState` + `decideLoopContinuation` stay UNWIRED but tested. Don't re-attempt unless
+  the loop is restructured first (e.g. as part of the AgentLoopController split below).
+- **ToolCallParser core — DONE** (`a99767686cd`): pure tested `common/toolCallRecognition.ts`
+  (`recognizeTextToolCall`); see the BASELINE entry. Latent bug **B1** is preserved here.
+
+Remaining Phase 2, each its own reviewed PR (tsgo 0 + live-validate):
+1. **Module split (continue).** Grow `toolCallRecognition.ts` toward the full parse-classifier, and
+   carve out the next cohesive unit. Lowest-risk high-value targets: (a) finish ToolCallParser (the
+   native-call canonicalization at ~4439 + synthesis-decision gating), (b) ModelSelectionEngine
+   (resolveAutoModelSelection / failover / coding-score are already pure in `common/routing/*` — wrap
+   the loop's selection state), (c) AgentContextBuilder (message prep). AgentLoopController is the big
+   one and the natural home to later make Edit E + the B1 fix clean.
+2. **B1 fix (deliberate, tested).** Once recognition/routing are centralized: an unparseable would-be
+   tool call should be an agent error that counts toward the tool-error cap, not silently treated as
+   natural text that burns the iteration cap. Fix in `toolCallRecognition.ts` + the loop, with a live
+   repro (a weak model emitting near-miss tool calls). B1's runtime vector is the SYNTHESIS machinery
+   (4527+/4676+), so understand that first.
+3. **Edit C** (llmError escalation gate, ~4344-4382) -> `shouldEscalateModel('llmError')` — OPTIONAL /
+   lowest payoff per the plan; `autoFallbackExhausted` must reflect the final `nextModel` after the
+   auto-fallback chain (4168-4332). Defer unless cleaning up that area anyway.
+New reusable live harness: `test/cortexide-smoke/phase2-cap-escalation-probe.mjs`. The module-split
+target list (AgentLoopController / ToolCallParser / ToolPermissionEngine / AgentPlanner /
+ModelSelectionEngine / AgentContextBuilder / AgentSessionStore / AgentVerifier) is in section 7.
 
 **Mandatory behaviors for the agent runtime (from the spec):** an unparseable tool call IS an agent
 error (today it's the latent bug B1 — gibberish exhausts the iteration cap, not the tool-error cap; fix
