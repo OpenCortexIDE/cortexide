@@ -152,7 +152,17 @@ Pulled `qwen2.5-coder:7b` (Auto had been picking the weak 3B). Results:
 - App boots on the branch (cdp-smoke 11/11). Capable agent writes work (diagtest.txt created by 7B in
   agent mode). `launch-dev.sh` gains `CX_KEEP_TRUST=1`.
 
-**Still NOT done → Phase 1 NOT complete:** #1 agent-path atomic, #2 durable checkpoint/rollback.
+### Phase 1 #1 — agent-path atomic writes ✅ DONE (2026-06-10)
+
+The agent edit path (`editCodeService → cortexideModelService.saveModel → textFileService.save`)
+is now atomic. Minimal opt-in core change reusing the normal save path (dirty/etag stay correct):
+`ISaveOptions.atomicWrite?` → `textFileEditorModel.doSave` passes `atomic:{postfix:'.vsctmp'}` →
+`saveModel` requests it, guarded by the provider's `FileAtomicWrite` capability (remote/virtual
+fall back, no throw). tsgo 0 errors; unit `cortexideModelServiceSave.test.ts` (3); subset **252/0**;
+LIVE E2E (`atomic-edit-e2e.mjs`, real 7B): rewrote target.txt → correct content, no `.vsctmp` leak,
+editor stable. (applyEngineV2 was already atomic.)
+
+**Still NOT done → Phase 1 NOT complete:** #2 durable checkpoint/rollback.
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
