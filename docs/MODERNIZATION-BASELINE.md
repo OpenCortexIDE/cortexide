@@ -275,6 +275,24 @@ new `test/common/toolCallRecognition.test.ts` (10 cases) -> subset **320 -> 330 
 adversarial review (21-input equivalence fuzz) byte-identical; LIVE cdp-smoke 11/11 + atomic-edit-e2e
 with `qwen2.5-coder:7b` (which emits the tool call as TEXT) recognized + executed -> file rewritten.
 
+**Second module-split increment LANDED** (`7c548eb9a95`): extracted the agent loop's "should I
+SYNTHESIZE a tool call from the model's prose?" GATE into pure `common/toolSynthesisDecision.ts`
+(`decideToolSynthesis`); the synthesis ACTION stays inline. This finally TESTS the heuristic that most
+governs weak/local-model agentic behavior (when a chatty reply auto-converts to an action): the
+action/codebase/web intent word lists, the already-emitted-tool-tag suppression, the `looksFinal`
+closer regex, the image-analysis carve-out, and the nAttempts/alreadyActed/file-cap gating. It is also
+the synthesis machinery that is B1's runtime vector, now isolated + pinned. Behavior-preserving
+(mirrors the inline outer guard + inner condition byte-for-byte; caller coerces
+hasToolCall/hasImages/hasSynthesizedForRequest with `!!`, which the original used only in truthy/`!`
+contexts). NOTE: a first attempt landed on the WRONG `const userRequest` (there are 3: normal-mode,
+synthesis, needsMoreSearch) and clobbered the normal-mode advisory; caught immediately, reverted via
+`git checkout`, and redone anchored on the synthesis outer-`if`. Verification: tsgo 0; new
+`test/common/toolSynthesisDecision.test.ts` (20 cases) -> subset **330 -> 350 passing, 0 failing**;
+adversarial review with a 500k-input equivalence fuzz (inline gate vs module) 0 divergences; LIVE
+cdp-smoke 11/11 + atomic-edit-e2e (7B) completes (extraction did not break the loop). Still inline (own
+follow-ups): the native-call canonicalization (~4439, already pure 1-liner) and the `needsMoreSearch`
+"how many X" gate (~4676).
+
 ### Phases 3-10 — NOT STARTED
 Model-agnostic provider platform; real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy
 hardening; CI/release; positioning. Multi-session work.
