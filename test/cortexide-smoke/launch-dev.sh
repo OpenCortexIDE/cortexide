@@ -48,13 +48,22 @@ echo "Launching CortexIDE (port $PORT, ws $WS, profile $PROFILE)"
 # stably attributed to its macOS Keychain item, so safeStorage prompts for the login password on
 # every launch. "basic" makes Electron use in-memory/plaintext encryption instead of the Keychain,
 # so there's no prompt. Dev-only convenience; release builds must be Developer-ID signed instead.
+#
+# Workspace Trust is DISABLED by default (smoke runs want the agent unrestricted). Set
+# CX_KEEP_TRUST=1 to keep Workspace Trust ENABLED so the trust dispatch gate can be exercised
+# against an untrusted workspace.
+TRUST_FLAG="--disable-workspace-trust"
+if [[ "${CX_KEEP_TRUST:-0}" == "1" ]]; then
+	TRUST_FLAG=""
+	echo "Workspace Trust ENABLED (CX_KEEP_TRUST=1) — workspace opens untrusted."
+fi
 exec env -u ELECTRON_RUN_AS_NODE \
 	NODE_ENV=development VSCODE_DEV=1 VSCODE_CLI=1 ELECTRON_ENABLE_LOGGING=1 \
 	"$APP" "$ROOT" \
 	--remote-debugging-port="$PORT" \
 	--user-data-dir="$UDD" \
 	--extensions-dir="$EXT" \
-	--disable-updates --disable-workspace-trust \
+	--disable-updates $TRUST_FLAG \
 	--skip-welcome --skip-release-notes --disable-gpu \
 	--disable-extension=vscode.vscode-api-tests \
 	--password-store="basic" \
