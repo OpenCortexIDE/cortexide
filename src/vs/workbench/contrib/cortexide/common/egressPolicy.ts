@@ -166,6 +166,20 @@ export function classifyProviderDestination(providerName: ProviderName, endpoint
 	return 'remote';
 }
 
+/**
+ * Defense-in-depth gate for the LLM dispatch layer: compose provider/endpoint classification
+ * with the cloud-llm egress decision. `localOnly` is computed by the caller directly from the
+ * routing policy (NOT from the router's model choice), so even a router bug or a manually
+ * selected cloud model is blocked before any prompt or API key leaves the machine. A local
+ * provider on loopback (the common case) is allowed.
+ */
+export function canDispatchToProvider(localOnly: boolean, providerName: ProviderName, endpointUrl?: string | null): EgressDecision {
+	return canEgress(
+		{ routingPolicy: localOnly ? 'local-only' : undefined },
+		{ modality: 'cloud-llm', destinationKind: classifyProviderDestination(providerName, endpointUrl), providerName }
+	);
+}
+
 function kindLabel(kind: EgressDestinationKind): string {
 	switch (kind) {
 		case 'private': return 'private-network';

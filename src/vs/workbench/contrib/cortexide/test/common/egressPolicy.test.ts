@@ -10,6 +10,7 @@ import {
 	classifyDestination,
 	classifyProviderDestination,
 	canEgress,
+	canDispatchToProvider,
 	EgressModality,
 	EgressDestinationKind,
 } from '../../common/egressPolicy.js';
@@ -216,6 +217,36 @@ suite('egressPolicy', () => {
 		assert.strictEqual(canEgress(localOnly, { modality: 'vector-store', destinationKind: classifyDestination('https://qdrant.example.com:6333') }).allowed, false);
 		// web search (duckduckgo)
 		assert.strictEqual(canEgress(localOnly, { modality: 'web-tool', destinationKind: classifyDestination('https://api.duckduckgo.com/') }).allowed, false);
+	});
+
+	// ---- canDispatchToProvider: the LLM dispatch defense-in-depth gate -------------------
+
+	test('canDispatchToProvider: not local-only allows every provider', () => {
+		for (const p of ['openAI', 'anthropic', 'ollama', 'openAICompatible'] as const) {
+			assert.strictEqual(canDispatchToProvider(false, p).allowed, true);
+		}
+	});
+
+	test('canDispatchToProvider: local-only blocks cloud providers', () => {
+		assert.strictEqual(canDispatchToProvider(true, 'openAI').allowed, false);
+		assert.strictEqual(canDispatchToProvider(true, 'anthropic').allowed, false);
+		assert.strictEqual(canDispatchToProvider(true, 'groq').allowed, false);
+		// a cloud-capable compat provider with no endpoint resolved is also blocked (fail-closed)
+		assert.strictEqual(canDispatchToProvider(true, 'openAICompatible').allowed, false);
+	});
+
+	test('canDispatchToProvider: local-only allows local providers on loopback', () => {
+		assert.strictEqual(canDispatchToProvider(true, 'ollama', 'http://127.0.0.1:11434').allowed, true);
+		assert.strictEqual(canDispatchToProvider(true, 'ollama').allowed, true); // default loopback
+		assert.strictEqual(canDispatchToProvider(true, 'vLLM').allowed, true);
+		assert.strictEqual(canDispatchToProvider(true, 'openAICompatible', 'http://localhost:4000').allowed, true);
+		assert.strictEqual(canDispatchToProvider(true, 'awsBedrock', 'http://localhost:4000').allowed, true);
+	});
+
+	test('canDispatchToProvider: local-only blocks a LOCAL provider pointed at a remote box', () => {
+		// ollama configured to a remote GPU host is NOT local -- must be blocked under local-only
+		assert.strictEqual(canDispatchToProvider(true, 'ollama', 'https://gpu.example.com:11434').allowed, false);
+		assert.strictEqual(canDispatchToProvider(true, 'ollama', 'http://192.168.1.9:11434').allowed, false);
 	});
 
 	test('canEgress: legitimate local setups still work under local-only', () => {

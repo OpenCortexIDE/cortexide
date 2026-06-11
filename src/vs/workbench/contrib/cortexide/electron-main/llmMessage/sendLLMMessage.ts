@@ -6,6 +6,7 @@
 import { SendLLMMessageParams, OnText, OnFinalMessage, OnError } from '../../common/sendLLMMessageTypes.js';
 import { IMetricsService } from '../../common/metricsService.js';
 import { displayInfoOfProviderName, FeatureName } from '../../common/cortexideSettingsTypes.js';
+import { canDispatchToProvider } from '../../common/egressPolicy.js';
 import { sendLLMMessageToProviderImplementation } from './sendLLMMessage.impl.js';
 
 
@@ -24,6 +25,7 @@ export const sendLLMMessage = async ({
 	chatMode,
 	separateSystemMessage,
 	mcpTools,
+	localOnly,
 }: SendLLMMessageParams,
 
 	metricsService: IMetricsService
@@ -111,6 +113,18 @@ export const sendLLMMessage = async ({
 		if (providerName === 'auto') {
 			onError({ message: `Error: Cannot use "auto" provider - must resolve to a real model first. This usually means auto model selection failed. Please check your model provider settings or select a specific model.`, fullError: null })
 			return
+		}
+		// EGRESS GATE (Phase 8): defense-in-depth behind the router. Under local-only privacy
+		// mode, refuse to dispatch to any non-loopback provider before a prompt or API key can
+		// leave the machine -- even if model selection resolved to a cloud provider. A local
+		// provider on its loopback endpoint is allowed.
+		{
+			const endpoint = settingsOfProvider[providerName]?.endpoint
+			const egress = canDispatchToProvider(localOnly === true, providerName, endpoint)
+			if (!egress.allowed) {
+				onError({ message: egress.reason ?? 'Local-only privacy mode is on: cloud model dispatch is blocked.', fullError: null })
+				return
+			}
 		}
 		const implementation = sendLLMMessageToProviderImplementation[providerName]
 		if (!implementation) {
