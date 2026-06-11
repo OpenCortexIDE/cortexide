@@ -23,6 +23,7 @@
  */
 
 import { LLMChatMessage, RawToolCallObj, RawToolParamsObj } from './sendLLMMessageTypes.js';
+import type { InternalToolInfo } from './prompt/prompts.js';
 
 /** Build our RawToolCallObj from a provider tool call whose args are ALREADY parsed (object | unknown). */
 export const buildRawToolCallObj = (id: string, name: string, input: unknown): RawToolCallObj | null => {
@@ -70,4 +71,31 @@ export const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]
 		return msg
 	})
 	return result as LLMChatMessage[]
+}
+
+/**
+ * Build an OpenAI-compatible function-tool schema (OpenAI / groq / deepSeek / mistral / openRouter /
+ * xAI / ...) from our InternalToolInfo. Every param is given an explicit JSON-Schema `type: 'string'`:
+ * the OpenAI-family schema expects typed properties, and the previous inline version built this
+ * `paramsWithType` map but then emitted the raw (untyped) `params` - so tool schemas shipped with
+ * type-less properties. This emits the typed properties. `as const` keeps the `type` literals so the
+ * result is assignable to the SDK's ChatCompletionTool at the call site (kept out of this pure module).
+ */
+export const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
+	const { name, description, params } = toolInfo
+
+	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
+	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+
+	return {
+		type: 'function' as const,
+		function: {
+			name,
+			description,
+			parameters: {
+				type: 'object' as const,
+				properties: paramsWithType,
+			},
+		},
+	}
 }

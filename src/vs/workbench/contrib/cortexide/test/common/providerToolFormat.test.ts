@@ -5,8 +5,9 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { buildRawToolCallObj, rawToolCallObjOfParamsStr, sanitizeOpenAIMessagesForEmptyContent as _sanitize, EMPTY_CONTENT_PLACEHOLDER } from '../../common/providerToolFormat.js';
+import { buildRawToolCallObj, rawToolCallObjOfParamsStr, sanitizeOpenAIMessagesForEmptyContent as _sanitize, EMPTY_CONTENT_PLACEHOLDER, toOpenAICompatibleTool } from '../../common/providerToolFormat.js';
 import { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
+import type { InternalToolInfo } from '../../common/prompt/prompts.js';
 
 const m = (o: unknown): LLMChatMessage => o as LLMChatMessage;
 // LLMChatMessage is a union (the Gemini variant has `parts`, not `content`); return any[] so tests can read `.content`.
@@ -100,5 +101,34 @@ suite('sanitizeOpenAIMessagesForEmptyContent', () => {
 	test('array content with only empty text (not last assistant) -> single placeholder text part', () => {
 		const out = sanitizeOpenAIMessagesForEmptyContent([m({ role: 'user', content: [{ type: 'text', text: '  ' }] }), m({ role: 'assistant', content: 'k' })]);
 		assert.deepStrictEqual(out[0].content, [{ type: 'text', text: EMPTY_CONTENT_PLACEHOLDER }]);
+	});
+});
+
+suite('toOpenAICompatibleTool', () => {
+	const tool: InternalToolInfo = {
+		name: 'read_file',
+		description: 'Read a file',
+		params: { uri: { description: 'the path' }, line: { description: 'the line' } },
+	};
+
+	test('FIXED: every param gets an explicit JSON-Schema type:string (was emitting untyped params)', () => {
+		const out = toOpenAICompatibleTool(tool);
+		assert.deepStrictEqual(out.function.parameters.properties, {
+			uri: { description: 'the path', type: 'string' },
+			line: { description: 'the line', type: 'string' },
+		});
+	});
+
+	test('produces the OpenAI function-tool envelope', () => {
+		const out = toOpenAICompatibleTool(tool);
+		assert.strictEqual(out.type, 'function');
+		assert.strictEqual(out.function.name, 'read_file');
+		assert.strictEqual(out.function.description, 'Read a file');
+		assert.strictEqual(out.function.parameters.type, 'object');
+	});
+
+	test('a tool with no params yields empty properties', () => {
+		const out = toOpenAICompatibleTool({ name: 'noop', description: 'd', params: {} });
+		assert.deepStrictEqual(out.function.parameters.properties, {});
 	});
 });

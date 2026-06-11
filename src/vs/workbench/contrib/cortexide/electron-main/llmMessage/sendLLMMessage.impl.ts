@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool } from '../../common/providerToolFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -471,28 +471,6 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	}
 }
 
-
-const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
-	const { name, description, params } = toolInfo
-
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
-
-	return {
-		type: 'function',
-		function: {
-			name: name,
-			// strict: true, // strict mode - https://platform.openai.com/docs/guides/function-calling?api-mode=chat
-			description: description,
-			parameters: {
-				type: 'object',
-				properties: params,
-				// required: Object.keys(params), // in strict mode, all params are required and additionalProperties is false
-				// additionalProperties: false,
-			},
-		}
-	} satisfies OpenAI.Chat.Completions.ChatCompletionTool
-}
 
 const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 	const allowedTools = availableTools(chatMode, mcpTools)
