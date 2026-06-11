@@ -1884,11 +1884,18 @@ class EditCodeService extends Disposable implements IEditCodeService {
 						if (!(blockNum in addedTrackingZoneOfBlockNum)) {
 
 							const originalBounds = findTextInCode(block.orig, originalFileCode, true, { returnType: 'lines' })
-							// if error
+
+							// This block's final-range bounds, computed BEFORE the overlap check below (which
+							// references them). They used to be const-declared AFTER the check, leaving startLine/
+							// endLine in a temporal dead zone that threw a ReferenceError on the 2nd+ block of a
+							// multi-block edit (when addedTrackingZoneOfBlockNum is non-empty so the .some()
+							// callback actually runs). A string result is an error handled by the bail just below.
+							const thisBlockRange = typeof originalBounds === 'string' ? null : convertOriginalRangeToFinalRange(originalBounds)
+
 							// Check for overlap with existing modified ranges
-							const hasOverlap = addedTrackingZoneOfBlockNum.some(trackingZone => {
+							const hasOverlap = thisBlockRange !== null && addedTrackingZoneOfBlockNum.some(trackingZone => {
 								const [existingStart, existingEnd] = trackingZone.metadata.originalBounds;
-								const hasNoOverlap = endLine < existingStart || startLine > existingEnd
+								const hasNoOverlap = thisBlockRange[1] < existingStart || thisBlockRange[0] > existingEnd
 								return !hasNoOverlap
 							});
 
