@@ -450,6 +450,54 @@ fallback, empty); **200,000-case differential fuzz** old-vs-new = 0 mismatches; 
 boots healthy with the main-process change). The Gemini error path is CLOUD-ONLY and cannot be driven
 live locally (no Gemini key; cannot force a 429) - validated by unit tests + fuzz + differential review.
 
+### Phase 2 — AgentLoopController split BEGUN: first keystone-loop seam extracted (2026-06-11)
+
+`13d41aa9724` -- the FIRST extraction out of the keystone 1,800-line `_runChatAgent` loop
+(chatThreadService.ts:3140-4927). A read-only 6-agent **map workflow** (`map-agentloop-controller`,
+journal `map-agentloop-controller-wf_e1fc80c3-656.js`) sliced the loop into 5 regions and synthesized
+the safest first seam: the **excessive-file-read guard** (4716-4753) is the only remaining seam that is
+genuinely pure (4 scalar inputs, 4 outcomes), tiny, and has ZERO coupling to the mutable
+plan/escalation state that makes every other seam "hard". Added `decideFileReadGate` to
+`common/agentLoopDecisions.ts` (section 6): `{ hasToolCall, toolName, fileReadLimitExceeded,
+filesReadInQuery, maxFilesReadPerQuery } -> { action: no_tool | skip_already_exceeded | hit_limit_now |
+proceed, filesReadCount, nextFilesReadInQuery, nextFileReadLimitExceeded }`. The caller keeps every side
+effect (limit message, the 'LLM' `_setStreamState`, `shouldSendAnotherMessage` + `continue`) and assigns
+the two next-counter values back. The off-by-one (limit fires at `>= max`, the counter increments only
+on the read_file proceed path, so the max-th read is BLOCKED not performed) is PRESERVED as-is and
+pinned by a test (fixing it is a separate change). Verification: tsgo 0; +9 golden-table tests
+(**454 -> 463 passing, 0 failing**); **1,800-combo exhaustive differential enum** old-vs-new = 0
+mismatches; **4-agent adversarial review** (control-flow / counters / side-effects + synthesis) =
+behavior-preserving, 0 reachable divergences (the only flagged arm, `no_tool`, is unreachable at a call
+site hardcoded to `hasToolCall:true`); LIVE cdp atomic-edit-e2e (7B) completes through the modified gate
+with no false-fire.
+
+**AgentLoopController latent-bug backlog** (from the map; LEADS to re-verify in code, NOT yet fixed -
+ranked by severity/fix-risk; line numbers approximate, the loop is ~3140-4927):
+- HIGH: on an `llmError`, `streamState.llmInfo` is already cleared to `undefined` by the onError
+  handler, so reading `toolCallSoFar` (~4400) is always null and the `interrupted_streaming_tool`
+  message is never added -> partial streaming tool-call output silently lost on every streaming error.
+- HIGH: `_generatePlanFromUserRequest` (~3325) is called with the raw (possibly 'auto') modelSelection
+  instead of `resolvedModelSelection` (confirm the callee doesn't re-resolve before fixing).
+- HIGH (metrics-only): a recomputed `promptTokens` (~3931-3961) shadows the standardized
+  `_computeTokenCount` value handed to `chatLatencyAudit.markPromptAssemblyEnd` on the model-switch path.
+- MED: tool-error-escalation path (~4807) does NOT reset `nMessagesSent` on a successful
+  `tryEscalateModel` (the iter-cap + outer-loop escalation sites DO) -> escalated model gets a
+  shorter-than-intended iteration budget. Inconsistent across the 3 escalation sites.
+- MED: `modelSupportsTools` re-synthesis gate (~4473/4550) keys on `hasSynthesizedToolsInThisRequest`
+  which is only set true AFTER a synthesized tool both runs AND completes; an interrupted/failed
+  synthesis leaves it false -> possible re-synthesis loop.
+- MED: pre-loop tool exec (~3431) destructures only `{ interrupted }` from `_runToolCall`; a tool that
+  ERRORED (not interrupted) still runs the success branch and may mark a failed step completed (the
+  main-loop path at ~4818 correctly inspects the tail tool-message type - the pre-loop path is the
+  inconsistent twin).
+- MED: plan-step null-guard gaps (~3388, ~4858), in-place plan-cache divergence (~3358), compacted-view
+  cache miss (~3763). LOW: idle-interruptor promise never invokes its fn (~3232, likely dead);
+  awaiting_user exit leaves isRunning set with no checkpoint (~4889, likely intentional).
+Next-safest pure-fn seams for the backlog (from the map): `isRateLimitError(msg)` (4172), auto-mode
+predicate (3857), fallback-chain next-model picker (4215). HARD/deferred: AgentPlanStepTracker class
+(4818-4876 + pre-loop twin 3431-3483) - do AFTER the pure gates + the 4763-vs-4819 desync + pre-loop
+success-branch bug are fixed, so the refactor target is correct-by-construction.
+
 ### Phases 4-10 — NOT STARTED
 Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
