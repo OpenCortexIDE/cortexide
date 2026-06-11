@@ -249,6 +249,20 @@ suite('egressPolicy', () => {
 		assert.strictEqual(canDispatchToProvider(true, 'ollama', 'http://192.168.1.9:11434').allowed, false);
 	});
 
+	// ---- MCP connect gate: exact composition used by mcpChannel ---------------------------
+
+	test('mcp connect gate: localhost allowed, remote/private blocked under local-only', () => {
+		const decide = (url: string) => canEgress({ routingPolicy: 'local-only' }, { modality: 'mcp', destinationKind: classifyDestination(url) });
+		assert.strictEqual(decide('http://localhost:3000/sse').allowed, true);
+		assert.strictEqual(decide('http://127.0.0.1:8080/mcp').allowed, true);
+		assert.strictEqual(decide('https://mcp.example.com/sse').allowed, false);
+		assert.strictEqual(decide('http://10.0.0.5:3000/sse').allowed, false); // LAN
+		// stdio is handled by isStdio (no URL) -- always allowed
+		assert.strictEqual(canEgress({ routingPolicy: 'local-only' }, { modality: 'mcp', isStdio: true }).allowed, true);
+		// not local-only: remote MCP allowed
+		assert.strictEqual(canEgress({ routingPolicy: 'auto-cheapest' }, { modality: 'mcp', destinationKind: classifyDestination('https://mcp.example.com/sse') }).allowed, true);
+	});
+
 	test('canEgress: legitimate local setups still work under local-only', () => {
 		const localOnly = { routingPolicy: 'local-only' as const };
 		// ollama on localhost

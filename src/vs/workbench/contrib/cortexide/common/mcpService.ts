@@ -349,6 +349,9 @@ class MCPService extends Disposable implements IMCPService {
 				removedServerNames,
 				updatedServerNames,
 				userStateOfName: this.cortexideSettingsService.state.mcpUserStateOfName,
+				// Phase 8: stamp local-only privacy mode so electron-main refuses to connect to a
+				// remote MCP server. Sent on every refresh so the gate tracks the routing policy.
+				localOnly: this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only',
 			}).catch((e: unknown) => this._setHasError(`Failed to refresh MCP servers: ${e instanceof Error ? e.message : String(e)}`));
 		} finally {
 			this._isRefreshing = false;
@@ -376,7 +379,7 @@ class MCPService extends Disposable implements IMCPService {
 		await this._setMCPServerState(serverName, { status: 'loading', tools: [] })
 
 		await this.cortexideSettingsService.setMCPServerState(serverName, { isOn });
-		await this.channel.call('toggleMCPServer', { serverName, isOn })
+		await this.channel.call('toggleMCPServer', { serverName, isOn, localOnly: this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only' })
 			.catch((e: unknown) => this._setMCPServerState(serverName, {
 				status: 'error',
 				error: `Toggle failed: ${e instanceof Error ? e.message : String(e)}`,
