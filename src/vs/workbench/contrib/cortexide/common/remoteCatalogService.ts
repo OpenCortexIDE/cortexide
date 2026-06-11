@@ -5,6 +5,7 @@
 
 import { ProviderName } from './cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
+import { canEgress } from './egressPolicy.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
@@ -92,6 +93,19 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 	}
 
 	private async fetchFromProvider(providerName: ProviderName): Promise<RemoteModelInfo[]> {
+		// EGRESS GATE (Phase 8): every catalog endpoint below is a remote cloud API contacted
+		// with the user's API key. Under local-only privacy mode we must not make that call.
+		// (Cached results from a prior session are still returned by fetchCatalog -- returning
+		// cache sends no bytes off the machine.) The hardcoded modelCapabilities list remains
+		// the fallback when this returns [].
+		const egress = canEgress(
+			{ routingPolicy: this.settingsService.state.globalSettings.routingPolicy },
+			{ modality: 'model-catalog', destinationKind: 'remote', providerName }
+		);
+		if (!egress.allowed) {
+			return [];
+		}
+
 		const settings = this.settingsService.state.settingsOfProvider[providerName];
 
 		// Only fetch if provider is configured
