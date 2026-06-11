@@ -22,6 +22,7 @@ import { ICortexideCommandBarService } from './cortexideCommandBarService.js'
 import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree1Deep } from '../common/directoryStrService.js'
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js'
 import { timeout } from '../../../../base/common/async.js'
+import { diffDiagnostics, VerificationDiagnostic } from '../common/applyVerification.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
 import { DIVIDER, FINAL, MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, ORIGINAL } from '../common/prompt/prompts.js'
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js'
@@ -1252,14 +1253,12 @@ export class ToolsService implements IToolsService {
 					// Only block if actually streaming to the same file - allow if streaming to different file
 					throw new Error(`Cannot edit file ${uri.fsPath}: Another operation is currently streaming changes to this file. Please wait for it to complete or cancel it first.`)
 				}
+				const beforeDiags = this._readVerificationDiagnostics(uri)
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				editCodeService.instantlyRewriteFile({ uri, newContent })
-				// at end, get lint errors
-				const lintErrorsPromise = Promise.resolve().then(async () => {
-					await timeout(2000)
-					const { lintErrors } = this._getLintErrors(uri)
-					return { lintErrors }
-				})
+				// Apply verification: surface ONLY the problems this edit introduced (diffed against
+				// the pre-edit snapshot), after diagnostics settle.
+				const lintErrorsPromise = this._introducedLintErrorsAfterApply(uri, beforeDiags).then(lintErrors => ({ lintErrors }))
 				return { result: lintErrorsPromise }
 			},
 
@@ -1270,15 +1269,13 @@ export class ToolsService implements IToolsService {
 					// Only block if actually streaming to the same file - allow if streaming to different file
 					throw new Error(`Cannot edit file ${uri.fsPath}: Another operation is currently streaming changes to this file. Please wait for it to complete or cancel it first.`)
 				}
+				const beforeDiags = this._readVerificationDiagnostics(uri)
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })
 
-				// at end, get lint errors
-				const lintErrorsPromise = Promise.resolve().then(async () => {
-					await timeout(2000)
-					const { lintErrors } = this._getLintErrors(uri)
-					return { lintErrors }
-				})
+				// Apply verification: surface ONLY the problems this edit introduced (diffed against
+				// the pre-edit snapshot), after diagnostics settle.
+				const lintErrorsPromise = this._introducedLintErrorsAfterApply(uri, beforeDiags).then(lintErrors => ({ lintErrors }))
 
 				return { result: lintErrorsPromise }
 			},
@@ -1813,15 +1810,13 @@ export class ToolsService implements IToolsService {
 				}
 				const searchReplaceBlocks = blocks.join('\n\n');
 
+				const beforeDiags = this._readVerificationDiagnostics(uri);
 				await editCodeService.callBeforeApplyOrEdit(uri);
 				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks });
 
 				const appliedCount = edits.length;
-				const lintErrorsPromise = Promise.resolve().then(async () => {
-					await timeout(2000);
-					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, appliedCount };
-				});
+				// Apply verification: surface ONLY the problems this edit introduced, after settle.
+				const lintErrorsPromise = this._introducedLintErrorsAfterApply(uri, beforeDiags).then(lintErrors => ({ lintErrors, appliedCount }));
 				return { result: lintErrorsPromise };
 			},
 
@@ -2232,6 +2227,71 @@ export class ToolsService implements IToolsService {
 
 		if (!lintErrors.length) return { lintErrors: null }
 		return { lintErrors, }
+	}
+
+	/** Read the file's current error/warning diagnostics into the pure apply-verification shape. */
+	private _readVerificationDiagnostics(uri: URI): VerificationDiagnostic[] {
+		return this.markerService
+			.read({ resource: uri })
+			.filter(m => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+			.map(m => ({
+				message: m.message,
+				severity: (m.severity === MarkerSeverity.Error ? 'error' : 'warning') as 'error' | 'warning',
+				startLine: m.startLineNumber,
+				endLine: m.endLineNumber,
+				code: typeof m.code === 'string' ? m.code : m.code?.value,
+				source: m.source,
+			}))
+	}
+
+	/**
+	 * Wait for the language server's diagnostics for `uri` to settle after an edit: resolve once no
+	 * marker change has arrived for `quietMs`, or after `maxMs` as a hard cap. Replaces a fixed
+	 * timeout guess -- faster when the file ends up clean, more reliable when the server is slow.
+	 * Always resolves within `maxMs`.
+	 */
+	private _waitForDiagnosticsToSettle(uri: URI, quietMs: number = 500, maxMs: number = 3000): Promise<void> {
+		return new Promise<void>(resolve => {
+			const target = uri.toString()
+			let done = false
+			let quietTimer: ReturnType<typeof setTimeout> | undefined
+			const finish = () => {
+				if (done) { return }
+				done = true
+				if (quietTimer !== undefined) { clearTimeout(quietTimer) }
+				clearTimeout(capTimer)
+				listener.dispose()
+				resolve()
+			}
+			const bump = () => {
+				if (quietTimer !== undefined) { clearTimeout(quietTimer) }
+				quietTimer = setTimeout(finish, quietMs)
+			}
+			const listener = this.markerService.onMarkerChanged(resources => {
+				if (resources.some(r => r.toString() === target)) { bump() }
+			})
+			const capTimer = setTimeout(finish, maxMs)
+			bump()
+		})
+	}
+
+	/**
+	 * Phase 5 apply VERIFICATION: given the file's diagnostics BEFORE an edit, wait for diagnostics
+	 * to settle, then return ONLY the problems the edit INTRODUCED (mapped to the LintErrorItem the
+	 * tool-result contract uses), or null when the edit introduced nothing new. Pre-existing
+	 * problems are intentionally NOT surfaced -- the model is only asked to fix what its edit caused.
+	 */
+	private async _introducedLintErrorsAfterApply(uri: URI, before: VerificationDiagnostic[]): Promise<LintErrorItem[] | null> {
+		await this._waitForDiagnosticsToSettle(uri)
+		const after = this._readVerificationDiagnostics(uri)
+		const { introduced } = diffDiagnostics(before, after)
+		if (introduced.length === 0) { return null }
+		return introduced.slice(0, 100).map(d => ({
+			code: d.code ?? '',
+			message: (d.severity === 'error' ? '(error) ' : '(warning) ') + d.message,
+			startLineNumber: d.startLine,
+			endLineNumber: d.endLine ?? d.startLine,
+		} satisfies LintErrorItem))
 	}
 
 
