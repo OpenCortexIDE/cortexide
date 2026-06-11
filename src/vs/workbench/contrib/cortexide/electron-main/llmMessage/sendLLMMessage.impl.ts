@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta } from '../../common/providerToolFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -656,47 +656,18 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				// Rolling timeout: reset on each chunk for local so we only fire on real stall
 				if (isLocalChat) scheduleOverallTimeout()
 
-				// message
-				const newText = chunk.choices[0]?.delta?.content ?? ''
-
-				// Handle Mistral's object content
-				if (providerName === 'mistral' && typeof newText === 'object' && newText !== null) {
-					// Parse Mistral's content object
-					if (Array.isArray(newText)) {
-						for (const item of newText as any[]) {
-							if (item.type === 'text' && item.text) {
-								fullTextSoFar += item.text
-							} else if (item.type === 'thinking' && item.thinking) {
-								for (const thinkingItem of item.thinking as any[]) {
-									if (thinkingItem.type === 'text' && thinkingItem.text) {
-										fullReasoningSoFar += thinkingItem.text
-									}
-								}
-							}
-						}
-					}
-				} else {
-					fullTextSoFar += newText
-				}
-
-				// tool call
-				for (const tool of chunk.choices[0]?.delta?.tool_calls ?? []) {
-					const index = tool.index
-					if (index !== 0) continue
-
-					toolName += tool.function?.name ?? ''
-					toolParamsStr += tool.function?.arguments ?? '';
-					toolId += tool.id ?? ''
-				}
-
-
-				// reasoning
-				let newReasoning = ''
-				if (nameOfReasoningFieldInDelta) {
-					// @ts-ignore
-					newReasoning = (chunk.choices[0]?.delta?.[nameOfReasoningFieldInDelta] || '') + ''
-					fullReasoningSoFar += newReasoning
-				}
+				// message + tool call + reasoning: accumulate this delta (pure reducer, byte-identical to the
+				// previous inline logic - text/Mistral-parts/tool-call-fragments/reasoning).
+				const _acc = accumulateOpenAIChatDelta(
+					{ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolName, toolParamsStr, toolId },
+					chunk.choices[0]?.delta,
+					{ providerName, reasoningFieldName: nameOfReasoningFieldInDelta }
+				)
+				fullTextSoFar = _acc.fullText
+				fullReasoningSoFar = _acc.fullReasoning
+				toolName = _acc.toolName
+				toolParamsStr = _acc.toolParamsStr
+				toolId = _acc.toolId
 
 				// call onText
 				onText({

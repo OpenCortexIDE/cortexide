@@ -99,3 +99,94 @@ export const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 		},
 	}
 }
+
+/**
+ * The running accumulator for an OpenAI-compatible streaming chat response: text, reasoning, and the
+ * single tool call (name / args-JSON-string / id) assembled across deltas. The OpenAI streaming
+ * protocol delivers a tool call's `function.arguments` in fragments across many chunks, so the args
+ * string is CONCATENATED (not replaced) - that string is JSON.parse'd by `rawToolCallObjOfParamsStr`
+ * only after the stream finishes.
+ */
+export interface OpenAIChatAccumulator {
+	fullText: string
+	fullReasoning: string
+	toolName: string
+	toolParamsStr: string
+	toolId: string
+}
+
+/** Minimal shape of a single tool-call entry inside a streaming delta (`delta.tool_calls[n]`). */
+export interface OpenAIStreamToolCallDelta {
+	index?: number
+	id?: string | null
+	function?: { name?: string | null; arguments?: string | null }
+}
+
+/** Minimal shape of `chunk.choices[0].delta` for an OpenAI-compatible streaming chunk. */
+export interface OpenAIStreamDelta {
+	content?: unknown
+	tool_calls?: OpenAIStreamToolCallDelta[]
+	[field: string]: unknown
+}
+
+/**
+ * Apply one OpenAI-compatible streaming delta to the accumulator and return the updated state (pure -
+ * the input is not mutated). Mirrors the inline logic in `_sendOpenAICompatibleChat`'s stream loop
+ * byte-for-byte:
+ *  - text: `delta.content` is appended; Mistral can send `content` as a parts ARRAY (text / thinking)
+ *    rather than a string, which is decomposed into text vs reasoning. A non-string content from any
+ *    OTHER provider falls through to string coercion (preserving the original `+=` behavior).
+ *  - tool call: only the `index === 0` tool call is captured (the agent loop handles one tool call per
+ *    turn); name / arguments / id are CONCATENATED across deltas. A delta entry whose index is absent
+ *    (`!== 0`) is skipped, exactly as before.
+ *  - reasoning: when the provider exposes a dedicated reasoning field name, its delta value is appended
+ *    (using `|| ''` then string coercion, matching the original).
+ */
+export const accumulateOpenAIChatDelta = (
+	state: OpenAIChatAccumulator,
+	delta: OpenAIStreamDelta | null | undefined,
+	opts: { providerName: string; reasoningFieldName?: string | null }
+): OpenAIChatAccumulator => {
+	let { fullText, fullReasoning, toolName, toolParamsStr, toolId } = state
+
+	// message
+	const newText = delta?.content ?? ''
+
+	// Handle Mistral's object content
+	if (opts.providerName === 'mistral' && typeof newText === 'object' && newText !== null) {
+		// Parse Mistral's content object
+		if (Array.isArray(newText)) {
+			for (const item of newText as any[]) {
+				if (item.type === 'text' && item.text) {
+					fullText += item.text
+				} else if (item.type === 'thinking' && item.thinking) {
+					for (const thinkingItem of item.thinking as any[]) {
+						if (thinkingItem.type === 'text' && thinkingItem.text) {
+							fullReasoning += thinkingItem.text
+						}
+					}
+				}
+			}
+		}
+	} else {
+		fullText += newText as any
+	}
+
+	// tool call
+	for (const tool of delta?.tool_calls ?? []) {
+		const index = tool.index
+		if (index !== 0) continue
+
+		toolName += tool.function?.name ?? ''
+		toolParamsStr += tool.function?.arguments ?? ''
+		toolId += tool.id ?? ''
+	}
+
+	// reasoning
+	if (opts.reasoningFieldName) {
+		const newReasoning = ((delta as any)?.[opts.reasoningFieldName] || '') + ''
+		fullReasoning += newReasoning
+	}
+
+	return { fullText, fullReasoning, toolName, toolParamsStr, toolId }
+}
