@@ -40,7 +40,16 @@ export interface DiagnosticsDiff {
 	readonly preexistingCount: number;
 }
 
-/** Stable key for matching "the same problem" across an edit. Line is intentionally excluded. */
+/**
+ * Stable key for matching "the same problem" across an edit. Line is intentionally EXCLUDED so a
+ * pre-existing diagnostic that merely shifted lines (because the edit added/removed lines above it)
+ * is correctly seen as pre-existing, not as "introduced" -- this avoids flooding the model with
+ * false alarms on every edit. The documented trade-off: if an edit adds a NEW occurrence of a
+ * message that ALREADY existed in the file (same severity+code+message at a different line), the
+ * multiset diff matches it against the existing count and UNDER-reports it (introduced omits it).
+ * That is the safer failure direction here (a missed near-duplicate vs. noisy false positives on
+ * every line shift); keying on line would invert it into the noisy direction.
+ */
 function keyOf(d: VerificationDiagnostic): string {
 	return `${d.severity} ${d.code ?? ''} ${d.message.trim()}`;
 }

@@ -87,6 +87,13 @@ suite('egressPolicy', () => {
 		assert.strictEqual(classifyDestination('http://my-lan-box.local:11434'), 'unknown');
 	});
 
+	test('classifyDestination: ws/wss schemes classify by host like http (remote MCP fail-closed)', () => {
+		assert.strictEqual(classifyDestination('ws://mcp.example.com/sse'), 'unknown');   // remote DNS -> blocked
+		assert.strictEqual(classifyDestination('wss://mcp.example.com/sse'), 'unknown');
+		assert.strictEqual(classifyDestination('ws://localhost:3000'), 'loopback');       // local MCP allowed
+		assert.strictEqual(classifyDestination('ws://10.0.0.4:3000'), 'private');
+	});
+
 	test('classifyDestination: malformed / empty inputs are unknown', () => {
 		assert.strictEqual(classifyDestination(''), 'unknown');
 		assert.strictEqual(classifyDestination(undefined), 'unknown');

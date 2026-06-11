@@ -31,49 +31,54 @@ registerAction2(class extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const settingsService = accessor.get(ICortexideSettingsService);
-		const configService = accessor.get(IConfigurationService);
-		const editorService = accessor.get(IEditorService);
 		const notificationService = accessor.get(INotificationService);
-		const mcpService = accessor.get(IMCPService);
+		try {
+			const settingsService = accessor.get(ICortexideSettingsService);
+			const configService = accessor.get(IConfigurationService);
+			const editorService = accessor.get(IEditorService);
+			const mcpService = accessor.get(IMCPService);
 
-		let embeddingsEnabled = false;
-		try { embeddingsEnabled = accessor.get(IAiEmbeddingVectorService).isEnabled(); } catch { /* embedding service optional */ }
+			let embeddingsEnabled = false;
+			try { embeddingsEnabled = accessor.get(IAiEmbeddingVectorService).isEnabled(); } catch { /* embedding service optional */ }
 
-		const gs = settingsService.state.globalSettings;
-		const sop = settingsService.state.settingsOfProvider;
+			const gs = settingsService.state.globalSettings;
+			const sop = settingsService.state.settingsOfProvider;
 
-		const configuredProviders = (Object.keys(sop) as ProviderName[])
-			.filter(p => sop[p]?._didFillInProviderSettings)
-			.map(p => ({ providerName: p, endpoint: sop[p]?.endpoint || undefined }));
+			const configuredProviders = (Object.keys(sop) as ProviderName[])
+				.filter(p => sop[p]?._didFillInProviderSettings)
+				.map(p => ({ providerName: p, endpoint: sop[p]?.endpoint || undefined }));
 
-		// The runtime MCP state only carries a display `command` string; classify it best-effort
-		// (a URL-looking command is a remote/loopback server, otherwise it is a local stdio spawn).
-		const mcpServers = Object.entries(mcpService.state.mcpServerOfName).map(([name, s]) => {
-			const cmd = (s as { command?: string }).command;
-			const looksUrl = !!cmd && /^https?:\/\//i.test(cmd);
-			return { name, url: looksUrl ? cmd : undefined, isStdio: !looksUrl };
-		});
+			// The runtime MCP state only carries a display `command` string; classify it best-effort
+			// (a URL-looking command -- http(s) OR ws(s) -- is a remote/loopback server, otherwise it
+			// is a local stdio spawn). The ACTUAL connect gate (mcpChannel) classifies the real URL.
+			const mcpServers = Object.entries(mcpService.state.mcpServerOfName).map(([name, s]) => {
+				const cmd = (s as { command?: string }).command;
+				const looksUrl = !!cmd && /^(https?|wss?):\/\//i.test(cmd);
+				return { name, url: looksUrl ? cmd : undefined, isStdio: !looksUrl };
+			});
 
-		const cfg: EgressReportConfig = {
-			routingPolicy: gs.routingPolicy,
-			localFirstAI: gs.localFirstAI,
-			configuredProviders,
-			embeddingsEnabled,
-			vectorStore: (configService.getValue<'none' | 'qdrant' | 'chroma'>('cortexide.rag.vectorStore')) || 'none',
-			vectorStoreUrl: configService.getValue<string>('cortexide.rag.vectorStoreUrl') || undefined,
-			mcpServers,
-		};
+			const cfg: EgressReportConfig = {
+				routingPolicy: gs.routingPolicy,
+				localFirstAI: gs.localFirstAI,
+				configuredProviders,
+				embeddingsEnabled,
+				vectorStore: (configService.getValue<'none' | 'qdrant' | 'chroma'>('cortexide.rag.vectorStore')) || 'none',
+				vectorStoreUrl: configService.getValue<string>('cortexide.rag.vectorStoreUrl') || undefined,
+				mcpServers,
+			};
 
-		const report = buildEgressReport(cfg);
+			const report = buildEgressReport(cfg);
 
-		await editorService.openEditor({
-			resource: undefined,
-			contents: formatEgressReport(report),
-			languageId: 'text',
-			options: { pinned: true },
-		});
+			await editorService.openEditor({
+				resource: undefined,
+				contents: formatEgressReport(report),
+				languageId: 'text',
+				options: { pinned: true },
+			});
 
-		notificationService.info(report.summary);
+			notificationService.info(report.summary);
+		} catch (err) {
+			notificationService.error(`Failed to show the CortexIDE privacy report: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
 });

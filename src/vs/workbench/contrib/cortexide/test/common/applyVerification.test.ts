@@ -51,6 +51,22 @@ suite('applyVerification', () => {
 		assert.strictEqual(d.preexistingCount, 1);
 	});
 
+	test('DOCUMENTED LIMITATION: a new occurrence of an already-present message is under-reported', () => {
+		// 3 identical errors before (lines 1,5,10); after the edit there are still 3 of the same
+		// message but one is genuinely NEW (line 15) while another was fixed -- the multiset count is
+		// unchanged (3 -> 3), so the diff reports nothing introduced. This is the intentional, safer
+		// trade-off (no false alarms on line shifts) documented on keyOf(); pinned here so the
+		// behavior is a deliberate choice, not an accident.
+		const before = [err('dup', 1), err('dup', 5), err('dup', 10)];
+		const after = [err('dup', 2), err('dup', 6), err('dup', 15)];
+		const d = diffDiagnostics(before, after);
+		assert.strictEqual(d.introduced.length, 0, 'count-preserving same-message set reports nothing introduced (documented under-report)');
+		assert.strictEqual(d.preexistingCount, 3);
+		// By contrast, a NET-NEW occurrence (count increases) IS reported:
+		const d2 = diffDiagnostics([err('dup', 1)], [err('dup', 1), err('dup', 9)]);
+		assert.strictEqual(d2.introduced.length, 1);
+	});
+
 	test('an edit that fixes an error -> resolved, none introduced', () => {
 		const before = [err("Cannot find name 'foo'", 10, 'ts2304')];
 		const after: VerificationDiagnostic[] = [];

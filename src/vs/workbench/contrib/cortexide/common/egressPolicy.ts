@@ -96,19 +96,19 @@ function classifyV4(a: number, b: number): EgressDestinationKind {
  * URL parser produces, so a mapped loopback/private address is never mis-seen as public.
  * Returns null when the compact string is not an IPv4-mapped address.
  */
-function decodeV4Mapped(compact: string): [number, number, number] | null {
+function decodeV4Mapped(compact: string): [number, number, number, number] | null {
 	const m = compact.match(/^::ffff:(.+)$/i);
 	if (!m) { return null; }
 	const rest = m[1];
 	const dotted = rest.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-	if (dotted) { return [Number(dotted[1]), Number(dotted[2]), Number(dotted[3])]; }
+	if (dotted) { return [Number(dotted[1]), Number(dotted[2]), Number(dotted[3]), Number(dotted[4])]; }
 	const groups = rest.split(':');
 	if (groups.length < 1 || groups.length > 2) { return null; }
 	for (const g of groups) { if (!/^[0-9a-f]{1,4}$/i.test(g)) { return null; } }
 	const hi = groups.length === 2 ? parseInt(groups[0], 16) : 0;
 	const lo = parseInt(groups[groups.length - 1], 16);
 	const val = (((hi << 16) >>> 0) + lo) >>> 0;
-	return [(val >>> 24) & 0xff, (val >>> 16) & 0xff, (val >>> 8) & 0xff];
+	return [(val >>> 24) & 0xff, (val >>> 16) & 0xff, (val >>> 8) & 0xff, val & 0xff];
 }
 
 /**
@@ -156,8 +156,11 @@ export function classifyDestination(rawUrl: string | undefined | null): EgressDe
  * has been pointed at a remote host is correctly blocked under local-only.
  */
 export function classifyProviderDestination(providerName: ProviderName, endpointUrl?: string | null): EgressDestinationKind {
-	// When an explicit endpoint is configured, the endpoint is the truth (a "local" provider
-	// pointed at a remote box is NOT local).
+	// When a NON-EMPTY endpoint is configured, the endpoint is the truth (a "local" provider
+	// pointed at a remote box is NOT local). An empty/absent endpoint (e.g. openAICompatible's
+	// default '') intentionally falls through to the provider-name default below -- so a local
+	// provider with no explicit endpoint still resolves to its loopback default rather than being
+	// mis-classified as 'unknown'. (A truthy check, not `!= null`, is required for this.)
 	if (endpointUrl) { return classifyDestination(endpointUrl); }
 	// No endpoint configured: local-named providers default to their loopback endpoint.
 	if ((localProviderNames as readonly string[]).includes(providerName)) { return 'loopback'; }
