@@ -16,6 +16,7 @@ import { GoogleAuth } from 'google-auth-library'
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
 import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta } from '../../common/providerToolFormat.js';
+import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -1473,71 +1474,9 @@ const sendGeminiChat = async ({
 					onError({ message: invalidApiKeyMessage(providerName), fullError: error });
 				}
 				else if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('quota')) {
-					// Parse Gemini rate limit error to extract user-friendly message
-					let rateLimitMessage = 'Rate limit reached. Please check your plan and billing details.';
-					let retryDelay: string | undefined;
-
-					try {
-						// Try to parse the error message which may contain JSON
-						let errorData: any = null;
-
-						// First, try to parse the error message as JSON (it might be a JSON string)
-						try {
-							errorData = JSON.parse(error.message);
-						} catch {
-							// If that fails, check if error.message contains a JSON string
-							const jsonMatch = error.message.match(/\{[\s\S]*\}/);
-							if (jsonMatch) {
-								errorData = JSON.parse(jsonMatch[0]);
-							}
-						}
-
-						// Extract user-friendly message from nested structure
-						if (errorData?.error?.message) {
-							// The message might itself be a JSON string
-							try {
-								const innerError = JSON.parse(errorData.error.message);
-								if (innerError?.error?.message) {
-									rateLimitMessage = innerError.error.message;
-									// Extract retry delay if available
-									const retryInfo = innerError.error.details?.find((d: any) => d['@type'] === 'type.googleapis.com/google.rpc.RetryInfo');
-									if (retryInfo?.retryDelay) {
-										retryDelay = retryInfo.retryDelay;
-									}
-								}
-							} catch {
-								// If inner parse fails, use the outer message
-								rateLimitMessage = errorData.error.message;
-							}
-						} else if (errorData?.error?.code === 429 || errorData?.error?.status === 'RESOURCE_EXHAUSTED') {
-							// Fallback: use a generic rate limit message
-							rateLimitMessage = 'You exceeded your current quota. Please check your plan and billing details.';
-						}
-
-						// Format the final message
-						let finalMessage = rateLimitMessage;
-						if (retryDelay) {
-							// Parse retry delay (format: "57s" or "57.627694635s")
-							const delaySeconds = parseFloat(retryDelay.replace('s', ''));
-							const delayMinutes = Math.floor(delaySeconds / 60);
-							const remainingSeconds = Math.ceil(delaySeconds % 60);
-							if (delayMinutes > 0) {
-								finalMessage += ` Please retry in ${delayMinutes} minute${delayMinutes > 1 ? 's' : ''}${remainingSeconds > 0 ? ` and ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}` : ''}.`;
-							} else {
-								finalMessage += ` Please retry in ${Math.ceil(delaySeconds)} second${Math.ceil(delaySeconds) > 1 ? 's' : ''}.`;
-							}
-						} else {
-							finalMessage += ' Please wait a moment before trying again.';
-						}
-
-						// Add helpful links
-						finalMessage += ' For more information, see https://ai.google.dev/gemini-api/docs/rate-limits';
-
-						onError({ message: finalMessage, fullError: error });
-					} catch (parseError) {
-						// If parsing fails, use a generic message
-						onError({ message: 'Rate limit reached. Please check your Gemini API quota and billing details. See https://ai.google.dev/gemini-api/docs/rate-limits', fullError: error });
-					}
+					// Parse Gemini rate limit error to extract a user-friendly message + retry delay
+					// (pure, byte-identical, node-tested formatter; never throws).
+					onError({ message: formatGeminiRateLimitError(error.message), fullError: error });
 				}
 				else
 					onError({ message: error + '', fullError: error });
