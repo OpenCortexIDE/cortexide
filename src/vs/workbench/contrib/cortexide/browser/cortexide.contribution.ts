@@ -34,6 +34,9 @@ import './media/cortexide.css'
 // update (frontend part, also see platform/)
 import './cortexideUpdateActions.js'
 
+// privacy report (Phase 8): "what can leave my machine" command
+import './cortexidePrivacyReportActions.js'
+
 import './convertToLLMMessageWorkbenchContrib.js'
 
 // tools
