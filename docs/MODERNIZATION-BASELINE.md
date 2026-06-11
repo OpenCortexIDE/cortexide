@@ -514,8 +514,44 @@ predicate (3857), fallback-chain next-model picker (4215). HARD/deferred: AgentP
 (4818-4876 + pre-loop twin 3431-3483) - do AFTER the pure gates + the 4763-vs-4819 desync + pre-loop
 success-branch bug are fixed, so the refactor target is correct-by-construction.
 
-### Phases 4-10 — NOT STARTED
-Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
+### Phase 5 — Apply engine / editing correctness STARTED (2026-06-11)
+
+`7cce1593d27` -- FIRST Phase 5 increment. Extracted the SR ORIGINAL-block matcher `findTextInCode`
+(+ its `numLinesOfStr` / `removeWhitespaceExceptNewlines` helpers, used nowhere else) from the browser
+`editCodeService` into pure node-testable `common/searchReplaceMatch.ts`, and FIXED a real
+silent-corruption bug: the EXACT-match path returned the first `indexOf` hit WITHOUT a uniqueness check,
+so a non-unique ORIGINAL block silently edited the FIRST of several identical matches (wrong-location
+edit). The whitespace-FALLBACK path already rejected non-unique; now the exact path does too, for a
+whole-file (`startingAtLine === undefined`) search, using the existing graceful "must be unique" error
+(`_errContentOfInvalidStr`). Positional/streaming matching (`startingAtLine` set) is unchanged. All 3
+callers handle the `'Not unique'` string (main apply THROWS the descriptive error; streaming diff-area
+reverts + re-prompts; stream-cursor is `startingAtLine`-gated) - and the diff-area caller could already
+get `'Not unique'` from the fallback path. Verification: tsgo 0; +14 tests (**474 -> 488 passing, 0
+failing**); **400,000-run differential fuzz** vs pre-fix = 28,982 divergences, ALL exactly the intended
+case (startingAtLine undefined + exact + non-unique), 0 unexpected (~7% rate shows how reachable the
+silent-wrong-edit was); **4-agent adversarial review**: fix correct + all callers safe; cdp atomic-edit
+(7B) no regression.
+
+`c4ee27d78ac` -- fixed a PRE-EXISTING TDZ crash the SR review surfaced (independent of the SR fix). In
+the streaming/manual Fast-Apply path (`_initializeSearchAndReplaceStream` -> `runSearchReplace` ->
+`onText`), the `hasOverlap` `.some()` callback referenced `startLine`/`endLine` that were `const`-declared
+LATER in the same block - a temporal dead zone that threw `ReferenceError: Cannot access 'startLine'
+before initialization` on the 2nd+ block of any multi-block "Apply" (when the callback actually runs).
+tsgo/tsc do NOT catch TDZ. Fix: compute the block's final-range bounds (`thisBlockRange`) BEFORE the
+overlap check (guarded for the error-string case); the callback uses them; the later
+`const [startLine, endLine]` for the diff-area add is unchanged. Behavior preserved on the 1st block +
+error-string bail; the 2nd+ block now does the INTENDED overlap check instead of crashing. Verification:
+tsgo 0; 488 passing; a scope-pattern repro confirms old-order throws ReferenceError on a non-empty array
+while new-order computes overlap correctly; cdp-smoke 11/11 (boot healthy). HONEST LIMIT: the multi-block
+ClickApply streaming path is not node-testable and impractical to drive live with the local harness
+(the agent's `edit_file` uses the INSTANT `instantlyApplySearchReplaceBlocks` path, not this streaming
+one) - validated by the repro + the prior adversarial review which endorsed this exact fix. Remaining
+Phase 5 (NOT done): robust multi-edit transaction (validate-all -> preview -> atomic -> rollback),
+per-hunk / partial accept, streaming-diff race with final apply, apply verification (diagnostics/lint),
+edit provenance, symbol-aware refactor.
+
+### Phases 4, 6-10 — NOT STARTED
+Real RAG; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
