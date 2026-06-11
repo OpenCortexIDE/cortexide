@@ -4,11 +4,28 @@
  *--------------------------------------------------------------------------------------*/
 
 /**
- * Pure provider-error message formatters extracted from the electron-main provider dispatch
- * (sendLLMMessage.impl.ts) so they are node-unit-testable (electron-main pulls in the provider SDKs and
- * is excluded from the node runner). These turn a provider's raw error string into a user-friendly,
- * actionable message. Pure - no I/O, no SDK imports. Tested in `test/common/providerErrorFormat.test.ts`.
+ * Pure provider-error message formatters + classifiers extracted from the provider dispatch and the
+ * agent loop so they are node-unit-testable (electron-main pulls in the provider SDKs and is excluded
+ * from the node runner; the browser agent loop is also excluded). These turn a provider's raw error
+ * string into a user-friendly message or a classification. Pure - no I/O, no SDK imports. Tested in
+ * `test/common/providerErrorFormat.test.ts`.
  */
+
+/**
+ * Classify whether an LLM error message is a rate-limit / quota-exhaustion error. SAFETY-CRITICAL: this
+ * MUST match the same shapes the service layer treats as rate-limits (it injects the "all free tiers
+ * exhausted" message on these), and it drives the agent loop's `avoidFreeTier` failover decision. The
+ * keyword set deliberately includes Google's "quota" / "resource_exhausted" / "exceeded your current
+ * quota" (the older 429-only check missed these, so avoidFreeTier never engaged for gemini free-tier).
+ * Mirrors chatThreadService.ts:4172-4176 byte-for-byte (case-insensitive substring match).
+ */
+export const isRateLimitErrorMessage = (errorMessage: string): boolean => {
+	const lo = errorMessage.toLowerCase();
+	return lo.includes('429') ||
+		lo.includes('rate limit') || lo.includes('rate-limit') ||
+		lo.includes('tokens per min') || lo.includes('tpm') ||
+		lo.includes('quota') || lo.includes('resource_exhausted') || lo.includes('exceeded your current quota');
+};
 
 /**
  * Format a Gemini rate-limit / quota error into a friendly message with a parsed retry delay.

@@ -30,6 +30,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
 import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -4169,11 +4170,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// service layer treats as rate-limits (it injects the "all free tiers exhausted" message on
 					// these) — notably Google's "quota exceeded" / "RESOURCE_EXHAUSTED", which the old check
 					// (only 429/rate limit/tpm) MISSED, so avoidFreeTier never engaged for gemini free-tier.
-					const _loErr = (error?.message || '').toLowerCase()
-					const isRateLimitError = _loErr.includes('429') ||
-						_loErr.includes('rate limit') || _loErr.includes('rate-limit') ||
-						_loErr.includes('tokens per min') || _loErr.includes('tpm') ||
-						_loErr.includes('quota') || _loErr.includes('resource_exhausted') || _loErr.includes('exceeded your current quota')
+					const isRateLimitError = isRateLimitErrorMessage(error?.message || '')
 
 					// In auto mode, try fallback models for ALL errors (not just rate limits)
 					// This ensures auto mode is resilient even if one model is failing
