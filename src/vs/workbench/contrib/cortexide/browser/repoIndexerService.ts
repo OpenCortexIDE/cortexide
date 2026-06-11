@@ -15,7 +15,7 @@ import { LRUCache } from '../../../../base/common/map.js';
 import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/common/aiEmbeddingVectorService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
+import { OfflineGate } from '../common/offlineGate.js';
 import { canEgress } from '../common/egressPolicy.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
@@ -154,7 +154,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	// Embedding service and privacy gate (optional, for hybrid search)
 	private readonly embeddingService?: IAiEmbeddingVectorService;
 	private readonly secretDetectionService?: ISecretDetectionService;
-	private readonly privacyGate: OfflinePrivacyGate;
+	private readonly privacyGate: OfflineGate;
 
 	constructor(
 		@INotificationService private readonly notificationService: INotificationService,
@@ -190,7 +190,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 		});
 
-		this.privacyGate = new OfflinePrivacyGate();
+		this.privacyGate = new OfflineGate();
 		// PERFORMANCE: Defer index loading until first use (lazy initialization)
 		// This prevents blocking startup with synchronous file I/O
 		// Index will be loaded on first query() or warmIndex() call
@@ -2112,7 +2112,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			return false;
 		}
 		// Skip embeddings when offline (genuine offline detection; fallback to BM25-only).
-		if (this.privacyGate.isOfflineOrPrivacyMode()) {
+		if (this.privacyGate.isOffline()) {
 			return false;
 		}
 		return true;

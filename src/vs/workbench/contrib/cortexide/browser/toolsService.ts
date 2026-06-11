@@ -30,7 +30,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IRequestService, asJson, asTextOrError } from '../../../../platform/request/common/request.js'
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js'
 import { LRUCache } from '../../../../base/common/map.js'
-import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js'
+import { OfflineGate } from '../common/offlineGate.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
 import { IMemoriesService } from '../common/memoriesService.js'
@@ -286,7 +286,7 @@ export class ToolsService implements IToolsService {
 	private readonly _webSearchCache = new LRUCache<string, { results: Array<{ title: string, snippet: string, url: string }>, timestamp: number }>(100);
 	private readonly _browseCache = new LRUCache<string, { content: string, title?: string, url: string, metadata?: { publishedDate?: string }, timestamp: number }>(100);
 	private readonly _cacheTTL = 60 * 60 * 1000; // 1 hour
-	private readonly _offlineGate: OfflinePrivacyGate;
+	private readonly _offlineGate: OfflineGate;
 	private _latestTodos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
 	public getLatestTodos(): ReadonlyArray<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> {
 		return this._latestTodos;
@@ -314,7 +314,7 @@ export class ToolsService implements IToolsService {
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IMemoriesService private readonly memoriesService: IMemoriesService,
 	) {
-		this._offlineGate = new OfflinePrivacyGate();
+		this._offlineGate = new OfflineGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
 		this.validateParams = {
@@ -1352,7 +1352,7 @@ export class ToolsService implements IToolsService {
 
 			web_search: async ({ query, k, refresh }) => {
 				// Check offline/privacy mode (centralized gate)
-				this._offlineGate.ensureNotOfflineOrPrivacy('Web search', false);
+				this._offlineGate.ensureOnline('Web search');
 
 				const cacheKey = `search:${query}:${k}`;
 				const cached = this._webSearchCache.get(cacheKey);
@@ -1646,7 +1646,7 @@ export class ToolsService implements IToolsService {
 				assertNotSSRF(url);
 
 				// Check offline/privacy mode (centralized gate)
-				this._offlineGate.ensureNotOfflineOrPrivacy('URL browsing', false);
+				this._offlineGate.ensureOnline('URL browsing');
 
 				const cacheKey = `browse:${url}`;
 				const cached = this._browseCache.get(cacheKey);
