@@ -1,0 +1,89 @@
+/*--------------------------------------------------------------------------------------
+ *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *--------------------------------------------------------------------------------------*/
+
+import * as assert from 'assert';
+import { suite, test } from 'mocha';
+import { findTextInCode } from '../../common/searchReplaceMatch.js';
+
+const lines = (opts?: { startingAtLine?: number }) => ({ startingAtLine: opts?.startingAtLine, returnType: 'lines' as const });
+
+suite('findTextInCode - exact match', () => {
+	test('single-line ORIGINAL returns its 1-indexed line', () => {
+		const file = 'line1\nline2\nline3';
+		assert.deepStrictEqual(findTextInCode('line2', file, true, lines()), [2, 2]);
+	});
+
+	test('first line', () => {
+		const file = 'alpha\nbeta\ngamma';
+		assert.deepStrictEqual(findTextInCode('alpha', file, true, lines()), [1, 1]);
+	});
+
+	test('multi-line ORIGINAL returns the full [start,end] range', () => {
+		const file = 'a\nb\nc\nd';
+		assert.deepStrictEqual(findTextInCode('b\nc', file, true, lines()), [2, 3]);
+	});
+
+	test('whole-file ORIGINAL', () => {
+		const file = 'one\ntwo';
+		assert.deepStrictEqual(findTextInCode('one\ntwo', file, true, lines()), [1, 2]);
+	});
+});
+
+suite('findTextInCode - uniqueness (the SR-uniqueness fix)', () => {
+	test('FIX: a non-unique EXACT match in a whole-file search is rejected as Not unique (was silently picking the first)', () => {
+		const file = 'x\ny\nx\nz';
+		assert.strictEqual(findTextInCode('x', file, true, lines()), 'Not unique');
+	});
+
+	test('FIX: holds even when fallback is disabled (exact path now checks uniqueness itself)', () => {
+		const file = 'dup\ndup';
+		assert.strictEqual(findTextInCode('dup', file, false, lines()), 'Not unique');
+	});
+
+	test('a unique exact match still resolves normally', () => {
+		const file = 'unique-a\nunique-b\nunique-a-extra';
+		assert.deepStrictEqual(findTextInCode('unique-b', file, true, lines()), [2, 2]);
+	});
+
+	test('a substring that appears once as the search but is contained in another line is matched by exact text only', () => {
+		// "return" appears once exactly; "returning" does not equal "return" via indexOf line semantics here
+		const file = 'const a = 1\nreturn a\nconst b = 2';
+		assert.deepStrictEqual(findTextInCode('return a', file, true, lines()), [2, 2]);
+	});
+});
+
+suite('findTextInCode - startingAtLine (positional / streaming) bypasses uniqueness', () => {
+	test('with startingAtLine set, a repeated ORIGINAL resolves to the first match AT/AFTER that line (no Not unique)', () => {
+		const file = 'x\ny\nx\nz';
+		// without startingAtLine this is Not unique; with it, positional matching returns the 2nd x (line 3)
+		assert.deepStrictEqual(findTextInCode('x', file, false, lines({ startingAtLine: 2 })), [3, 3]);
+	});
+
+	test('the same content without startingAtLine IS Not unique (contrast)', () => {
+		const file = 'x\ny\nx\nz';
+		assert.strictEqual(findTextInCode('x', file, false, lines()), 'Not unique');
+	});
+});
+
+suite('findTextInCode - not found + whitespace fallback', () => {
+	test('text absent, fallback enabled -> Not found', () => {
+		assert.strictEqual(findTextInCode('zzz', 'a\nb\nc', true, lines()), 'Not found');
+	});
+
+	test('text whitespace-differs, fallback disabled -> Not found (no fallback)', () => {
+		assert.strictEqual(findTextInCode('foo(a)', 'foo( a )', false, lines()), 'Not found');
+	});
+
+	test('text whitespace-differs, fallback enabled -> matched ignoring non-newline whitespace', () => {
+		const r = findTextInCode('foo(a, b)', 'foo(  a,  b  )', true, lines());
+		assert.deepStrictEqual(r, [1, 1]);
+	});
+
+	test('whitespace-fallback match that is non-unique -> Not unique', () => {
+		// exact "f( a )" is absent (no line has a space before the close paren); the whitespace-stripped
+		// "f(a)" appears twice, so the fallback path reports Not unique
+		assert.strictEqual(findTextInCode('f( a )', 'f(a)\nf( a)', true, lines()), 'Not unique');
+	});
+});
