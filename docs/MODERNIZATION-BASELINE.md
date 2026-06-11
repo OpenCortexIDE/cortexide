@@ -471,6 +471,22 @@ behavior-preserving, 0 reachable divergences (the only flagged arm, `no_tool`, i
 site hardcoded to `hasToolCall:true`); LIVE cdp atomic-edit-e2e (7B) completes through the modified gate
 with no false-fire.
 
+`b5d63643aae` -- second keystone-loop seam: lifted the **safety-critical rate-limit classifier**
+(chatThreadService.ts:4172-4176) out of the llmError branch into a pure `isRateLimitErrorMessage` in
+`common/providerErrorFormat.ts` (alongside formatGeminiRateLimitError). It drives the `avoidFreeTier`
+failover decision and MUST match the service-layer rate-limit shapes (the keyword set includes Google's
+quota/resource_exhausted, which the old 429-only check missed). Byte-identical (same case-insensitive
+substring chain; the call site passes raw `error.message`, the fn lowercases it). `shouldEscalateModel`
+already CONSUMES `isRateLimitError` as an input, so this extracts its producer to the same tested layer.
+tsgo 0; +11 tests (**463 -> 474 passing, 0 failing**); **300,000-case differential fuzz** = 0 mismatches;
+cdp-smoke 11/11 + atomic-edit-e2e (7B) no regression (classifier only fires on llmError; unit+fuzz cover
+the path). NOTE on the backlog below: the top HIGH lead (llmError partial-tool-call loss at ~4400) was
+RE-VERIFIED in code and DOWNGRADED - it's a UX-recovery gap (the error itself IS surfaced via
+`_setStreamState({ error })`; no correctness/data issue) in the documented-fragile error/failover path,
+so it's deferred (not worth destabilizing that path for partial-output UX). The escalation
+`nMessagesSent`-reset inconsistency (~4807) was also re-verified and judged a defensible design choice
+(the iter-cap site MUST reset; the tool-error site need not), not a clear bug - deferred.
+
 **AgentLoopController latent-bug backlog** (from the map; LEADS to re-verify in code, NOT yet fixed -
 ranked by severity/fix-risk; line numbers approximate, the loop is ~3140-4927):
 - HIGH: on an `llmError`, `streamState.llmInfo` is already cleared to `undefined` by the onError
