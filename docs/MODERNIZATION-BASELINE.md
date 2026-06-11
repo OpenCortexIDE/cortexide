@@ -408,6 +408,32 @@ Remaining Phase 3 (NOT bugs): SDK-typed tool-schema builders (toAnthropicTool / 
 need SDK-type extraction or a mock-fetch harness), per-provider request/response mock-fetch tests,
 model-health UI, native Bedrock, first-class OpenAI-compatible config.
 
+Sixth increment (`8c6ccdf39be`): extracted the **OpenAI-compatible streaming accumulator** out of
+`_sendOpenAICompatibleChat`'s stream loop (the highest-value untested provider logic) into a pure,
+node-testable reducer `accumulateOpenAIChatDelta` in `common/providerToolFormat.ts`. This is the core
+of tool-call CAPTURE for the whole OpenAI-compatible family (openAI / groq / deepSeek / mistral /
+openRouter / xAI / openAICompatible / liteLLM / lmStudio / vLLM) and had **zero tests**. The reducer
+mirrors the inline logic byte-for-byte: text append; Mistral's parts-array `content` split into text vs
+reasoning; the single `index===0` tool call whose name/arguments/id are CONCATENATED across deltas (the
+OpenAI streaming protocol delivers `function.arguments` in fragments); dedicated reasoning-field append
+(`(... || '') + ''`). The ONE defensive divergence I first introduced (optional chaining on a
+type-impossible null tool-array entry, which would have turned the original's throw into a skip) was
+removed so the extraction is exactly byte-identical. Verification: tsgo 0; new accumulator suite +16
+(**425 -> 441 passing, 0 failing**) covering Mistral object-content, `index!=0` drop, no-index skip,
+fragmented args, falsy-reasoning, purity (frozen input), and an end-to-end fragmented tool-call stream;
+**500,000-case differential fuzz** (old inline ref vs the extracted reducer over random
+content/tool_calls/reasoning deltas) = 0 mismatches; LIVE: cdp-smoke 11/11 + atomic-edit-e2e (7B) no
+regression (the 7B agent loop uses `sendOllamaChat`, NOT this path), PLUS the reducer itself
+live-validated against REAL ollama `/v1` (OpenAI-compatible) streaming chunks - the text path via
+qwen2.5-coder (5 chunks -> "HELLO FROM STREAM") and the **structured `tool_calls` delta path via
+llama3.2:3b** (1 tool delta -> `get_weather` / `{"city":"Tokyo"}` -> parsed `{city:"Tokyo"}`). NOTE: the
+non-streaming path (`processNonStreamingResponse`, takes `toolCalls[0]`) and the Gemini/ollama/Anthropic
+stream handlers were left untouched (different shapes); the trivial SDK-typed tool-schema builders
+(toAnthropicTool/toGeminiFunctionDecl, ~15 lines each) are low-value and remain inline. A genuine
+remaining Phase 3 item surfaced: the single-tool-call-per-turn limit is architecturally baked into the
+`onFinalMessage({ ...toolCall })` contract (Gemini's `functionCalls[0]`, OpenAI's `index===0`); capturing
+ALL tool calls per turn is a rippling change, deferred.
+
 ### Phases 4-10 — NOT STARTED
 Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
