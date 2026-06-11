@@ -545,10 +545,18 @@ tsgo 0; 488 passing; a scope-pattern repro confirms old-order throws ReferenceEr
 while new-order computes overlap correctly; cdp-smoke 11/11 (boot healthy). HONEST LIMIT: the multi-block
 ClickApply streaming path is not node-testable and impractical to drive live with the local harness
 (the agent's `edit_file` uses the INSTANT `instantlyApplySearchReplaceBlocks` path, not this streaming
-one) - validated by the repro + the prior adversarial review which endorsed this exact fix. Remaining
-Phase 5 (NOT done): robust multi-edit transaction (validate-all -> preview -> atomic -> rollback),
-per-hunk / partial accept, streaming-diff race with final apply, apply verification (diagnostics/lint),
-edit provenance, symbol-aware refactor.
+one) - validated by the repro + the prior adversarial review which endorsed this exact fix. Then
+`242bb38a6f3` -- extracted the agent edit_file apply TRANSACTION (`_instantlyApplySRBlocks`) into pure
+node-testable `computeSearchReplaceResult` in `common/searchReplaceMatch.ts`: validate-ALL blocks ->
+map to [origStart,origEnd] char spans -> sort -> REJECT on any overlap -> apply RIGHT-TO-LEFT (all-or-
+nothing; a non-ok result throws before any write, so no partial/corrupt write). This is the path the
+agent actually uses, previously untested (browser layer). Byte-identical (char-offset math / sort /
+overlap / right-to-left apply verbatim; the throw moves to the caller via `{ok:false, reason,
+blockOrig}`). tsgo 0; +10 tests (**488 -> 498 passing, 0 failing**); 300,000-run differential fuzz = 0
+mismatches; cdp atomic-edit-e2e (7B) no regression. NOTE: the agent SR apply was ALREADY transaction-safe
+(validate-all-first + single write; Phase 1 made the disk save atomic) - this makes that guarantee
+TESTED. Remaining Phase 5 (NOT done): per-hunk / partial accept, streaming-diff race with final apply,
+apply verification (diagnostics/lint/tests), edit provenance, symbol-aware refactor.
 
 ### Phases 4, 6-10 — NOT STARTED
 Real RAG; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
