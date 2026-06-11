@@ -33,6 +33,7 @@ import { mountCtrlK } from './react/out/quick-edit-tsx/index.js'
 import { QuickEditPropsType } from './quickEditActions.js';
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
 import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks } from '../common/helpers/extractCodeFromResult.js';
+import { findTextInCode, computeSearchReplaceResult } from '../common/searchReplaceMatch.js';
 import { INotificationService, } from '../../../../platform/notification/common/notification.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -50,8 +51,6 @@ import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
 // import { isMacintosh } from '../../../../base/common/platform.js';
 // import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from './cortexideSettingsPane.js';
-
-const numLinesOfStr = (str: string) => str.split('\n').length
 
 
 export const getLengthOfTextPx = ({ tabWidth, spaceWidth, content }: { tabWidth: number, spaceWidth: number, content: string }) => {
@@ -102,11 +101,6 @@ const getLeadingWhitespacePx = (editor: ICodeEditor, startLine: number): number 
 };
 
 
-// Helper function to remove whitespace except newlines
-const removeWhitespaceExceptNewlines = (str: string): string => {
-	return str.replace(/[^\S\n]+/g, '');
-}
-
 // Helper function to prune code for local models: strip comments and reduce import verbosity
 // This reduces token usage for local models which are slower with large contexts
 const pruneCodeForLocalModel = (code: string, language: string): string => {
@@ -132,48 +126,6 @@ const pruneCodeForLocalModel = (code: string, language: string): string => {
 	pruned = pruned.replace(/\n{3,}/g, '\n\n');
 
 	return pruned.trim();
-}
-
-
-
-// finds block.orig in fileContents and return its range in file
-// startingAtLine is 1-indexed and inclusive
-// returns 1-indexed lines
-const findTextInCode = (text: string, fileContents: string, canFallbackToRemoveWhitespace: boolean, opts: { startingAtLine?: number, returnType: 'lines' }) => {
-
-	const returnAns = (fileContents: string, idx: number) => {
-		const startLine = numLinesOfStr(fileContents.substring(0, idx + 1))
-		const numLines = numLinesOfStr(text)
-		const endLine = startLine + numLines - 1
-
-		return [startLine, endLine] as const
-	}
-
-	const startingAtLineIdx = (fileContents: string) => opts?.startingAtLine !== undefined ?
-		fileContents.split('\n').slice(0, opts.startingAtLine).join('\n').length // num characters in all lines before startingAtLine
-		: 0
-
-	// idx = starting index in fileContents
-	let idx = fileContents.indexOf(text, startingAtLineIdx(fileContents))
-
-	// if idx was found
-	if (idx !== -1) {
-		return returnAns(fileContents, idx)
-	}
-
-	if (!canFallbackToRemoveWhitespace)
-		return 'Not found' as const
-
-	// try to find it ignoring all whitespace this time
-	text = removeWhitespaceExceptNewlines(text)
-	fileContents = removeWhitespaceExceptNewlines(fileContents)
-	idx = fileContents.indexOf(text, startingAtLineIdx(fileContents));
-
-	if (idx === -1) return 'Not found' as const
-	const lastIdx = fileContents.lastIndexOf(text)
-	if (lastIdx !== idx) return 'Not unique' as const
-
-	return returnAns(fileContents, idx)
 }
 
 
@@ -768,11 +720,16 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		}
 		this._onDidAddOrDeleteDiffZones.fire({ uri })
 
-		// restore file content
+		// restore file content (in-memory model)
 		this._writeURIText(uri, entireModelCode,
 			'wholeFileRange',
 			{ shouldRealignDiffAreas: false }
 		)
+		// Phase 1 #2: PERSIST the restored content to disk (atomically). Previously the restore only
+		// rewrote the in-memory buffer and never saved, so rolling back to a checkpoint left the
+		// agent's edits on disk (the rollback was illusory). saveModel is a no-op if there is no live
+		// model for the URI; that case is handled by the durable create/delete restore in chatThreadService.
+		await this._cortexideModelService.saveModel(uri)
 		// this._noLongerNeedModelReference(uri)
 	}
 
@@ -803,8 +760,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	}
 
 
-	public restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): void {
-		this._restoreCortexideFileSnapshot(uri, snapshot)
+	public restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): Promise<void> {
+		// returns a promise so callers (checkpoint rollback) can await the disk persist + surface errors
+		return this._restoreCortexideFileSnapshot(uri, snapshot)
 	}
 
 
@@ -1688,49 +1646,13 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		const { model } = this._cortexideModelService.getModel(uri)
 		if (!model) throw new Error(`Error applying Search/Replace blocks: File does not exist.`)
 		const modelStr = model.getValue(EndOfLinePreference.LF)
-		// .split('\n').map(l => '\t' + l).join('\n') // for testing purposes only, remember to remove this
-		const modelStrLines = modelStr.split('\n')
 
+		// Pure multi-edit transaction: validate ALL blocks, reject on overlap, apply right-to-left.
+		// All-or-nothing - a non-ok result throws before any write (common/searchReplaceMatch.ts).
+		const result = computeSearchReplaceResult(modelStr, blocks)
+		if (!result.ok) throw new Error(this._errContentOfInvalidStr(result.reason, result.blockOrig))
 
-
-
-		const replacements: { origStart: number; origEnd: number; block: ExtractedSearchReplaceBlock }[] = []
-		for (const b of blocks) {
-			const res = findTextInCode(b.orig, modelStr, true, { returnType: 'lines' })
-			if (typeof res === 'string')
-				throw new Error(this._errContentOfInvalidStr(res, b.orig))
-			let [startLine, endLine] = res
-			startLine -= 1 // 0-index
-			endLine -= 1
-
-			// including newline before start
-			const origStart = (startLine !== 0 ?
-				modelStrLines.slice(0, startLine).join('\n') + '\n'
-				: '').length
-
-			// including endline at end
-			const origEnd = modelStrLines.slice(0, endLine + 1).join('\n').length - 1
-
-			replacements.push({ origStart, origEnd, block: b });
-		}
-		// sort in increasing order
-		replacements.sort((a, b) => a.origStart - b.origStart)
-
-		// ensure no overlap
-		for (let i = 1; i < replacements.length; i++) {
-			if (replacements[i].origStart <= replacements[i - 1].origEnd) {
-				throw new Error(this._errContentOfInvalidStr('Has overlap', replacements[i]?.block?.orig))
-			}
-		}
-
-		// apply each replacement from right to left (so indexes don't shift)
-		let newCode: string = modelStr
-		for (let i = replacements.length - 1; i >= 0; i--) {
-			const { origStart, origEnd, block } = replacements[i]
-			newCode = newCode.slice(0, origStart) + block.final + newCode.slice(origEnd + 1, Infinity)
-		}
-
-		this._writeURIText(uri, newCode,
+		this._writeURIText(uri, result.newCode,
 			'wholeFileRange',
 			{ shouldRealignDiffAreas: true }
 		)
@@ -1926,11 +1848,18 @@ class EditCodeService extends Disposable implements IEditCodeService {
 						if (!(blockNum in addedTrackingZoneOfBlockNum)) {
 
 							const originalBounds = findTextInCode(block.orig, originalFileCode, true, { returnType: 'lines' })
-							// if error
+
+							// This block's final-range bounds, computed BEFORE the overlap check below (which
+							// references them). They used to be const-declared AFTER the check, leaving startLine/
+							// endLine in a temporal dead zone that threw a ReferenceError on the 2nd+ block of a
+							// multi-block edit (when addedTrackingZoneOfBlockNum is non-empty so the .some()
+							// callback actually runs). A string result is an error handled by the bail just below.
+							const thisBlockRange = typeof originalBounds === 'string' ? null : convertOriginalRangeToFinalRange(originalBounds)
+
 							// Check for overlap with existing modified ranges
-							const hasOverlap = addedTrackingZoneOfBlockNum.some(trackingZone => {
+							const hasOverlap = thisBlockRange !== null && addedTrackingZoneOfBlockNum.some(trackingZone => {
 								const [existingStart, existingEnd] = trackingZone.metadata.originalBounds;
-								const hasNoOverlap = endLine < existingStart || startLine > existingEnd
+								const hasNoOverlap = thisBlockRange[1] < existingStart || thisBlockRange[0] > existingEnd
 								return !hasNoOverlap
 							});
 

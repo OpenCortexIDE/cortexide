@@ -7,6 +7,8 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { ICortexideSettingsService } from './cortexideSettingsService.js';
+import { canEgress, classifyDestination } from './egressPolicy.js';
 
 export interface VectorDocument {
 	id: string; // Unique document ID (e.g., file path + chunk index)
@@ -374,7 +376,7 @@ class ChromaVectorStore implements IVectorStore {
 }
 
 // Factory service
-class VectorStoreService implements IVectorStore {
+export class VectorStoreService implements IVectorStore {
 	declare readonly _serviceBrand: undefined;
 
 	private _delegate: IVectorStore = new NoOpVectorStore();
@@ -382,6 +384,7 @@ class VectorStoreService implements IVectorStore {
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ILogService private readonly _logService: ILogService,
+		@ICortexideSettingsService private readonly _settingsService: ICortexideSettingsService,
 	) {
 		this._updateDelegate();
 		this._configurationService.onDidChangeConfiguration(e => {
@@ -407,27 +410,51 @@ class VectorStoreService implements IVectorStore {
 		}
 	}
 
+	/**
+	 * Phase 8 egress gate: under local-only privacy mode, a vector store reachable only at a
+	 * remote URL would ship (redacted) code text + embeddings off the machine. Block it LIVE so a
+	 * runtime policy change takes effect immediately, and gate every operation (not just callers
+	 * that check isEnabled()). A localhost vector store is still allowed under local-only.
+	 */
+	private _localOnlyBlocksStore(): boolean {
+		const provider = this._configurationService.getValue<'none' | 'qdrant' | 'chroma'>('cortexide.rag.vectorStore') || 'none';
+		if (provider === 'none') { return false; } // NoOp delegate anyway
+		const url = this._configurationService.getValue<string>('cortexide.rag.vectorStoreUrl')
+			|| (provider === 'chroma' ? 'http://localhost:8000' : 'http://localhost:6333');
+		const decision = canEgress(
+			{ routingPolicy: this._settingsService.state.globalSettings.routingPolicy },
+			{ modality: 'vector-store', destinationKind: classifyDestination(url) }
+		);
+		return !decision.allowed;
+	}
+
 	isEnabled(): boolean {
+		if (this._localOnlyBlocksStore()) { return false; }
 		return this._delegate.isEnabled();
 	}
 
 	async initialize(): Promise<void> {
+		if (this._localOnlyBlocksStore()) { return; }
 		await this._delegate.initialize();
 	}
 
 	async index(documents: VectorDocument[]): Promise<void> {
+		if (this._localOnlyBlocksStore()) { return; }
 		await this._delegate.index(documents);
 	}
 
 	async query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+		if (this._localOnlyBlocksStore()) { return []; }
 		return await this._delegate.query(queryEmbedding, k, filter);
 	}
 
 	async delete(ids: string[]): Promise<void> {
+		if (this._localOnlyBlocksStore()) { return; }
 		await this._delegate.delete(ids);
 	}
 
 	async clear(): Promise<void> {
+		if (this._localOnlyBlocksStore()) { return; }
 		await this._delegate.clear();
 	}
 }

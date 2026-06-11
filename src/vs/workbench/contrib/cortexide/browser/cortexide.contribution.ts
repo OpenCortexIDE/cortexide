@@ -34,6 +34,9 @@ import './media/cortexide.css'
 // update (frontend part, also see platform/)
 import './cortexideUpdateActions.js'
 
+// privacy report (Phase 8): "what can leave my machine" command
+import './cortexidePrivacyReportActions.js'
+
 import './convertToLLMMessageWorkbenchContrib.js'
 
 // tools
@@ -113,6 +116,13 @@ import './cortexideStatusBar.js'
 // first-run validation - lazy load (only needed on first run)
 import('./firstRunValidation.js').catch(() => { });
 import('../common/secretDetectionConfiguration.js').catch(() => { });
+
+// global settings configuration schema — registers cortexide.* settings (local-first AI,
+// audit log, rollback/autostash safety, rag vector store, ast indexing) from the canonical
+// key list. Static import so the keys are registered reliably and synchronously before
+// services read them (previously this contribution was never imported, leaving the keys
+// invisible/unregistered).
+import '../common/cortexideGlobalSettingsConfiguration.js'
 
 // refreshModel
 import '../common/refreshModelService.js'

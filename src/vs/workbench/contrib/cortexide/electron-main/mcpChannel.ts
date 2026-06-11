@@ -17,6 +17,7 @@ import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, M
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { MCPUserStateOfName } from '../common/cortexideSettingsTypes.js';
+import { canEgress, classifyDestination } from '../common/egressPolicy.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -49,6 +50,12 @@ export class MCPChannel implements IServerChannel {
 
 	private readonly infoOfClientId: InfoOfClientId = {}
 	private readonly _refreshingServerNames: Set<string> = new Set()
+
+	// Phase 8: local-only privacy mode, stamped by the renderer (from routingPolicy) on every
+	// refresh/toggle. When on, _createClientUnsafe refuses to connect to a non-loopback MCP
+	// server -- closing the only ungated MCP egress (the connect/discovery at server-add time;
+	// the agent's MCP tool INVOCATION is already blocked by checkToolAllowedInMode).
+	private _localOnly = false
 
 	// mcp emitters
 	private readonly mcpEmitters = {
@@ -85,6 +92,11 @@ export class MCPChannel implements IServerChannel {
 
 	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
 	async call(_: unknown, command: string, params: any): Promise<any> {
+		// Phase 8: the renderer stamps the current local-only privacy state onto every
+		// refresh/toggle so the connect gate always reflects the latest routing policy.
+		if (params && typeof params.localOnly === 'boolean') {
+			this._localOnly = params.localOnly
+		}
 		if (command === 'refreshMCPServers') {
 			await this._refreshMCPServers(params)
 		}
@@ -107,7 +119,7 @@ export class MCPChannel implements IServerChannel {
 	// server functions
 
 
-	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON, userStateOfName: MCPUserStateOfName, addedServerNames: string[], removedServerNames: string[], updatedServerNames: string[] }) {
+	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON, userStateOfName: MCPUserStateOfName, addedServerNames: string[], removedServerNames: string[], updatedServerNames: string[], localOnly?: boolean }) {
 
 		const {
 			mcpConfigFileJSON,
@@ -172,6 +184,17 @@ export class MCPChannel implements IServerChannel {
 				throw new Error(`Invalid URL for server ${serverName}: ${server.url}. ${urlErr instanceof Error ? urlErr.message : String(urlErr)}`);
 			}
 			const urlString = url.toString();
+			// EGRESS GATE (Phase 8): under local-only privacy mode, refuse to connect to a
+			// non-loopback MCP server. localhost MCP servers are the common, legitimate case and
+			// remain allowed; a remote/private-network server would receive a connection (and
+			// later tool args/results) from this machine. stdio servers (below) are local and
+			// always allowed.
+			if (this._localOnly) {
+				const decision = canEgress({ routingPolicy: 'local-only' }, { modality: 'mcp', destinationKind: classifyDestination(urlString) })
+				if (!decision.allowed) {
+					throw new Error(`${decision.reason} (server "${serverName}" at ${urlString})`)
+				}
+			}
 			// Determine transport type: explicit type, or infer from URL path
 			let transportType = server.type;
 			// If no explicit type, check if URL path suggests SSE (e.g., contains '/sse')

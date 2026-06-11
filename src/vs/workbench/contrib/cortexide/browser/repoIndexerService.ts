@@ -15,7 +15,8 @@ import { LRUCache } from '../../../../base/common/map.js';
 import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/common/aiEmbeddingVectorService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
+import { OfflineGate } from '../common/offlineGate.js';
+import { canEgress } from '../common/egressPolicy.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
@@ -153,7 +154,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	// Embedding service and privacy gate (optional, for hybrid search)
 	private readonly embeddingService?: IAiEmbeddingVectorService;
 	private readonly secretDetectionService?: ISecretDetectionService;
-	private readonly privacyGate: OfflinePrivacyGate;
+	private readonly privacyGate: OfflineGate;
 
 	constructor(
 		@INotificationService private readonly notificationService: INotificationService,
@@ -189,7 +190,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 		});
 
-		this.privacyGate = new OfflinePrivacyGate();
+		this.privacyGate = new OfflineGate();
 		// PERFORMANCE: Defer index loading until first use (lazy initialization)
 		// This prevents blocking startup with synchronous file I/O
 		// Index will be loaded on first query() or warmIndex() call
@@ -2098,8 +2099,20 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		if (!this.embeddingService || !this.embeddingService.isEnabled()) {
 			return false;
 		}
-		// Skip embeddings in offline/privacy mode (fallback to BM25-only)
-		if (this.privacyGate.isOfflineOrPrivacyMode()) {
+		// Phase 8 egress gate: the embedding vectors come from an opaque, extension-registered
+		// embedding provider (the stock AI-embedding-vector API) whose destination CortexIDE
+		// cannot classify. Under local-only privacy mode we must NOT send (even redacted) code
+		// text to it -- fail-closed and fall back to BM25-only retrieval. This replaces the
+		// reliance on the (formerly fake) privacy gate, which never enforced privacy at all.
+		const egress = canEgress(
+			{ routingPolicy: this.settingsService.state.globalSettings.routingPolicy },
+			{ modality: 'embeddings', destinationKind: 'unknown' }
+		);
+		if (!egress.allowed) {
+			return false;
+		}
+		// Skip embeddings when offline (genuine offline detection; fallback to BM25-only).
+		if (this.privacyGate.isOffline()) {
 			return false;
 		}
 		return true;

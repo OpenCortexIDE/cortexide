@@ -75,5 +75,5 @@ export interface IEditCodeService {
 
 	// testDiffs(): void;
 	getCortexideFileSnapshot(uri: URI): CortexideFileSnapshot;
-	restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): void;
+	restoreCortexideFileSnapshot(uri: URI, snapshot: CortexideFileSnapshot): Promise<void>;
 }

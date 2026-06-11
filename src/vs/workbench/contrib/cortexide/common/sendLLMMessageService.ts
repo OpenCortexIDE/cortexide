@@ -237,6 +237,11 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		const { settingsOfProvider, } = this.cortexideSettingsService.state
 
+		// Phase 8: stamp local-only privacy mode from the routing policy DIRECTLY (not from the
+		// resolved model), so the electron-main dispatch can refuse any cloud egress as a second
+		// line of defense behind the router.
+		const localOnly = this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only'
+
 		const mcpTools = this.mcpService.getMCPTools()
 
 		// add state for request id
@@ -299,6 +304,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			modelSelection,
 			mcpTools,
+			localOnly,
 		} satisfies MainSendLLMMessageParams);
 
 		return requestId

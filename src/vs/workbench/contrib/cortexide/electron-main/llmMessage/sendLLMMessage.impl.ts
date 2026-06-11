@@ -14,7 +14,9 @@ import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, S
 import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
-import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta } from '../../common/providerToolFormat.js';
+import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -471,28 +473,6 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 }
 
 
-const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
-	const { name, description, params } = toolInfo
-
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
-
-	return {
-		type: 'function',
-		function: {
-			name: name,
-			// strict: true, // strict mode - https://platform.openai.com/docs/guides/function-calling?api-mode=chat
-			description: description,
-			parameters: {
-				type: 'object',
-				properties: params,
-				// required: Object.keys(params), // in strict mode, all params are required and additionalProperties is false
-				// additionalProperties: false,
-			},
-		}
-	} satisfies OpenAI.Chat.Completions.ChatCompletionTool
-}
-
 const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
 	const allowedTools = availableTools(chatMode, mcpTools)
 	if (!allowedTools || Object.keys(allowedTools).length === 0) return null
@@ -505,63 +485,14 @@ const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | u
 }
 
 
-// convert LLM tool call to our tool format
-const rawToolCallObjOfParamsStr = (name: string, toolParamsStr: string, id: string): RawToolCallObj | null => {
-	let input: unknown
-	try { input = JSON.parse(toolParamsStr) }
-	catch (e) { return null }
-
-	if (input === null) return null
-	if (typeof input !== 'object') return null
-
-	const rawParams: RawToolParamsObj = input
-	return { id, name, rawParams, doneParams: Object.keys(rawParams), isDone: true }
-}
-
-
+// Convert an Anthropic tool-use block to our tool format (shared core lives in common/providerToolFormat).
 const rawToolCallObjOfAnthropicParams = (toolBlock: Anthropic.Messages.ToolUseBlock): RawToolCallObj | null => {
-	const { id, name, input } = toolBlock
-
-	if (input === null) return null
-	if (typeof input !== 'object') return null
-
-	const rawParams: RawToolParamsObj = input
-	return { id, name, rawParams, doneParams: Object.keys(rawParams), isDone: true }
+	return buildRawToolCallObj(toolBlock.id, toolBlock.name, toolBlock.input)
 }
 
 
 // ------------ OPENAI-COMPATIBLE ------------
 
-
-// Placeholder for empty message content; Vertex/Pollinations require "non-whitespace text", not just a space.
-const EMPTY_CONTENT_PLACEHOLDER = '(no content)'
-
-/**
- * Sanitize messages for APIs (e.g. Vertex, Pollinations) that require non-empty, non-whitespace content
- * in every message except the optional final assistant message.
- * Only mutates messages that have a 'content' field (OpenAI/Anthropic style); Gemini-style (parts) are passed through.
- */
-const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]): LLMChatMessage[] => {
-	if (!messages?.length) return messages
-	const lastIdx = messages.length - 1
-	const result = messages.map((msg, i) => {
-		if (!('content' in msg)) return msg
-		const content = (msg as { role: string; content: string | unknown[] }).content
-		const isLastAndAssistant = i === lastIdx && msg.role === 'assistant'
-		if (typeof content === 'string') {
-			if (content.trim().length > 0) return msg
-			if (isLastAndAssistant) return msg
-			return { ...msg, content: EMPTY_CONTENT_PLACEHOLDER }
-		}
-		if (Array.isArray(content)) {
-			const hasNonEmptyPart = content.some((p: any) => (p.type === 'text' && p.text?.trim?.()) || (p.type === 'image_url' && p.image_url?.url))
-			if (hasNonEmptyPart || isLastAndAssistant) return msg
-			return { ...msg, content: [{ type: 'text', text: EMPTY_CONTENT_PLACEHOLDER }] }
-		}
-		return msg
-	})
-	return result as LLMChatMessage[]
-}
 
 const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
 	const {
@@ -726,47 +657,18 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				// Rolling timeout: reset on each chunk for local so we only fire on real stall
 				if (isLocalChat) scheduleOverallTimeout()
 
-				// message
-				const newText = chunk.choices[0]?.delta?.content ?? ''
-
-				// Handle Mistral's object content
-				if (providerName === 'mistral' && typeof newText === 'object' && newText !== null) {
-					// Parse Mistral's content object
-					if (Array.isArray(newText)) {
-						for (const item of newText as any[]) {
-							if (item.type === 'text' && item.text) {
-								fullTextSoFar += item.text
-							} else if (item.type === 'thinking' && item.thinking) {
-								for (const thinkingItem of item.thinking as any[]) {
-									if (thinkingItem.type === 'text' && thinkingItem.text) {
-										fullReasoningSoFar += thinkingItem.text
-									}
-								}
-							}
-						}
-					}
-				} else {
-					fullTextSoFar += newText
-				}
-
-				// tool call
-				for (const tool of chunk.choices[0]?.delta?.tool_calls ?? []) {
-					const index = tool.index
-					if (index !== 0) continue
-
-					toolName += tool.function?.name ?? ''
-					toolParamsStr += tool.function?.arguments ?? '';
-					toolId += tool.id ?? ''
-				}
-
-
-				// reasoning
-				let newReasoning = ''
-				if (nameOfReasoningFieldInDelta) {
-					// @ts-ignore
-					newReasoning = (chunk.choices[0]?.delta?.[nameOfReasoningFieldInDelta] || '') + ''
-					fullReasoningSoFar += newReasoning
-				}
+				// message + tool call + reasoning: accumulate this delta (pure reducer, byte-identical to the
+				// previous inline logic - text/Mistral-parts/tool-call-fragments/reasoning).
+				const _acc = accumulateOpenAIChatDelta(
+					{ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolName, toolParamsStr, toolId },
+					chunk.choices[0]?.delta,
+					{ providerName, reasoningFieldName: nameOfReasoningFieldInDelta }
+				)
+				fullTextSoFar = _acc.fullText
+				fullReasoningSoFar = _acc.fullReasoning
+				toolName = _acc.toolName
+				toolParamsStr = _acc.toolParamsStr
+				toolId = _acc.toolId
 
 				// call onText
 				onText({
@@ -1572,71 +1474,9 @@ const sendGeminiChat = async ({
 					onError({ message: invalidApiKeyMessage(providerName), fullError: error });
 				}
 				else if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('quota')) {
-					// Parse Gemini rate limit error to extract user-friendly message
-					let rateLimitMessage = 'Rate limit reached. Please check your plan and billing details.';
-					let retryDelay: string | undefined;
-
-					try {
-						// Try to parse the error message which may contain JSON
-						let errorData: any = null;
-
-						// First, try to parse the error message as JSON (it might be a JSON string)
-						try {
-							errorData = JSON.parse(error.message);
-						} catch {
-							// If that fails, check if error.message contains a JSON string
-							const jsonMatch = error.message.match(/\{[\s\S]*\}/);
-							if (jsonMatch) {
-								errorData = JSON.parse(jsonMatch[0]);
-							}
-						}
-
-						// Extract user-friendly message from nested structure
-						if (errorData?.error?.message) {
-							// The message might itself be a JSON string
-							try {
-								const innerError = JSON.parse(errorData.error.message);
-								if (innerError?.error?.message) {
-									rateLimitMessage = innerError.error.message;
-									// Extract retry delay if available
-									const retryInfo = innerError.error.details?.find((d: any) => d['@type'] === 'type.googleapis.com/google.rpc.RetryInfo');
-									if (retryInfo?.retryDelay) {
-										retryDelay = retryInfo.retryDelay;
-									}
-								}
-							} catch {
-								// If inner parse fails, use the outer message
-								rateLimitMessage = errorData.error.message;
-							}
-						} else if (errorData?.error?.code === 429 || errorData?.error?.status === 'RESOURCE_EXHAUSTED') {
-							// Fallback: use a generic rate limit message
-							rateLimitMessage = 'You exceeded your current quota. Please check your plan and billing details.';
-						}
-
-						// Format the final message
-						let finalMessage = rateLimitMessage;
-						if (retryDelay) {
-							// Parse retry delay (format: "57s" or "57.627694635s")
-							const delaySeconds = parseFloat(retryDelay.replace('s', ''));
-							const delayMinutes = Math.floor(delaySeconds / 60);
-							const remainingSeconds = Math.ceil(delaySeconds % 60);
-							if (delayMinutes > 0) {
-								finalMessage += ` Please retry in ${delayMinutes} minute${delayMinutes > 1 ? 's' : ''}${remainingSeconds > 0 ? ` and ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}` : ''}.`;
-							} else {
-								finalMessage += ` Please retry in ${Math.ceil(delaySeconds)} second${Math.ceil(delaySeconds) > 1 ? 's' : ''}.`;
-							}
-						} else {
-							finalMessage += ' Please wait a moment before trying again.';
-						}
-
-						// Add helpful links
-						finalMessage += ' For more information, see https://ai.google.dev/gemini-api/docs/rate-limits';
-
-						onError({ message: finalMessage, fullError: error });
-					} catch (parseError) {
-						// If parsing fails, use a generic message
-						onError({ message: 'Rate limit reached. Please check your Gemini API quota and billing details. See https://ai.google.dev/gemini-api/docs/rate-limits', fullError: error });
-					}
+					// Parse Gemini rate limit error to extract a user-friendly message + retry delay
+					// (pure, byte-identical, node-tested formatter; never throws).
+					onError({ message: formatGeminiRateLimitError(error.message), fullError: error });
 				}
 				else
 					onError({ message: error + '', fullError: error });

@@ -1,5 +1,18 @@
 # CortexIDE Model Support & Code Editing Capabilities Comparison
 
+> **⚠️ Accuracy notice (under correction — `modernize-agentic-editor-foundation`).**
+> A code audit found several claims in this document were overstated or wrong. Corrections are
+> being applied; until this notice is removed, treat the following as ground truth and see
+> [`docs/MODERNIZATION-BASELINE.md`](./MODERNIZATION-BASELINE.md):
+> - **Tree-sitter / "semantic" / vector RAG is NOT working today.** AST symbol extraction is
+>   currently non-functional; retrieval is **lexical (BM25) only**. The vector store (Qdrant/Chroma)
+>   is **experimental, off by default, and needs an embedding provider that is not yet bundled**.
+> - **Rollback / auto-stash is experimental and opt-in**, not a general safety net (being hardened).
+> - **Apply is not yet atomic at the disk level** (hardening in progress).
+> - **Performance percentages previously stated here were never measured** and have been removed.
+>
+> "✅ verified in code" annotations below mean "code exists", not "feature works end-to-end".
+
 ## Table 1: Model Support
 
 | Capability / Model | CortexIDE | Cursor | Windsurf | Continue.dev | Void | Code Proof (for CortexIDE) | Notes |
@@ -37,10 +50,10 @@
 | **Git commit message AI** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ❓ Unknown | ❌ No | `cortexideSCMService.ts:72-125`, `prompts.ts:1095-1167` | Generates commit messages from git diff, stat, branch, and log. Local model optimizations. |
 | **Inline autocomplete (FIM)** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown | ⚠️ Limited | `autocompleteService.ts:278-1014`, `convertToLLMMessageService.ts:1737-1813` | Fill-in-middle with streaming. Token caps for local models (1,000 tokens). Smart prefix/suffix truncation. |
 | **Code diff viewer** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `editCodeService.ts:2223-2289`, `codeBlockPart.ts:553-887` | Diff visualization with accept/reject. Multi-diff editor support. |
-| **Chat → Plan → Diff → Apply pipeline** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `chatThreadService.ts:2448-3419`, `composerPanel.ts:1420-1560` | Complete workflow: agent generates plan, creates diffs, user reviews, applies with rollback. |
-| **Tree-sitter based RAG indexing** | ✅ Yes | ❌ No | ❓ Unknown | ❌ No | ❌ No | `treeSitterService.ts:36-357`, `repoIndexerService.ts:443-508` | AST parsing for symbol extraction. Creates semantic chunks for better code understanding. |
+| **Chat → Plan → Diff → Apply pipeline** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `chatThreadService.ts:2448-3419`, `composerPanel.ts:1420-1560` | Workflow: agent generates plan, creates diffs, user reviews and applies. _(Rollback is experimental/opt-in — see notice.)_ |
+| **Tree-sitter based RAG indexing** | ⚠️ Experimental (not working) | ❌ No | ❓ Unknown | ❌ No | ❌ No | `treeSitterService.ts`, `repoIndexerService.ts` | AST symbol extraction is currently non-functional; retrieval falls back to lexical **BM25** only. TODO: fix in Phase 4 (real RAG). |
 | **Cross-file context** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `repoIndexerService.ts:868-1155`, `composerPanel.ts:1076-1144` | Hybrid BM25 + vector search. Symbol relationship indexing. Auto-discovery in agent mode. |
-| **Auto-stashing + rollback** | ✅ Yes | ❓ Unknown | ❓ Unknown | ❓ Unknown | ❌ No | `composerPanel.ts:1420-1560` | Automatic snapshot creation before applies. Git integration for rollback. |
+| **Auto-stashing + rollback** | ⚠️ Experimental / opt-in | ❓ Unknown | ❓ Unknown | ❓ Unknown | ❌ No | `gitAutoStashService.ts`, `rollbackSnapshotService.ts`, `composerPanel.ts` | Git auto-stash before multi-file Composer applies (on by default); snapshot rollback is opt-in (`cortexide.safety.rollback.enable`, default off) and only covers the Composer "Apply All" path — not a general safety net. Being hardened in Phase 1. |
 | **Safe-apply (guardrails)** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ❓ Unknown | ❌ No | `editCodeService.ts:1167-1172`, `toolsService.ts:570-602` | Pre-apply validation. Conflict detection. Stream state checking to prevent concurrent edits. |
 | **Partial results on timeout** | ✅ Yes | ❓ Unknown | ❓ Unknown | ❓ Unknown | ❌ No | `sendLLMMessage.impl.ts:585-614` | Returns partial text on timeout (20s local, 120s remote). Prevents loss of generated content. |
 | **Prompt optimization for local edit flows** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No | `prompts.ts:737-739`, `editCodeService.ts:1453-1481` | Minimal system messages for local models. Code pruning (removes comments, blank lines). Reduces token usage. |
@@ -68,7 +81,7 @@
 4. **Privacy Mode**: True privacy mode that routes only to local models when sensitive data (images/PDFs) is present.
 
 ### Code Editing
-1. **Tree-sitter RAG**: Only CortexIDE uses tree-sitter AST parsing for semantic code indexing, enabling better code understanding.
+1. **Codebase indexing**: CortexIDE ships a lexical **BM25** repo indexer that is queried on every turn. _(Tree-sitter AST/semantic indexing is experimental and not functional yet — see Phase 4.)_
 2. **Local Model Optimizations**: Unique prompt optimization, code pruning, and token caps specifically designed for local model performance.
 3. **Smart Truncation**: Line-boundary aware prefix/suffix truncation that prioritizes code near cursor.
 4. **Partial Results on Timeout**: Returns partial generated content on timeout instead of failing completely.
@@ -77,8 +90,8 @@
 ## Performance Implications
 
 ### Local Model Optimizations
-- **Warm-up System**: Reduces first-request latency by 50-90% for local models (verified in `modelWarmupService.ts`)
-- **Code Pruning**: Reduces token usage by 20-40% for local models (removes comments, blank lines)
+- **Warm-up System**: Pre-warms local models with a background 1-token request to reduce first-request latency (`modelWarmupService.ts`). _(Latency improvement not yet measured; no percentage is claimed.)_
+- **Code Pruning**: Trims comments/blank lines from local-model context to reduce token usage (`convertToLLMMessageService.ts`). _(Reduction not yet measured; no percentage is claimed.)_
 - **Token Caps**: Prevents excessive generation, reducing latency for autocomplete (96 tokens) and quick edits (200 tokens)
 - **Connection Pooling**: Eliminates TCP handshake overhead for localhost requests
 
@@ -88,7 +101,7 @@
 - **Feature-Specific Timeouts**: Different timeouts per feature optimize for task requirements
 
 ### RAG Performance
-- **Tree-sitter Indexing**: More accurate symbol extraction than regex-based methods
+- **Codebase Indexing**: lexical BM25 retrieval today _(tree-sitter symbol extraction is experimental/non-functional — Phase 4)_
 - **Hybrid Search**: BM25 + vector search provides better relevance than either alone
 - **Query Caching**: LRU cache (200 queries, 5min TTL) reduces repeated computation
 

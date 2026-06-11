@@ -766,6 +766,14 @@ export interface ISaveOptions {
 	 * A hint as to which file systems should be available for saving.
 	 */
 	readonly availableFileSystems?: string[];
+
+	/**
+	 * Write the file atomically (temp file + rename) so a crash/ENOSPC mid-write cannot leave the
+	 * file empty or half-written. Opt-in; when unset the normal (truncate-then-write) save is used.
+	 * (Named `atomicWrite` rather than `atomic` to avoid colliding with the `{ postfix }`-shaped
+	 * `atomic` field on the underlying write options.)
+	 */
+	readonly atomicWrite?: boolean;
 }
 
 export interface IRevertOptions {

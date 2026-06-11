@@ -18,7 +18,7 @@ import { IAuditLogService } from '../../common/auditLogService.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { ILogService, NullLogService } from '../../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
-import { ApplyEngineV2, FileEditOperation } from '../../common/applyEngineV2.js';
+import { ApplyEngineV2 } from '../../common/applyEngineV2.js';
 import { TestNotificationService } from '../../../../../platform/notification/test/common/testNotificationService.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 
@@ -129,10 +129,20 @@ class MockAuditLogService implements IAuditLogService {
 	clearEvents(): void { this.events = []; }
 }
 
+// Captures the write OPTIONS (which the upstream InMemoryTestFileService doesn't record) so we can
+// assert that ApplyEngineV2 requests atomic (temp-file + rename) writes — Phase 1 corruption safety.
+class CapturingFileService extends InMemoryTestFileService {
+	readonly writeOptions: Array<{ resource: URI; options: any }> = [];
+	override async writeFile(resource: any, contents: any, options?: any): Promise<any> {
+		this.writeOptions.push({ resource, options });
+		return super.writeFile(resource, contents, options);
+	}
+}
+
 suite('ApplyEngineV2 (real engine)', () => {
 	let disposables: DisposableStore;
 	let instantiationService: TestInstantiationService;
-	let fileService: InMemoryTestFileService;
+	let fileService: CapturingFileService;
 	let rollbackService: MockRollbackSnapshotService;
 	let auditLogService: MockAuditLogService;
 	let engine: ApplyEngineV2;
@@ -145,7 +155,7 @@ suite('ApplyEngineV2 (real engine)', () => {
 		disposables = new DisposableStore();
 		workspaceUri = URI.file('/test/workspace');
 
-		fileService = disposables.add(new InMemoryTestFileService());
+		fileService = disposables.add(new CapturingFileService());
 
 		const workspaceService = new TestContextService();
 		workspaceService.setWorkspace({ folders: [{ uri: workspaceUri, name: 'test', index: 0 } as any] } as any);
@@ -190,6 +200,24 @@ suite('ApplyEngineV2 (real engine)', () => {
 
 		assert.strictEqual(result.success, true, result.error);
 		assert.strictEqual(await readFile(uri), 'rewritten\n');
+	});
+
+	test('atomic write: create and edit request a temp-file+rename atomic write (corruption safety)', async () => {
+		// Phase 1: the node disk provider only does temp+rename when atomic.postfix is set. A crash/ENOSPC
+		// mid-write must not leave the user's file empty/half-written, so the engine must request atomic writes.
+		const createUri = fileUri('atomic-create.txt');
+		await engine.applyTransaction([{ uri: createUri, type: 'create', content: 'hello\n' }]);
+		const createWrite = fileService.writeOptions.find(w => w.resource.toString() === createUri.toString());
+		assert.ok(createWrite, 'create issued a write');
+		assert.ok(createWrite!.options?.atomic?.postfix, 'create write must request an atomic temp+rename (atomic.postfix)');
+
+		const editUri = fileUri('atomic-edit.txt');
+		await fileService.writeFile(editUri, VSBuffer.fromString('a\n'));
+		fileService.writeOptions.length = 0;
+		await engine.applyTransaction([{ uri: editUri, type: 'edit', content: 'b\n' }]);
+		const editWrite = fileService.writeOptions.find(w => w.resource.toString() === editUri.toString());
+		assert.ok(editWrite, 'edit issued a write');
+		assert.ok(editWrite!.options?.atomic?.postfix, 'edit write must request an atomic temp+rename (atomic.postfix)');
 	});
 
 	test('path safety: an operation outside the workspace is rejected before any write', async () => {

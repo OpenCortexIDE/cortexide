@@ -10,6 +10,7 @@ import { useTranslation } from '../util/useTranslation.js';
 import { Brain, Check, ChevronRight, DollarSign, ExternalLink, Lock, X } from 'lucide-react';
 import { displayInfoOfProviderName, ProviderName, providerNames, localProviderNames, nonlocalProviderNames, featureNames, FeatureName, isFeatureNameDisabled } from '../../../../common/cortexideSettingsTypes.js';
 import { isCapableLocalCoder } from '../../../../common/routing/codingModelScore.js';
+import { builtinToolCount } from '../../../../common/builtinToolNames.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import { OllamaSetupInstructions, OneClickSwitchButton, SettingsForProvider, ModelDump } from '../settings/Settings.js';
 import { ColorScheme } from '../../../../../../../platform/theme/common/theme.js';
@@ -33,7 +34,7 @@ const welcomeStats = [
 	{ label: 'Uploads', value: 'PDFs + Images', detail: 'Drop specs, screenshots, and research straight into chat' },
 	{ label: 'Fast Apply', value: 'Line-by-line', detail: 'Approve every change from the diff that generated it' },
 	{ label: 'Model router', value: 'Auto-switch', detail: 'Chooses Anthropic, GPT-4o, Gemini, DeepSeek, or Ollama per task' },
-	{ label: 'Agent tools', value: '27 built-ins', detail: 'File edits, terminal, web search, LSP navigation, code review, and more' },
+	{ label: 'Agent tools', value: `${builtinToolCount} built-ins`, detail: 'File edits, terminal, web search, LSP navigation, code review, and more' },
 ];
 
 export const VoidOnboarding = () => {

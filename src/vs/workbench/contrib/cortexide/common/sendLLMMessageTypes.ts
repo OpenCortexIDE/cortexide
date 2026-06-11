@@ -146,6 +146,12 @@ export type SendLLMMessageParams = {
 
 	settingsOfProvider: SettingsOfProvider;
 	mcpTools: InternalToolInfo[] | undefined;
+
+	// Phase 8: local-only privacy mode (routingPolicy === 'local-only'), stamped by the
+	// renderer from the routing policy directly (independent of the resolved model). The
+	// electron-main dispatch uses it as a defense-in-depth egress gate so no prompt/key leaves
+	// the machine for a cloud provider when local-only is on, even if model selection erred.
+	localOnly?: boolean;
 } & SendLLMType
 
 

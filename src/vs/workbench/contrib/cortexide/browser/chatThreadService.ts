@@ -20,11 +20,17 @@ import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/c
 import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
+import { checkToolAllowedInMode } from '../common/toolPermissions.js';
+import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
-import { shouldCompactConversation, selectCompactionWindow } from '../common/compactionPolicy.js';
+import { selectCompactionWindow } from '../common/compactionPolicy.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -44,6 +50,7 @@ import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { deepClone } from '../../../../base/common/objects.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
@@ -52,9 +59,11 @@ import { preprocessImagesForQA } from './imageQAIntegration.js';
 import { ITaskAwareModelRouter, TaskContext, TaskType, RoutingDecision } from '../common/modelRouter.js';
 import { looksLikeCodebaseQuestion } from '../common/routing/codebaseQuestionDetector.js';
 import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/simpleQuestionGate.js';
-import { parseTextToolCall, canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
-import { pickNextFailoverModel, isLikelyCoderModelName, toModelSelection, KNOWN_CAPABLE_AGENTIC_PROVIDERS, type FailoverCandidate } from '../common/routing/modelFailover.js';
-import { freeTierIdOfProviderName } from '../common/routing/freeTierConstants.js';
+import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
+import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
+import { decideToolSynthesis, decideHowManySearch } from '../common/toolSynthesisDecision.js';
+import { pickNextFailoverModel, toModelSelection } from '../common/routing/modelFailover.js';
+import { resolveModelRuntimeCaps, buildFailoverCandidates, type FailoverProviderEntry } from '../common/modelSelectionEngine.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -453,6 +462,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
 		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
 		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
+		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
@@ -1960,16 +1970,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	 * Some models output tool calls as JSON text instead of using native tool calling.
 	 * Example: {"name": "delete_file_or_folder", "arguments": {"uri": "/path", "is_recursive": true}}
 	 */
-	private _parseJSONToolCallFromText(text: string): { toolName: ToolName, toolParams: RawToolParamsObj } | null {
-		// Canonical implementation in common/parseJsonToolCall.ts (pure + unit-tested). Recognizes the JSON
-		// tool-call shapes weak/local models emit (function_name/action/tool_name + arguments/input, incl.
-		// inside a <tool_call> wrapper) AND Anthropic's <function_calls>/<invoke>/<parameter> XML that Claude
-		// emits via gateways (Pollinations) that don't pass native tools. Param names are canonicalized
-		// (path/file -> uri) so file tools validate.
-		const r = parseTextToolCall(text)
-		return r ? { toolName: r.toolName as ToolName, toolParams: r.toolParams as RawToolParamsObj } : null
-	}
-
 	/**
 	 * Synthesizes a tool call from user intent when the model refuses to use tools.
 	 * This ensures Agent Mode works even with models that don't follow tool calling instructions.
@@ -2338,6 +2338,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		mcpServerName: string | undefined,
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
 		isLocal: boolean = false,
+		chatMode: ChatMode = 'agent',
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2350,6 +2351,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// aliased names (create_file -> create_file_or_folder, run -> run_command, ...) from native tool_calls
 		// and the XML extractor resolve here instead of throwing `No tool named "create_file"` (finding #4).
 		const isBuiltInTool = isABuiltinToolName(toolName)
+
+		// --- Phase 1: dispatch-level mode/permission enforcement (the AUTHORITATIVE read-only boundary).
+		// Runs BEFORE validation/approval/checkpoint/execution so a write/delete/terminal/MCP call in a
+		// read-only mode (gather/plan) — or a network call under local-only — is hard-blocked even if a
+		// weak/cloud/prompt-injected model fabricates it. The prompt-level tool catalog is advisory only.
+		// We emit a recoverable invalid_params message (the loop's error-counter sees it) and bail; no UI
+		// changes required. Does NOT depend on auto-approve (so terminal in gather is blocked, not merely
+		// prompted). Sub-agents run with chatModeOverride 'agent', so this never blocks legitimate agent work.
+		{
+			const localOnly = this._settingsService.state.globalSettings.routingPolicy === 'local-only'
+			// Workspace Trust: in an untrusted workspace, agentic mutation/terminal/MCP is disabled
+			// (read/search still allowed) — opening a malicious repo cannot immediately drive edits.
+			const workspaceTrusted = this._workspaceTrustService.isWorkspaceTrusted()
+			const perm = checkToolAllowedInMode(toolName, chatMode, { isMCPTool: !isBuiltInTool, localOnly, workspaceTrusted })
+			if (!perm.allowed) {
+				this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: perm.reason ?? `Blocked: the "${toolName}" tool is not allowed in ${chatMode} mode.`, id: toolId, mcpServerName })
+				return {}
+			}
+		}
 
 		if (!opts.preapproved) { // skip this if pre-approved
 			// 1. validate tool params
@@ -2373,6 +2393,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// once validated, add checkpoint for edit
 			if (toolName === 'edit_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['edit_file']).uri }) }
 			if (toolName === 'rewrite_file') { this._addToolEditCheckpoint({ threadId, uri: (toolParams as BuiltinToolCallParams['rewrite_file']).uri }) }
+			// Phase 1 #2: journal the BEFORE-state of create/delete (the in-memory checkpoint can't undo these).
+			if (toolName === 'create_file_or_folder') {
+				const p = toolParams as BuiltinToolCallParams['create_file_or_folder']
+				await this._recordFileOpBeforeMutation(threadId, p.uri, 'create', !!p.isFolder)
+			}
+			if (toolName === 'delete_file_or_folder') {
+				const p = toolParams as BuiltinToolCallParams['delete_file_or_folder']
+				await this._recordFileOpBeforeMutation(threadId, p.uri, 'delete', !!p.isFolder)
+			}
+			// Phase 1 #2: journal the BEFORE-content of edits too — the in-memory checkpoint only captures
+			// a snapshot when the file already had a live editor model, so an edit to an unopened file
+			// could not be rolled back. The durable journal is authoritative for the on-disk rollback.
+			if (toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'multi_edit') {
+				const uri = (toolParams as BuiltinToolCallParams['edit_file' | 'rewrite_file' | 'multi_edit']).uri
+				await this._recordFileOpBeforeMutation(threadId, uri, 'modify', false)
+			}
 
 			// 2. if tool requires approval, break from the loop, awaiting approval
 
@@ -2395,6 +2431,38 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// If autoApprove is undefined for 'edits', default to true (basic operations should work by default)
 				if (approvalType === 'edits' && shouldAutoApprove === undefined) {
 					shouldAutoApprove = true;
+				}
+
+				// Phase 1: terminal command risk gate. Previously _detectCommandDanger only fired a
+				// non-blocking notification, so with autoApprove.terminal=true a destructive command ran
+				// anyway. Now: a DANGEROUS command can never be auto-approved (force explicit approval,
+				// mirroring the HIGH-risk-edit override), and a CATASTROPHIC command is refused outright.
+				// Applies to run_command / run_persistent_command (run_nl_command is parsed later).
+				if (approvalType === 'terminal' && isBuiltInTool && (toolName === 'run_command' || toolName === 'run_persistent_command')) {
+					const command = (toolParams as BuiltinToolCallParams['run_command'] | BuiltinToolCallParams['run_persistent_command']).command;
+					if (typeof command === 'string' && command.trim()) {
+						const risk = classifyCommandRisk(command);
+						if (risk.hardBlock) {
+							this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: risk.categories.join(',') });
+							this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${risk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
+							return {};
+						}
+						if (risk.requiresApproval && shouldAutoApprove) {
+							// A dangerous command can never be auto-approved — force explicit user approval.
+							shouldAutoApprove = false;
+							this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: risk.categories.join(',') });
+						}
+					}
+					// cwd containment: a command whose working directory escapes the workspace must not
+					// auto-run — force explicit approval (the model can't silently `cwd: '/etc'`).
+					const cwd = (toolParams as BuiltinToolCallParams['run_command']).cwd ?? null;
+					if (shouldAutoApprove && cwd) {
+						const workspaceFsPaths = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+						if (cwdEscapesWorkspace(cwd, workspaceFsPaths)) {
+							shouldAutoApprove = false;
+							this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
+						}
+					}
 				}
 				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
 
@@ -2796,35 +2864,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const state = this._settingsService.state
 		const overrides = state.overridesOfModel
 		const localOnly = state.globalSettings.routingPolicy === 'local-only'
-		const candidates: FailoverCandidate[] = []
-		for (const providerName of Object.keys(state.settingsOfProvider) as ProviderName[]) {
+		// Phase 2: flatten the configured providers (impure - reads settings) then build the candidate
+		// list with the pure, tested buildFailoverCandidates; the ranking stays in pickNextFailoverModel.
+		const providers: FailoverProviderEntry[] = (Object.keys(state.settingsOfProvider) as ProviderName[]).map(providerName => {
 			const ps = state.settingsOfProvider[providerName]
-			if (!ps._didFillInProviderSettings) { continue }
-			const isLocal = (localProviderNames as readonly ProviderName[]).includes(providerName)
-			for (const mi of ps.models) {
-				if (mi.isHidden) { continue }
-				if (excludeKeys.has(`${providerName}/${mi.modelName}`)) { continue }
-				let contextWindow = 0
-				let hasNativeToolCalls = false
-				let isCoder = isLikelyCoderModelName(mi.modelName)
-				try {
-					const caps = getModelCapabilities(providerName, mi.modelName, overrides)
-					contextWindow = caps.contextWindow ?? 0
-					hasNativeToolCalls = !!caps.specialToolFormat && !isLocal
-					isCoder = isCoder || !!caps.supportsFIM
-				} catch { /* fall back to name heuristics + zero ctx */ }
-				candidates.push({
-					providerName,
-					modelName: mi.modelName,
-					isLocal,
-					contextWindow,
-					hasNativeToolCalls,
-					isKnownCapableProvider: (KNOWN_CAPABLE_AGENTIC_PROVIDERS as readonly ProviderName[]).includes(providerName),
-					isCoder,
-					isFreeTierProvider: freeTierIdOfProviderName(providerName) !== null,
-				})
+			return {
+				providerName,
+				didFillInProviderSettings: !!ps._didFillInProviderSettings,
+				models: (ps.models ?? []).map(mi => ({ modelName: mi.modelName, isHidden: mi.isHidden })),
 			}
-		}
+		})
+		const candidates = buildFailoverCandidates(providers, excludeKeys, (pn, mn) => {
+			try { return getModelCapabilities(pn, mn, overrides) } catch { return null }
+		})
 		const pick = pickNextFailoverModel(candidates, { excludeKeys, localOnly, preferNonLocal: opts.preferNonLocal, avoidFreeTier: opts.avoidFreeTier })
 		return pick ? toModelSelection(pick) : null
 	}
@@ -2840,9 +2892,62 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	// workspace. Keyed by threadId (not runCtx) so it survives the approval-resume re-entry into
 	// _runChatAgent, which drops runCtx. Set at the top of _runChatAgent; cleared when the child ends.
 	private readonly _workspaceRootOverrideByThread = new Map<string, string>()
+	// Phase 1 #2: durable create/delete rollback. Per-thread journal of the BEFORE-state of every
+	// create_file_or_folder / delete_file_or_folder the agent runs (the in-memory checkpoint system
+	// only restores EDITS with a live model — it can't recreate a deleted file or remove a created one).
+	// On a checkpoint jump we replay these in reverse on disk. See common/agentFileOps.ts.
+	private readonly _fileOpJournalByThread = new Map<string, AgentFileOpRecord[]>()
 	// parentThreadId -> set of running sub-agent child threadIds. Lets abortRunning(parent) propagate
 	// the abort to in-flight children (depth 1, since sub-agents can't nest).
 	private readonly _childThreadsByParent = new Map<string, Set<string>>()
+
+	/** Records the on-disk BEFORE-state of a create/delete so a checkpoint rollback can reverse it. */
+	private async _recordFileOpBeforeMutation(threadId: string, uri: URI, opType: AgentFileOpType, isFolder: boolean) {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+		let existedBefore = false
+		let beforeContent: string | null = null
+		try {
+			existedBefore = await this._fileService.exists(uri)
+			if (existedBefore && !isFolder) {
+				const stat = await this._fileService.stat(uri)
+				// avoid snapshotting huge / binary files (best-effort guard)
+				if (!stat.isDirectory && (stat.size ?? 0) <= 5_000_000) {
+					beforeContent = (await this._fileService.readFile(uri)).value.toString()
+				}
+			}
+		} catch { /* best-effort: if we can't read, record what we know */ }
+		const checkpointIdx = findLastIdx(thread.messages, (m: ChatMessage) => m.role === 'checkpoint') ?? -1
+		const journal = this._fileOpJournalByThread.get(threadId) ?? []
+		journal.push({ checkpointIdx, fsPath: uri.fsPath, opType, isFolder, existedBefore, beforeContent })
+		this._fileOpJournalByThread.set(threadId, journal)
+	}
+
+	private _makeFileOpIO(): FileOpIO {
+		return {
+			exists: (p) => this._fileService.exists(URI.file(p)),
+			writeFileAtomic: async (p, content) => { await this._fileService.writeFile(URI.file(p), VSBuffer.fromString(content), { atomic: { postfix: '.cortexide-tmp' } }) },
+			createFolder: async (p) => { await this._fileService.createFolder(URI.file(p)) },
+			del: async (p, opts) => { await this._fileService.del(URI.file(p), { recursive: opts.recursive, useTrash: false }) },
+			readText: async (p) => (await this._fileService.readFile(URI.file(p))).value.toString(),
+		}
+	}
+
+	/** Reverses (on disk) every journalled create/delete that happened after the target checkpoint. */
+	private async _restoreFileOpsForJump(threadId: string, toIdx: number) {
+		const journal = this._fileOpJournalByThread.get(threadId)
+		if (!journal || journal.length === 0) return
+		const { results, incomplete } = await undoFileOpsAfterCheckpoint(this._makeFileOpIO(), journal, toIdx - 1)
+		// drop the ops we just reversed so a later jump doesn't re-undo them
+		this._fileOpJournalByThread.set(threadId, journal.filter(r => r.checkpointIdx < toIdx))
+		const undone = results.filter(r => r.ok && r.action !== 'noop').length
+		if (incomplete) {
+			const failed = results.filter(r => !r.ok)
+			this._notificationService.warn(localize('cortexide.rollback.incomplete', 'Rollback incomplete: could not restore {0} file(s): {1}', failed.length, failed.map(f => f.fsPath).join(', ')))
+		} else if (undone > 0) {
+			this._notificationService.info(localize('cortexide.rollback.restored', 'Rolled back {0} created/deleted file(s) on disk.', undone))
+		}
+	}
 	// Serializes file-edit application across ALL concurrent agent threads (foreground + background +
 	// parallel sub-agents) so concurrent edits can't corrupt a file. No-op for a single sequential agent.
 	private readonly _editSerializer = createSerializer()
@@ -3148,9 +3253,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
 		const recomputeModelState = (m: ModelSelection | null) => {
 			chatMode = runCtx?.isSubagent ? userChatMode : this._effectiveChatModeForTurn(threadId, userChatMode, m)
-			isLocalModel = !!m && (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName)
-			maxAgentIterations = isLocalModel ? MAX_LOCAL_AGENT_LOOP_ITERATIONS : MAX_AGENT_LOOP_ITERATIONS
-			maxConsecutiveToolErrors = isLocalModel ? MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS : MAX_CONSECUTIVE_TOOL_ERRORS
+			// Phase 2: the local-vs-cloud loop-cap policy is the pure, tested resolveModelRuntimeCaps.
+			const caps = resolveModelRuntimeCaps(m, {
+				maxAgentIterations: MAX_AGENT_LOOP_ITERATIONS,
+				maxLocalAgentIterations: MAX_LOCAL_AGENT_LOOP_ITERATIONS,
+				maxConsecutiveToolErrors: MAX_CONSECUTIVE_TOOL_ERRORS,
+				maxLocalConsecutiveToolErrors: MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS,
+			})
+			isLocalModel = caps.isLocalModel
+			maxAgentIterations = caps.maxAgentIterations
+			maxConsecutiveToolErrors = caps.maxConsecutiveToolErrors
 		}
 		recomputeModelState(resolvedModelSelection)
 		const { overridesOfModel } = this._settingsService.state
@@ -3317,7 +3429,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._linkToolCallToStepInternal(threadId, callThisToolFirst.id, activePlanTracking.currentStep)
 			}
 
-			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params })
+			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params }, false, chatMode)
 			if (interrupted) {
 				this._setStreamState(threadId, undefined)
 				this._addUserCheckpoint({ threadId })
@@ -3390,7 +3502,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			if (nMessagesSent >= maxAgentIterations) {
 				// Before giving up: a model that burned the whole step budget without finishing is usually a
 				// weak/local model spinning. Escalate the task to a more capable model and keep going.
-				if (await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
+				// Phase 2: the escalate-or-stop gate is the pure shouldEscalateModel(); tryEscalateModel still
+				// performs the switch. shouldCallEscalate==false exactly when fallback is off or the escalation
+				// budget is spent -- in which case tryEscalateModel would itself return false (its own guard),
+				// so short-circuiting is behavior-identical and just avoids a no-op await.
+				const escDec = shouldEscalateModel({
+					triggerSite: 'iterCap',
+					modelFallbackEnabled, escalationCount, MAX_MODEL_ESCALATIONS,
+					nMessagesSent, maxAgentIterations,
+					consecutiveToolErrors, maxConsecutiveToolErrors,
+					isAutoMode: false, autoFallbackExhausted: true,
+					isRateLimitError: false, isNonRetryableError: false,
+					nAttempts: 0, CHAT_RETRIES,
+				})
+				if (escDec.shouldCallEscalate && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
 					nMessagesSent = 0
 					consecutiveToolErrors = 0
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
@@ -3591,49 +3716,66 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// so the run continues instead of overflowing. The STORED thread is never mutated — only the
 			// messages sent to the LLM this turn are windowed — so checkpoints, the UI, and history are
 			// untouched. Best-effort: any failure falls back to the full prepared messages.
-			if ((chatMode === 'agent' || chatMode === 'plan')
-				&& this._settingsService.state.globalSettings.enableAutoCompaction
-				&& promptTokens > 0
-				&& modelSelection.providerName !== 'auto') {
+			// Phase 2: resolve the model context window ONCE (de-dupes the two former dynamic
+			// getModelCapabilities imports) and delegate the compaction + overflow-warning decisions
+			// to the pure, tested fn (common/agentLoopDecisions.ts). capsResolved gates both so an
+			// import failure skips them, exactly as the old per-block try/catch did. The compaction
+			// decision uses the CURRENT prompt tokens; the overflow warning is re-decided AFTER
+			// compaction (which may shrink promptTokens) so it reflects the post-compaction size.
+			let contextWindow = 128_000
+			let capsResolved = false
+			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
 				try {
 					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
 					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
-					const contextWindow = (caps as any).contextWindow ?? 128_000
-					if (shouldCompactConversation({
-						enabled: true, chatMode, promptTokens, contextWindow,
-						messageCount: preprocessedMessages.length,
-						iterationsSinceLastCompaction: Number.POSITIVE_INFINITY, // non-destructive => re-window every over-threshold turn
-					})) {
-						const win = selectCompactionWindow(preprocessedMessages.length)
-						if (win) {
-							const omitted = win.end - win.start
-							const marker: ChatMessage = {
-								role: 'assistant',
-								displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
-								reasoning: '',
-								anthropicReasoning: null,
-							}
-							const compactedView: ChatMessage[] = [
-								...preprocessedMessages.slice(0, win.start),
-								marker,
-								...preprocessedMessages.slice(win.end),
-							]
-							const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
-								chatMessages: compactedView,
-								modelSelection,
-								chatMode,
-								repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-								subagentSystemPrompt: runCtx?.systemPromptOverride,
-								allowedToolNames: runCtx?.allowedToolNames
-							})
-							if (prep2.messages && prep2.messages.length > 0) {
-								messages = prep2.messages
-								separateSystemMessage = prep2.separateSystemMessage
-								const tr2 = this._computeTokenCount(messages)
-								promptTokens = tr2.tokenCount
-								contextSize = tr2.contextSize
-								this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
-							}
+					contextWindow = (caps as any).contextWindow ?? 128_000
+					capsResolved = true
+				} catch {
+					// getModelCapabilities import may fail for some providers; leave capsResolved false to skip
+				}
+			}
+			const compactDecision = capsResolved
+				? computeCompactionOverflowDecision({
+					chatMode,
+					enableAutoCompaction: !!this._settingsService.state.globalSettings.enableAutoCompaction,
+					promptTokens,
+					contextWindow,
+					providerName: modelSelection.providerName,
+					messageCount: preprocessedMessages.length,
+					existingThreadMessages: this.state.allThreads[threadId]?.messages ?? [],
+				})
+				: { shouldCompact: false, shouldWarnOverflow: false, overflowPct: null }
+			if (compactDecision.shouldCompact) {
+				try {
+					const win = selectCompactionWindow(preprocessedMessages.length)
+					if (win) {
+						const omitted = win.end - win.start
+						const marker: ChatMessage = {
+							role: 'assistant',
+							displayContent: `[Auto-compacted: ${omitted} earlier message${omitted === 1 ? '' : 's'} omitted to stay within the ~${Math.round(contextWindow / 1000)}k context window. The original request and recent messages are preserved; ask if you need detail from earlier.]`,
+							reasoning: '',
+							anthropicReasoning: null,
+						}
+						const compactedView: ChatMessage[] = [
+							...preprocessedMessages.slice(0, win.start),
+							marker,
+							...preprocessedMessages.slice(win.end),
+						]
+						const prep2 = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+							chatMessages: compactedView,
+							modelSelection,
+							chatMode,
+							repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+							subagentSystemPrompt: runCtx?.systemPromptOverride,
+							allowedToolNames: runCtx?.allowedToolNames
+						})
+						if (prep2.messages && prep2.messages.length > 0) {
+							messages = prep2.messages
+							separateSystemMessage = prep2.separateSystemMessage
+							const tr2 = this._computeTokenCount(messages)
+							promptTokens = tr2.tokenCount
+							contextSize = tr2.contextSize
+							this._metricsService.capture('Conversation Compacted', { threadId, omitted, chatMode, contextWindow })
 						}
 					}
 				} catch {
@@ -3649,27 +3791,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				return
 			}
 
-			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context window.
-			// We only check this in agent mode (where conversations grow large) and only once per conversation
-			// to avoid spamming. Uses the static context window from getModelCapabilities; falls back to 128k.
-			if ((chatMode === 'agent' || chatMode === 'plan') && promptTokens > 0 && modelSelection.providerName !== 'auto') {
-				try {
-					const { getModelCapabilities } = await import('../common/modelCapabilities.js')
-					const caps = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel)
-					const contextWindow = (caps as any).contextWindow ?? 128_000
-					const usagePct = promptTokens / contextWindow
-					const existingMsgs = this.state.allThreads[threadId]?.messages ?? []
-					const alreadyWarned = existingMsgs.some(m => m.role === 'assistant' && m.displayContent?.includes('context window'))
-					if (usagePct >= 0.7 && !alreadyWarned) {
-						const pct = Math.round(usagePct * 100)
-						this._notificationService.warn(
-							`Context is ${pct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
-							`The agent may start losing earlier context. Consider starting a new thread.`
-						)
-					}
-				} catch {
-					// getModelCapabilities import may fail for some providers; ignore
-				}
+			// Context overflow guard: warn when estimated token usage exceeds 70% of the model's context
+			// window. Re-evaluated AFTER compaction so it reflects the post-compaction prompt size; warns
+			// at most once per conversation (the pure fn scans the stored thread for a prior warning).
+			const overflowDecision = capsResolved
+				? computeCompactionOverflowDecision({
+					chatMode,
+					enableAutoCompaction: !!this._settingsService.state.globalSettings.enableAutoCompaction,
+					promptTokens,
+					contextWindow,
+					providerName: modelSelection.providerName,
+					messageCount: preprocessedMessages.length,
+					existingThreadMessages: this.state.allThreads[threadId]?.messages ?? [],
+				})
+				: { shouldCompact: false, shouldWarnOverflow: false, overflowPct: null }
+			if (overflowDecision.shouldWarnOverflow && overflowDecision.overflowPct != null) {
+				this._notificationService.warn(
+					`Context is ${overflowDecision.overflowPct}% full (~${Math.round(promptTokens / 1000)}k / ${Math.round(contextWindow / 1000)}k tokens). ` +
+					`The agent may start losing earlier context. Consider starting a new thread.`
+				)
 			}
 
 			// CRITICAL: Check again after async operation (plan might have been added during prep)
@@ -4030,11 +4170,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// service layer treats as rate-limits (it injects the "all free tiers exhausted" message on
 					// these) — notably Google's "quota exceeded" / "RESOURCE_EXHAUSTED", which the old check
 					// (only 429/rate limit/tpm) MISSED, so avoidFreeTier never engaged for gemini free-tier.
-					const _loErr = (error?.message || '').toLowerCase()
-					const isRateLimitError = _loErr.includes('429') ||
-						_loErr.includes('rate limit') || _loErr.includes('rate-limit') ||
-						_loErr.includes('tokens per min') || _loErr.includes('tpm') ||
-						_loErr.includes('quota') || _loErr.includes('resource_exhausted') || _loErr.includes('exceeded your current quota')
+					const isRateLimitError = isRateLimitErrorMessage(error?.message || '')
 
 					// In auto mode, try fallback models for ALL errors (not just rate limits)
 					// This ensures auto mode is resilient even if one model is failing
@@ -4292,35 +4428,26 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					toolCall = { ...toolCall, name: canonicalizeToolName(toolCall.name) as ToolName, rawParams: canonicalizeToolParams(toolCall.rawParams) as typeof toolCall.rawParams }
 				}
 
-				// CRITICAL: Check if model output JSON tool call format as text
-				// Some models output tool calls as JSON text instead of using native tool calling
-				// Parse it and convert to proper tool call format
+				// CRITICAL: Check if the model output a tool call as TEXT (JSON or Anthropic XML) instead of
+				// using native tool calling - common for local Ollama coders and some gateways. The pure
+				// recognizer (common/toolCallRecognition.ts) also strips any hallucinated multi-tool transcript
+				// after the first real call so it can't leak into the shown text or the conversation history.
+				// B1: did the model emit structured tool-call markup we could not parse? (set below)
+				let attemptedMalformedToolCall = false
 				if (!toolCall && info.fullText.trim()) {
-					const parsedToolCall = this._parseJSONToolCallFromText(info.fullText)
-					if (parsedToolCall) {
-						// Found JSON tool call in text - convert to proper format
+					const recognized = recognizeTextToolCall(info.fullText)
+					if (recognized.parsed) {
 						const toolId = generateUuid()
 						toolCall = {
-							name: parsedToolCall.toolName,
-							rawParams: parsedToolCall.toolParams,
+							name: recognized.parsed.toolName as ToolName,
+							rawParams: recognized.parsed.toolParams as RawToolParamsObj,
 							id: toolId,
 							isDone: true,
-							doneParams: Object.keys(parsedToolCall.toolParams)
+							doneParams: Object.keys(recognized.parsed.toolParams)
 						}
-						// Keep ONLY the assistant's preamble before the first tool-call marker, discarding
-						// everything after it. Models like Pollinations/claude emit a FAKE multi-tool transcript
-						// in one message — <tool_call>{json}</tool_call> followed by HALLUCINATED <tool_response>
-						// results and more fake calls. We execute the (first) REAL tool call and re-prompt with the
-						// REAL result, so the hallucinated continuation must NOT leak into the shown text or the
-						// history (it would reinforce the hallucination and re-trigger the bogus uri error next turn).
-						const markers = [
-							info.fullText.indexOf('{'),
-							info.fullText.search(/<\s*tool_call\b/i),
-							info.fullText.search(/<\s*function_calls\b/i),
-							info.fullText.search(/<\s*invoke\b/i),
-						].filter(i => i >= 0)
-						const cutIdx = markers.length ? Math.min(...markers) : -1
-						info = { ...info, fullText: cutIdx > 0 ? info.fullText.substring(0, cutIdx).trim() : (cutIdx === 0 ? '' : info.fullText) }
+						info = { ...info, fullText: recognized.preamble }
+					} else {
+						attemptedMalformedToolCall = recognized.attemptedButMalformed
 					}
 				}
 
@@ -4371,62 +4498,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				if ((chatMode === 'agent' || chatMode === 'plan') && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY && !fileReadLimitExceeded && modelSupportsTools) {
 					if (originalUserMessage) {
 						const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
-						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure']
-						const codebaseQueryWords = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about']
-						const webQueryWords = ['search the web', 'search online', 'check the web', 'check the internet', 'check internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url']
-
-						const isActionRequest = actionWords.some(word => userRequest.includes(word)) &&
-							!userRequest.startsWith('explain') &&
-							!userRequest.startsWith('what') &&
-							!userRequest.startsWith('how') &&
-							!userRequest.startsWith('why')
-
-						// Also treat codebase queries as requiring tools (need to read files to answer accurately)
-						// BUT: If images are present, "what" questions are likely about the image, not the codebase
 						const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0
-						const isCodebaseQuery = codebaseQueryWords.some(word => userRequest.includes(word)) &&
-							(userRequest.includes('what') || userRequest.includes('how many') || userRequest.includes('about')) &&
-							!(hasImages && (userRequest.includes('image') || userRequest.includes('this') || userRequest.includes('that')))
-
-						// Treat web search queries as requiring tools (need to search the web to answer)
-						const isWebQuery = webQueryWords.some(word => userRequest.includes(word)) ||
-							(userRequest.includes('search for') && (userRequest.includes('on the web') || userRequest.includes('on the internet'))) ||
-							(userRequest.includes('tell me what you know about') || userRequest.includes('what do you know about')) ||
-							((userRequest.includes('what is') || userRequest.includes('who is') || userRequest.includes('when did')) &&
-								(userRequest.includes('latest') || userRequest.includes('current') || userRequest.includes('recent') || userRequest.includes('2024') || userRequest.includes('2025')))
-
-						const shouldUseTools = (isActionRequest || isCodebaseQuery || isWebQuery) &&
-							!info.fullText.toLowerCase().includes('<read_file>') &&
-							!info.fullText.toLowerCase().includes('<edit_file>') &&
-							!info.fullText.toLowerCase().includes('<search_for_files>') &&
-							!info.fullText.toLowerCase().includes('<create_file') &&
-							!info.fullText.toLowerCase().includes('<run_command>') &&
-							!info.fullText.toLowerCase().includes('<web_search>') &&
-							!info.fullText.toLowerCase().includes('<browse_url>')
-
-						// If model refused to use tools after first attempt, synthesize immediately
-						// Skip the retry loop entirely for stubborn models
-						// BUT: Don't synthesize file search tools if images are present (user likely wants image analysis, not file search)
-						const isEmptyOrShort = !userRequest || userRequest.trim().length < 20
-						const isImageAnalysisQuery = hasImages && (
-							isEmptyOrShort ||
-							userRequest.toLowerCase().includes('image') ||
-							userRequest.toLowerCase().includes('what') && (userRequest.toLowerCase().includes('about') || userRequest.toLowerCase().includes('show')) ||
-							userRequest.toLowerCase().includes('describe') ||
-							userRequest.toLowerCase().includes('analyze')
-						)
-
-						// Skip synthesis if user has images and is asking about them
-						// Also skip if we've already read too many files (prevent infinite loops)
-						// Do NOT fabricate a tool call once the model has already executed a tool this turn (it
-						// acted — its trailing summary is not unfulfilled intent), or when its response reads like
-						// a conversational final answer (offers/closers). Otherwise the synthesizer fires "I'll
-						// help you... finding files" AFTER a completed task and spins the loop into a confused
-						// empty turn. (live: pollinations/claude finishing then the loop fabricating a bad call)
-						const _resp = info.fullText.toLowerCase()
-						const _looksFinal = /\b(if you'?d like|let me know|feel free|would you like|could you (please )?(let me know|share|tell)|here are (the|your)|i'?ve (deleted|created|removed|completed|finished)|all (files|done))\b/.test(_resp)
-						const _alreadyActed = toolsExecutedInRequest.length > 0
-						if (shouldUseTools && nAttempts >= 1 && !isImageAnalysisQuery && !_alreadyActed && !_looksFinal && filesReadInQuery < MAX_FILES_READ_PER_QUERY) {
+						// Phase 2: the (intricate, weak-model-critical) decision of WHETHER to fabricate a tool
+						// call from the model's prose is delegated to the pure, tested decision fn
+						// (common/toolSynthesisDecision.ts). The synthesis ACTION + its result-dependent guard
+						// stay inline below; this is byte-for-byte the same gate as the previous inline conditions.
+						const synthDecision = decideToolSynthesis({
+							chatMode,
+							hasToolCall: !!toolCall,
+							fullText: info.fullText,
+							hasOriginalUserMessage: true,
+							userRequest,
+							hasImages: !!hasImages,
+							hasSynthesizedForRequest: !!hasSynthesizedForRequest,
+							filesReadInQuery,
+							maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+							fileReadLimitExceeded,
+							modelSupportsTools,
+							nAttempts,
+							toolsExecutedCount: toolsExecutedInRequest.length,
+						})
+						if (synthDecision.shouldSynthesize) {
 							const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 							// Also skip if synthesized call is search_for_files and images are present
 							if (synthesizedToolCall && !(hasImages && synthesizedToolCall.toolName === 'search_for_files')) {
@@ -4470,7 +4562,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									toolId,
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams },
-									isLocalModel // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
+									isLocalModel, // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
+									chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
 								)
 
 								if (interrupted) {
@@ -4518,32 +4611,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// For "how many endpoints" type questions, we need to ensure model searches for endpoints
 				if (!toolCall && info.fullText.trim() && toolsExecutedInRequest.length > 0 && originalUserMessage) {
 					const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
-
-					// Check if this is a "how many" question that requires searching files
-					// Expanded pattern matching for better detection
-					const isHowManyQuestion = userRequest.includes('how many') && (
-						userRequest.includes('endpoint') || userRequest.includes('api') || userRequest.includes('route') ||
-						userRequest.includes('file') || userRequest.includes('function') || userRequest.includes('class') ||
-						userRequest.includes('method') || userRequest.includes('component') || userRequest.includes('module') ||
-						userRequest.includes('service') || userRequest.includes('controller') || userRequest.includes('handler')
-					)
-
-					// Check if we've searched or read files (needed to determine if more search is needed)
-					const hasSearched = toolsExecutedInRequest.includes('search_for_files') || toolsExecutedInRequest.includes('search_pathnames_only')
-					const hasRead = toolsExecutedInRequest.includes('read_file')
-
-					// Check if model's response actually contains an answer (has numbers or count indicators)
-					const responseText = info.fullText.toLowerCase()
-					const hasCountInResponse = /\d+/.test(responseText) && (
-						responseText.includes('endpoint') || responseText.includes('api') || responseText.includes('route') ||
-						responseText.includes('file') || responseText.includes('function') || responseText.includes('class') ||
-						responseText.includes('there are') || responseText.includes('i found') || responseText.includes('total')
-					)
-
-					// If it's a "how many" question and we haven't searched/read, and response doesn't contain answer, synthesize search
-					const needsMoreSearch = isHowManyQuestion && !hasSearched && !hasRead && !hasCountInResponse && !hasSynthesizedForRequest && filesReadInQuery < MAX_FILES_READ_PER_QUERY
-
-					if (needsMoreSearch) {
+					// Phase 2: the "how many X" follow-up-search decision is delegated to the pure, tested
+					// decision fn (common/toolSynthesisDecision.ts); the synthesis ACTION stays inline below.
+					const howManyDecision = decideHowManySearch({
+						hasToolCall: !!toolCall,
+						fullText: info.fullText,
+						hasOriginalUserMessage: true,
+						userRequest,
+						toolsExecuted: toolsExecutedInRequest,
+						hasSynthesizedForRequest: !!hasSynthesizedForRequest,
+						filesReadInQuery,
+						maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+					})
+					if (howManyDecision.needsMoreSearch) {
 						const synthesizedToolCall = this._synthesizeToolCallFromIntent(userRequest, originalUserMessage.displayContent || '')
 						if (synthesizedToolCall && synthesizedToolCall.toolName === 'search_for_files') {
 							const { toolName, toolParams } = synthesizedToolCall
@@ -4566,7 +4646,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								toolId,
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams },
-								isLocalModel // keep local-model curation consistent across all tool-dispatch paths
+								isLocalModel, // keep local-model curation consistent across all tool-dispatch paths
+								chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
 							)
 
 							if (interrupted) {
@@ -4594,48 +4675,82 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 				}
 
+				// B1 fix: the model emitted structured tool-call markup (<tool_call/<function_calls/<invoke)
+				// that could not be parsed AND no real/synthesized tool ran. That is an ATTEMPTED tool call that
+				// failed - an agent error, NOT a finished answer. Without this, the loop would commit the
+				// malformed text as the assistant's final reply and exit as if done (the silent-no-op-success
+				// bug). Count it toward the SAME consecutive-tool-error cap and re-prompt so the model can
+				// self-correct (the file-read-limit path below uses the same assistant-note + re-prompt shape);
+				// at the cap, escalate or stop honestly. Gated on the structured markers only (a correctly
+				// formed call would have parsed) so a genuine prose answer is never misclassified.
+				if (attemptedMalformedToolCall && !toolCall && (chatMode === 'agent' || chatMode === 'plan')) {
+					consecutiveToolErrors += 1
+					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+						if (await tryEscalateModel(`the previous model emitted ${consecutiveToolErrors} unparseable tool calls in a row`)) {
+							consecutiveToolErrors = 0
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+							continue
+						}
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} unparseable tool calls in a row.${isLocalModel ? ' Small/local models can struggle with the tool-call format - try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
+						this._setStreamState(threadId, { isRunning: undefined })
+						this._addUserCheckpoint({ threadId })
+						return
+					}
+					// Corrective feedback as a USER turn (NOT assistant): the malformed text was just committed
+					// as the assistant message, so a user turn keeps strict user/assistant alternation intact
+					// (Anthropic/Gemini) - the same reason tryEscalateModel avoids injecting assistant messages.
+					const malformedNote = `Your previous tool call was malformed and could not be parsed. Re-emit it as a single valid tool call.`
+					this._addMessageToThread(threadId, { role: 'user', content: malformedNote, displayContent: malformedNote, selections: null, state: defaultMessageState })
+					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+					shouldSendAnotherMessage = true
+					continue
+				}
+
 				// The agent loop terminates naturally when no tool call is present.
 				// Explicit completion is signalled via attempt_completion.
 				// *** REMOVED: fragile "3 tools executed = done" heuristic that was killing agents mid-task ***
 				// call tool if there is one
 				if (toolCall) {
+					// Excessive-file-read guard (pure decision; chatThreadService.ts:4716-4753). The caller
+					// keeps every side effect + assigns the next counter values back.
+					const fileReadGate = decideFileReadGate({
+						hasToolCall: true,
+						toolName: toolCall.name,
+						fileReadLimitExceeded,
+						filesReadInQuery,
+						maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+					})
+
 					// Skip tool execution if file read limit was exceeded in a previous iteration
-					if (fileReadLimitExceeded) {
+					if (fileReadGate.action === 'skip_already_exceeded') {
 						// Don't execute any more tools - just continue to final LLM call
 						shouldSendAnotherMessage = true
 						continue
 					}
 
-					// CRITICAL: Prevent excessive file reads that can cause infinite loops
-					// For codebase queries, limit the number of files read
-					// Check limit BEFORE incrementing to ensure we don't exceed it
-					if (toolCall.name === 'read_file') {
-						if (filesReadInQuery >= MAX_FILES_READ_PER_QUERY) {
-							// Too many files read - likely stuck in a loop
-							// Add a message explaining the limit, then make one final LLM call to generate an answer
-							this._addMessageToThread(threadId, {
-								role: 'assistant',
-								displayContent: `I've read ${filesReadInQuery} files, which is the limit. I'll provide an answer based on what I've gathered so far.`,
-								reasoning: '',
-								anthropicReasoning: null
-							})
+					// Too many files read - likely stuck in a loop. Add a message explaining the limit, set the
+					// flag, then make one final LLM call to generate an answer based on what we've read.
+					if (fileReadGate.action === 'hit_limit_now') {
+						this._addMessageToThread(threadId, {
+							role: 'assistant',
+							displayContent: `I've read ${fileReadGate.filesReadCount} files, which is the limit. I'll provide an answer based on what I've gathered so far.`,
+							reasoning: '',
+							anthropicReasoning: null
+						})
 
-							// Set flag to prevent further tool calls
-							fileReadLimitExceeded = true
+						// Set flag to prevent further tool calls
+						fileReadLimitExceeded = fileReadGate.nextFileReadLimitExceeded
 
-							// Make one final LLM call to generate the answer based on what we've read
-							// Set state to 'LLM' to show we're generating the final answer
-							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating final answer based on files read...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) })
+						// Set state to 'LLM' to show we're generating the final answer
+						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating final answer based on files read...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) })
 
-							// Force shouldSendAnotherMessage to true to make one more LLM call
-							// This will generate the final answer before returning
-							shouldSendAnotherMessage = true
-							// Skip tool execution and continue to next LLM call
-							continue
-						}
-						// Only increment if we're actually going to read the file
-						filesReadInQuery++
+						// Force one more LLM call to generate the final answer before returning
+						shouldSendAnotherMessage = true
+						continue
 					}
+
+					// proceed: only increments filesReadInQuery on an actual read_file (non-read tools untouched)
+					filesReadInQuery = fileReadGate.nextFilesReadInQuery
 
 					// CRITICAL: Check for pending plan before executing tool (fast check)
 					if (checkPlanGenerated()) {
@@ -4651,7 +4766,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel)
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
@@ -4675,13 +4790,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 					// Stop early if a (weak) model keeps emitting failed tool calls, rather than thrashing up to
 					// the iteration cap. Count consecutive tool errors; reset on any success.
+					// Phase 2: delegate the consecutive-tool-error counting + cap check to the pure, tested
+					// decision fn (common/agentLoopDecisions.ts). escalationAvailable:false keeps
+					// consecutiveToolErrors holding the incremented value, so the escalate-reason and halt
+					// messages below interpolate the identical count; tryEscalateModel stays authoritative.
 					const lastToolMsg = this.state.allThreads[threadId]?.messages.slice(-1)[0]
-					if (lastToolMsg?.role === 'tool') {
-						const tt = (lastToolMsg as ToolMessage<ToolName>).type
-						if (tt === 'tool_error' || tt === 'invalid_params') { consecutiveToolErrors += 1 }
-						else if (tt === 'success') { consecutiveToolErrors = 0 }
-					}
-					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
+					const lastToolMessageType: ToolMessageType | null = lastToolMsg?.role === 'tool'
+						? (lastToolMsg as ToolMessage<ToolName>).type
+						: null
+					const errDec = updateConsecutiveToolErrors(consecutiveToolErrors, lastToolMessageType, maxConsecutiveToolErrors, /* escalationAvailable */ false)
+					consecutiveToolErrors = errDec.nextConsecutiveToolErrors
+					if (errDec.action === 'halt') {
 						// Before giving up: this is the single most common local-model failure mode (invents tool
 						// names, writes empty files, never converges). Escalate to a more capable model and let it
 						// recover the SAME task — it sees the failed attempts in history and corrects.
@@ -5258,6 +5377,9 @@ We only need to do it for files that were edited since `to`, ie files between to
 					break
 				}
 			}
+			// Phase 1 #2: durable disk-level rollback of create/delete ops after the target checkpoint
+			// (the in-memory restore above only handles edited files that still have a live model).
+			this._restoreFileOpsForJump(threadId, toIdx).catch(err => console.error('[ChatThreadService] file-op rollback failed', err))
 		}
 
 		/*
