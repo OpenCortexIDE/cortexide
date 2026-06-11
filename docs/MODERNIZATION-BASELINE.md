@@ -434,6 +434,22 @@ remaining Phase 3 item surfaced: the single-tool-call-per-turn limit is architec
 `onFinalMessage({ ...toolCall })` contract (Gemini's `functionCalls[0]`, OpenAI's `index===0`); capturing
 ALL tool calls per turn is a rippling change, deferred.
 
+Seventh increment (`8af32b383d8`): extracted the inline **Gemini rate-limit/quota error parsing** out
+of `sendGeminiChat`'s catch into a pure node-testable `formatGeminiRateLimitError` in a new
+`common/providerErrorFormat.ts` (a home for provider error-message formatters, a Phase 3 robustness
+theme). The Gemini error message is often a JSON string that itself wraps another JSON string under
+`error.message`, with the retry hint in a `google.rpc.RetryInfo` detail (`retryDelay "57s"/"57.6s"`);
+this nested-parse + retry-delay minute/second formatting + pluralization was completely untested.
+Byte-identical (best-effort `JSON.parse(whole)` then a regex-extracted `{...}` block; inner-error
+unwrap; code/status quota fallback; minute/second formatting; generic catch-all on throw); the call
+site still does `onError({ message: formatGeminiRateLimitError(error.message), fullError: error })`.
+Verification: tsgo 0; new `providerErrorFormat.test.ts` +13 (**441 -> 454 passing, 0 failing**) over all
+branches (nested+RetryInfo min/sec/whole-min/singular/plural/fractional-ceil, outer-only message,
+code-429 / RESOURCE_EXHAUSTED fallback, embedded-JSON-in-noise, no-JSON default, malformed-brace throw
+fallback, empty); **200,000-case differential fuzz** old-vs-new = 0 mismatches; cdp-smoke 11/11 (app
+boots healthy with the main-process change). The Gemini error path is CLOUD-ONLY and cannot be driven
+live locally (no Gemini key; cannot force a 429) - validated by unit tests + fuzz + differential review.
+
 ### Phases 4-10 — NOT STARTED
 Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
 
