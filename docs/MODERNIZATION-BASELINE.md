@@ -392,12 +392,21 @@ broad gpt-5 and tightening the broad gpt-5/gpt-5.1/gpt-4.1 to precise `includes(
 **414 -> 418 passing** (+4 tests); adversarial old-vs-new differential (battery from out/) =
 correct/safe; LIVE 11/11 + 7B atomic-edit (no agent-flow regression).
 
-**REMAINING AUDIT BACKLOG (confirmed bugs, follow-up):**
-- electron-main `toOpenAICompatibleTool` (sendLLMMessage.impl.ts ~489): builds `paramsWithType` then
-  emits the untyped `params` -> OpenAI/groq/deepseek/mistral/openRouter tool schemas ship without JSON-
-  Schema types. Best fixed by extracting the builder to common/ (node-testable) + emitting paramsWithType.
-- `extensiveModelOptionsFallback` llama shadowing (~645-651): 'llama-3.1-8b' -> 10M-ctx llama4-scout;
-  'maverick' mis-maps; the llama3.1/3.2/3.3 branches are unreachable (llama3 matches first).
+Fourth/fifth increments cleared the rest of the audit backlog:
+- `ff1718a708d` -- extracted `toOpenAICompatibleTool` to `common/providerToolFormat.ts` (node-testable)
+  and FIXED it to emit `paramsWithType` (OpenAI-family tool schemas now ship typed params). +3 tests.
+- `31a8820143a` -- fixed the `extensiveModelOptionsFallback` llama shadowing (most-specific-first;
+  'llama-3.1-8b' -> llama3.1 not 10M-ctx llama4-scout; 'maverick' -> llama4-maverick; llama3.1/3.2/3.3
+  reachable). +4 tests.
+
+**PROVIDER/CAPABILITY AUDIT BACKLOG FULLY CLEARED** (6 confirmed bugs fixed across 3 commits: mixed-case
+exact-match, deepseek reasoning inversion, 3 last-match-wins fallback orderings, OpenAI tool-builder
+untyped params, llama shadowing). The registry went from 0 tests to a tested golden-table contract
+(modelCapabilities.test.ts) + the provider tool-format helpers are node-tested
+(providerToolFormat.test.ts). cortexide node subset now **425 passing, 0 failing**; tsgo 0.
+Remaining Phase 3 (NOT bugs): SDK-typed tool-schema builders (toAnthropicTool / toGeminiFunctionDecl --
+need SDK-type extraction or a mock-fetch harness), per-provider request/response mock-fetch tests,
+model-health UI, native Bedrock, first-class OpenAI-compatible config.
 
 ### Phases 4-10 — NOT STARTED
 Real RAG; apply/edit UX; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
