@@ -12,6 +12,7 @@ import { asJson, IRequestService } from '../../../../platform/request/common/req
 import { IUpdateService, StateType } from '../../../../platform/update/common/update.js';
 import { ICortexideUpdateService } from '../common/cortexideUpdateService.js';
 import { CortexideCheckUpdateResponse } from '../common/cortexideUpdateServiceTypes.js';
+import { canEgress } from '../common/egressPolicy.js';
 
 
 
@@ -35,6 +36,20 @@ export class CortexideMainUpdateService extends Disposable implements ICortexide
 
 		if (isDevMode) {
 			return { message: null } as const
+		}
+
+		// EGRESS GATE (Phase 8): under local-only privacy mode, skip the update check entirely
+		// (it would contact the GitHub releases API). We read the registered, main-readable
+		// `cortexide.global.localFirstAI` flag, which the settings service migrates to
+		// routingPolicy 'local-only'. This blocks BOTH the platform checkForUpdates() below and
+		// the manual GitHub tag fetch. NOTE: the platform auto-updater (`update.mode`) is a
+		// separate VS Code egress an air-gapped user should also set to 'none'.
+		{
+			const localOnly = this._configurationService.getValue<boolean>('cortexide.global.localFirstAI') === true
+			const decision = canEgress({ routingPolicy: localOnly ? 'local-only' : undefined }, { modality: 'update-check', destinationKind: 'remote' })
+			if (!decision.allowed) {
+				return { message: explicit ? (decision.reason ?? 'Update check skipped: local-only privacy mode is on.') : null } as const
+			}
 		}
 
 		// if disabled and not explicitly checking, return early
