@@ -121,3 +121,31 @@ suite('getModelCapabilities - fallback ordering (variant/dated names)', () => {
 		assert.strictEqual(rec('xAI', 'grok-beta'), 'grok-3'); // broad fallback for an unversioned grok
 	});
 });
+
+// extensiveModelOptionsFallback is the shared open-source recognizer; gemini's modelOptionsFallback
+// calls it directly, so a non-gemini (llama) name on the gemini provider exercises it cleanly.
+suite('extensiveModelOptionsFallback - llama ordering', () => {
+	const recLlama = (m: string) => caps('gemini', m).recognizedModelName;
+
+	test('FIXED: specific llama 3.x resolve to their own entry (was shadowed by bare llama3)', () => {
+		assert.strictEqual(recLlama('llama3.1'), 'llama3.1');
+		assert.strictEqual(recLlama('llama3.2'), 'llama3.2');
+		assert.strictEqual(recLlama('llama3.3'), 'llama3.3');
+	});
+
+	test('FIXED: hyphenated llama-3.x names resolve to 3.x, NOT the 10M-ctx llama4-scout', () => {
+		assert.strictEqual(recLlama('llama-3.1-8b'), 'llama3.1'); // was 'llama4-scout' (10M ctx)
+		assert.strictEqual(recLlama('llama-3.3-70b-instruct'), 'llama3.3');
+	});
+
+	test('FIXED: maverick resolves to llama4-maverick, not llama4-scout', () => {
+		assert.strictEqual(recLlama('llama-4-maverick'), 'llama4-maverick');
+		assert.strictEqual(recLlama('maverick'), 'llama4-maverick');
+	});
+
+	test('PRESERVED: scout, plain llama3, and bare/unversioned llama', () => {
+		assert.strictEqual(recLlama('llama-4-scout-17b'), 'llama4-scout');
+		assert.strictEqual(recLlama('llama-3-70b'), 'llama3');
+		assert.strictEqual(recLlama('llama2-uncensored'), 'llama4-scout'); // unversioned/other -> newest default
+	});
+});

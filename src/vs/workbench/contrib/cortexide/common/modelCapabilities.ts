@@ -642,13 +642,20 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('deepseek') && lower.includes('v2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2')
 	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3')
 
-	if (lower.includes('llama3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
-	if (lower.includes('llama3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
-	if (lower.includes('llama3.2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2')
-	if (lower.includes('llama3.3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.3')
-	if (lower.includes('llama') || lower.includes('scout')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
-	if (lower.includes('llama') || lower.includes('maverick')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
-	if (lower.includes('llama')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	// llama: most-specific FIRST. Previously `llama3` matched before llama3.1/3.2/3.3 (making them
+	// unreachable), 'maverick' wrongly mapped to scout, and a hyphenated 'llama-3.1-8b' (no contiguous
+	// 'llama3') fell through to the 10M-context llama4-scout. Handle both 'llama3.1' and 'llama-3.1'
+	// shapes, route maverick to its own entry, and keep bare/unversioned 'llama' on the newest default.
+	if (lower.includes('scout')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	if (lower.includes('maverick')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-maverick')
+	if (lower.includes('llama4')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	if (lower.includes('llama')) {
+		if (lower.includes('3.3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.3')
+		if (lower.includes('3.2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2')
+		if (lower.includes('3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
+		if (lower.includes('llama3') || lower.includes('llama-3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
+		return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout') // bare/unversioned -> newest (prior default)
+	}
 
 	if (lower.includes('qwen') && lower.includes('2.5') && lower.includes('coder')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen2.5coder')
 	if (lower.includes('qwen') && lower.includes('3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3')
