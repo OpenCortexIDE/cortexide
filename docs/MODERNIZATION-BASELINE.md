@@ -558,6 +558,38 @@ mismatches; cdp atomic-edit-e2e (7B) no regression. NOTE: the agent SR apply was
 TESTED. Remaining Phase 5 (NOT done): per-hunk / partial accept, streaming-diff race with final apply,
 apply verification (diagnostics/lint/tests), edit provenance, symbol-aware refactor.
 
+`4042deae2eb` + `1b0842afcee` -- **apply VERIFICATION** (the next Phase 5 DoD item). Before: the
+three agent edit tools (edit_file / rewrite_file / multi_edit) each applied, then did a FIXED
+`timeout(2000)` and surfaced ALL current lint errors -- racy (a fixed guess can miss a slow language
+server) and noisy (the model got pre-existing errors it did not cause, with an "if this is related"
+hedge). Now: (1) pure tested `common/applyVerification.ts` -- `diffDiagnostics(before, after)` does a
+multiset diff keyed on severity+code+message (line ignored, since an edit renumbers lines) ->
+{ introduced, resolved, preexistingCount }, plus `summarizeApplyVerification` (+11 tests, **538 ->
+549**); (2) wired into toolsService: each edit tool snapshots diagnostics BEFORE apply, waits for
+diagnostics to SETTLE (`_waitForDiagnosticsToSettle`: resolve after 500ms quiet on
+IMarkerService.onMarkerChanged, hard cap 3000ms, always resolves), then surfaces ONLY the problems
+the edit INTRODUCED (mapped to the existing LintErrorItem result contract -- no type ripple), or null.
+Pre-existing problems are no longer reported. tsgo 0; LIVE atomic-edit-e2e (7B) completes -> the
+settle-wait promise resolves (no agent-loop hang), clean edit -> no spurious lint message. HONEST
+LIMIT: the introduced-error-surfaced path is unit-tested (pure diff); driving the 7B to emit broken
+code on demand is unreliable, so that exact surfacing is not driven live. `summarizeApplyVerification`
+is tested-but-unwired (the wiring reuses the lintErrors contract; the richer summary is available for
+a future result-shape change). Still remaining Phase 5: per-hunk/partial accept, streaming-diff race,
+edit provenance, symbol-aware refactor.
+
+### NOTE (2026-06-11): a background comment-cleanup agent landed on a STALE base -- do NOT merge
+A `cleanup/comment-pass` branch (comments-only sweep of the cortexide contrib, 83 files / 5 commits /
+~2032 deletions, tsgo 0, parser-verified byte-identical non-comment tokens) was produced by a
+background agent in an isolated worktree. BUT the worktree was based on `4036eb0bb4c` -- an EARLY
+branch commit (~158 commits behind HEAD, BEFORE Phase 0): it still contains `common/telemetry/`
+(deleted in Phase 0) and `offlinePrivacyGate.ts` (renamed in Phase 8), and lacks every Phase 0-8 file.
+Merging it would revert Phase 0-8 and resurrect deleted files. It is therefore UNMERGEABLE and must be
+REDONE on current HEAD if the cleanup is still wanted. (The sibling logo agent only worked because its
+one file, `editorgroupview.css`, was untouched by the modernization commits, so its change cherry-picked
+cleanly -- now landed as `fffff558568` + circular `92bad0fa096`.) LESSON: an `isolation: worktree`
+agent here was NOT based on the active branch HEAD; verify a worktree agent's base (e.g. that a known
+recent file exists) before trusting/merging its branch.
+
 ### Phase 8 — Real local-first privacy: genuine local-only egress enforcement (2026-06-11)
 
 The north-star ("private/local-first, never leaks a secret") turned into a TESTED guarantee.
