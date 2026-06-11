@@ -558,8 +558,72 @@ mismatches; cdp atomic-edit-e2e (7B) no regression. NOTE: the agent SR apply was
 TESTED. Remaining Phase 5 (NOT done): per-hunk / partial accept, streaming-diff race with final apply,
 apply verification (diagnostics/lint/tests), edit provenance, symbol-aware refactor.
 
-### Phases 4, 6-10 — NOT STARTED
-Real RAG; agentic UX; MCP/plugins; privacy hardening; CI/release; positioning. Multi-session work.
+### Phase 8 — Real local-first privacy: genuine local-only egress enforcement (2026-06-11)
+
+The north-star ("private/local-first, never leaks a secret") turned into a TESTED guarantee.
+Starting point was FAKE SAFETY: `common/offlinePrivacyGate.ts` only checked `navigator.onLine` and
+never enforced privacy; `routingPolicy === 'local-only'` was merely a model-routing PREFERENCE
+(consumed only by modelRouter/modelFailover/chatThreadService for model selection), NOT a hard egress
+boundary. A 6-agent read-only map workflow (`map-egress-surface`, journal
+`map-egress-surface-wf_db720342-e56.js`) inventoried every egress point and found the ungated leaks.
+
+Canonical signal (reused, NOT a new setting): `routingPolicy === 'local-only'` (or task
+`requiresPrivacy`). Built one pure, node-tested SSOT and wired it at every chokepoint, smallest-first:
+
+- `772ee44ef5a` Inc 0 -- pure `common/egressPolicy.ts`: `isLocalOnly`, `classifyDestination` (mirrors
+  `assertNotSSRF` IP rules AND correctly decodes IPv4-mapped IPv6 `::ffff:hhhh:hhhh` that Node's URL
+  parser canonicalizes -- assertNotSSRF's dotted regex MISSES this; latent SSRF lead noted),
+  `classifyProviderDestination`, `canEgress` (7 modalities), `canDispatchToProvider`. Destination-based,
+  fail-closed: loopback always allowed; private/remote/unknown blocked under local-only. +19 tests.
+- `8b3fe428f3e` Inc 1 -- `remoteCatalogService.fetchFromProvider` gated (8 cloud catalog fetches that
+  shipped the API key + IP, zero gate before). +4 fetch-spy tests (real service).
+- `d13524f8bb3` Inc 1b -- `VectorStoreService` gated LIVE at every op (remote `cortexide.rag.vectorStoreUrl`
+  shipped redacted code+embeddings off-machine). Injected ICortexideSettingsService. +6 fetch-spy tests.
+- `6dcddef48c6` Inc 5a -- `repoIndexerService._canComputeEmbeddings` gated (extension-provided embedding
+  provider is destination-unclassifiable -> fail-closed -> BM25 fallback). Replaced the fake-gate reliance.
+- `377da9bda6f` Inc 3 -- cloud-LLM dispatch DEFENSE-IN-DEPTH: `sendLLMMessage` (electron-main) refuses
+  any non-loopback provider when `localOnly` is on. `localOnly` is threaded through the IPC params,
+  stamped by the renderer (`sendLLMMessageService`) DIRECTLY from routingPolicy (independent of the
+  router's model choice), so a mis-routed/forced cloud model is caught. Covers chat + FIM. +4 tests.
+  LIVE: 7B atomic-edit E2E completes (gate allows ollama loopback; no happy-path regression).
+- `6a28c291d13` Inc 6 -- remote MCP CONNECT gated (`mcpChannel._createClientUnsafe`): refuse non-loopback
+  MCP servers under local-only; localhost/stdio allowed (deliberately NOT blanket-SSRF since localhost MCP
+  is the normal case). `localOnly` stamped by `mcpService` on every refresh/toggle. +1 test. Boot 11/11.
+- `3665a8f188d` Inc 2 -- update check gated (`cortexideUpdateMainService.check`) via the registered,
+  main-readable `cortexide.global.localFirstAI` flag. Lowest sensitivity (IP+version). RESIDUALS doc'd:
+  routingPolicy set directly without localFirstAI not seen by this electron-main gate; platform
+  `update.mode` is a separate egress. Unreachable in dev mode (isDevMode short-circuit).
+- Inc 4 (web-tool re-center) -- SKIPPED: web tools are ALREADY genuinely gated by
+  `toolPermissions.checkToolAllowedInMode` (`accessesNetwork` + `localOnly`, toolPermissions.ts:163);
+  re-centering through canEgress is pure ceremony.
+- `a87d3d93250` Inc 7a -- retired the FAKE gate: `offlinePrivacyGate.ts` -> `offlineGate.ts`,
+  `OfflinePrivacyGate` -> `OfflineGate`, honest offline-only (`isOffline`/`ensureOnline`); dropped the
+  dead privacy branch + misleading comment. Behavior-preserving.
+- `b8dd7bc07fd` Inc 7b -- pure `common/egressReport.ts` (`buildEgressReport`/`formatEgressReport`): the
+  "what can leave my machine" POSTURE report (per-channel OPEN/BLOCKED/LOCAL + what/where). +6 tests
+  incl. the consolidated GUARANTEE test (fully-loaded config -> local-only leaves 0 off-machine channels
+  open while loopback/stdio stay usable). HONEST: posture, not a traffic log.
+- `d01dbaa61ef` Inc 7c -- user-facing command "CortexIDE: Show Privacy Report (What Can Leave My
+  Machine)" (`cortexidePrivacyReportActions.ts`) gathers live config and opens the report in an editor.
+  LIVE (CDP): cdp-smoke 11/11; command shows in palette, runs, opens the report editor with
+  title + [OPEN]/[BLOCK]/[LOCAL] markers; 7B atomic-edit E2E still completes. New harness
+  `test/cortexide-smoke/privacy-report-e2e.mjs`.
+
+Tests: cortexide node subset **498 -> 538 passing, 0 failing**; tsgo 0 throughout. New reusable harness
+`privacy-report-e2e.mjs`. Map workflow journal `map-egress-surface-wf_db720342-e56.js` is re-runnable.
+WHAT'S ENFORCED under local-only now (tested): cloud-LLM dispatch (chat+FIM), remote model catalogs,
+remote embeddings, remote vector store, remote MCP connect, update check, web tools (via toolPermissions).
+WHAT REMAINS in the broader Phase 8 enterprise scope (NOT done; larger sub-areas): telemetry opt-IN,
+wire RedactingLogService, audit-log UI + export, prompt-injection hardening (delimit untrusted content +
+canaries), SSRF DNS-rebind preflight (and unifying assertNotSSRF onto classifyDestination to close the
+IPv4-mapped-IPv6 hole noted in Inc 0). External-image/PDF fetch: none found in the contrib.
+KEY GOTCHAS discovered: Node's WHATWG URL keeps IPv6 brackets in `.hostname` and canonicalizes
+IPv4-mapped to hex; `git checkout <commit> -- <file>` STAGES the file (use `git checkout HEAD -- file`
+to fully revert); routingPolicy lives in GlobalSettings (encrypted storage), NOT IConfigurationService,
+so electron-main can only read the migrated `cortexide.global.localFirstAI` config without IPC threading.
+
+### Phases 4, 6-7, 9-10 — NOT STARTED
+Real RAG; agentic UX; MCP/plugins; CI/release; positioning. Multi-session work.
 
 ### Audit reliability note
 Of the audit's headline criticals, **two were materially wrong** (secret redaction IS done +
