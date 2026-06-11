@@ -332,3 +332,93 @@ export function computeCompactionOverflowDecision(p: CompactionOverflowInputs): 
 
 	return { shouldCompact, shouldWarnOverflow, overflowPct };
 }
+
+/* ============================================================================
+ * 6. file-read gate  (chatThreadService.ts:4716-4753)
+ * ========================================================================== */
+
+export type FileReadGateAction =
+	| 'no_tool'                // no tool call present (defensive; the inline call site is inside `if (toolCall)`)
+	| 'skip_already_exceeded'  // the per-query read limit was already hit on a prior iteration
+	| 'hit_limit_now'          // this read_file call reaches the limit; block it, make one final LLM call
+	| 'proceed';               // execute the tool (read_file below the limit, or any non-read tool)
+
+export interface FileReadGateInputs {
+	hasToolCall: boolean;
+	toolName: string;
+	fileReadLimitExceeded: boolean;
+	filesReadInQuery: number;
+	maxFilesReadPerQuery: number;
+}
+
+export interface FileReadGateResult {
+	action: FileReadGateAction;
+	/** the count to interpolate into the user-facing limit message (the PRE-increment value at the limit). */
+	filesReadCount: number;
+	/** the value to assign back to filesReadInQuery (incremented only on a read_file 'proceed'). */
+	nextFilesReadInQuery: number;
+	/** the value to assign back to fileReadLimitExceeded (set true only on 'hit_limit_now'). */
+	nextFileReadLimitExceeded: boolean;
+}
+
+/**
+ * Mirrors chatThreadService.ts:4716-4753 byte-for-byte: the excessive-file-read guard that runs after a
+ * tool call is recognized but BEFORE it executes. Pure - the caller keeps every side effect
+ * (_addMessageToThread for the limit notice, the 'LLM' _setStreamState, `shouldSendAnotherMessage = true`
+ * + `continue`, and assigning the two `next*` values back to its loop vars).
+ *
+ *  - no tool call           => 'no_tool'                (passthrough; counters unchanged)
+ *  - limit already exceeded => 'skip_already_exceeded'  (counters unchanged; caller does another LLM call)
+ *  - read_file AT/OVER limit => 'hit_limit_now'         (blocks the read; sets the exceeded flag true;
+ *                              filesReadCount = the pre-increment filesReadInQuery for the message)
+ *  - read_file below limit  => 'proceed'                (nextFilesReadInQuery = filesReadInQuery + 1)
+ *  - any non-read tool      => 'proceed'                (counters unchanged)
+ *
+ * PRESERVED off-by-one (do NOT "fix" here): the limit fires at `filesReadInQuery >= max` and the counter
+ * only increments on the read_file proceed path, so the max-th read is BLOCKED, not performed. Fixing
+ * that boundary is a separate reviewable change; pinning it in a test keeps the eventual fix provably safe.
+ */
+export function decideFileReadGate(p: FileReadGateInputs): FileReadGateResult {
+	if (!p.hasToolCall) {
+		return {
+			action: 'no_tool',
+			filesReadCount: p.filesReadInQuery,
+			nextFilesReadInQuery: p.filesReadInQuery,
+			nextFileReadLimitExceeded: p.fileReadLimitExceeded,
+		};
+	}
+
+	if (p.fileReadLimitExceeded) {
+		return {
+			action: 'skip_already_exceeded',
+			filesReadCount: p.filesReadInQuery,
+			nextFilesReadInQuery: p.filesReadInQuery,
+			nextFileReadLimitExceeded: p.fileReadLimitExceeded,
+		};
+	}
+
+	if (p.toolName === 'read_file') {
+		if (p.filesReadInQuery >= p.maxFilesReadPerQuery) {
+			return {
+				action: 'hit_limit_now',
+				filesReadCount: p.filesReadInQuery,
+				nextFilesReadInQuery: p.filesReadInQuery,
+				nextFileReadLimitExceeded: true,
+			};
+		}
+		return {
+			action: 'proceed',
+			filesReadCount: p.filesReadInQuery,
+			nextFilesReadInQuery: p.filesReadInQuery + 1,
+			nextFileReadLimitExceeded: p.fileReadLimitExceeded,
+		};
+	}
+
+	// any non-read tool: proceed, counters untouched
+	return {
+		action: 'proceed',
+		filesReadCount: p.filesReadInQuery,
+		nextFilesReadInQuery: p.filesReadInQuery,
+		nextFileReadLimitExceeded: p.fileReadLimitExceeded,
+	};
+}

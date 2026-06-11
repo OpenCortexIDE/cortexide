@@ -11,6 +11,7 @@ import {
 	decideLoopContinuation, LoopContinuationInputs,
 	classifyCompletionState, CompletionInputs,
 	computeCompactionOverflowDecision, CompactionOverflowInputs,
+	decideFileReadGate, FileReadGateInputs,
 } from '../../common/agentLoopDecisions.js';
 
 /**
@@ -198,5 +199,75 @@ suite('Phase 2 - computeCompactionOverflowDecision', () => {
 		const r = f({ promptTokens: 93_000 });
 		assert.strictEqual(r.shouldCompact, false);
 		assert.strictEqual(r.shouldWarnOverflow, true);
+	});
+});
+
+suite('Phase 2 - decideFileReadGate', () => {
+	const base: FileReadGateInputs = {
+		hasToolCall: true, toolName: 'read_file', fileReadLimitExceeded: false,
+		filesReadInQuery: 0, maxFilesReadPerQuery: 10,
+	};
+	const g = (o: Partial<FileReadGateInputs>) => decideFileReadGate({ ...base, ...o });
+
+	test('no tool call -> no_tool, counters unchanged (defensive arm)', () => {
+		const r = g({ hasToolCall: false, filesReadInQuery: 5 });
+		assert.strictEqual(r.action, 'no_tool');
+		assert.strictEqual(r.nextFilesReadInQuery, 5);
+		assert.strictEqual(r.nextFileReadLimitExceeded, false);
+	});
+
+	test('limit already exceeded -> skip_already_exceeded even for read_file, counters unchanged', () => {
+		const r = g({ fileReadLimitExceeded: true, filesReadInQuery: 10, toolName: 'read_file' });
+		assert.strictEqual(r.action, 'skip_already_exceeded');
+		assert.strictEqual(r.nextFilesReadInQuery, 10);
+		assert.strictEqual(r.nextFileReadLimitExceeded, true);
+	});
+
+	test('skip_already_exceeded takes precedence over a non-read tool too', () => {
+		const r = g({ fileReadLimitExceeded: true, toolName: 'run_command', filesReadInQuery: 3 });
+		assert.strictEqual(r.action, 'skip_already_exceeded');
+		assert.strictEqual(r.nextFilesReadInQuery, 3);
+	});
+
+	test('read_file just BELOW the limit -> proceed, counter increments', () => {
+		const r = g({ toolName: 'read_file', filesReadInQuery: 9, maxFilesReadPerQuery: 10 });
+		assert.strictEqual(r.action, 'proceed');
+		assert.strictEqual(r.nextFilesReadInQuery, 10);
+		assert.strictEqual(r.nextFileReadLimitExceeded, false);
+	});
+
+	test('read_file AT the limit -> hit_limit_now (the Nth read is BLOCKED, off-by-one PINNED)', () => {
+		const r = g({ toolName: 'read_file', filesReadInQuery: 10, maxFilesReadPerQuery: 10 });
+		assert.strictEqual(r.action, 'hit_limit_now');
+		assert.strictEqual(r.filesReadCount, 10);          // the value interpolated into the user message
+		assert.strictEqual(r.nextFilesReadInQuery, 10);    // NOT incremented (the read is blocked)
+		assert.strictEqual(r.nextFileReadLimitExceeded, true);
+	});
+
+	test('read_file OVER the limit -> hit_limit_now, filesReadCount is the pre-block value', () => {
+		const r = g({ toolName: 'read_file', filesReadInQuery: 11, maxFilesReadPerQuery: 10 });
+		assert.strictEqual(r.action, 'hit_limit_now');
+		assert.strictEqual(r.filesReadCount, 11);
+		assert.strictEqual(r.nextFilesReadInQuery, 11);
+		assert.strictEqual(r.nextFileReadLimitExceeded, true);
+	});
+
+	test('non-read tool AT the read limit -> proceed, counter untouched (limit is read_file-scoped)', () => {
+		const r = g({ toolName: 'run_command', filesReadInQuery: 10, maxFilesReadPerQuery: 10 });
+		assert.strictEqual(r.action, 'proceed');
+		assert.strictEqual(r.nextFilesReadInQuery, 10);
+		assert.strictEqual(r.nextFileReadLimitExceeded, false);
+	});
+
+	test('non-read tool below the limit -> proceed, counter unchanged (no increment for non-reads)', () => {
+		const r = g({ toolName: 'edit_file', filesReadInQuery: 4 });
+		assert.strictEqual(r.action, 'proceed');
+		assert.strictEqual(r.nextFilesReadInQuery, 4);
+	});
+
+	test('boundary: a fresh read at 0 with limit 10 proceeds to 1', () => {
+		const r = g({ toolName: 'read_file', filesReadInQuery: 0 });
+		assert.strictEqual(r.action, 'proceed');
+		assert.strictEqual(r.nextFilesReadInQuery, 1);
 	});
 });

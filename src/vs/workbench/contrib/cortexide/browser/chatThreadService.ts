@@ -29,7 +29,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
 // File-edit tools whose application is serialized across concurrent agent threads (see _editSerializer)
@@ -4714,43 +4714,46 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// *** REMOVED: fragile "3 tools executed = done" heuristic that was killing agents mid-task ***
 				// call tool if there is one
 				if (toolCall) {
+					// Excessive-file-read guard (pure decision; chatThreadService.ts:4716-4753). The caller
+					// keeps every side effect + assigns the next counter values back.
+					const fileReadGate = decideFileReadGate({
+						hasToolCall: true,
+						toolName: toolCall.name,
+						fileReadLimitExceeded,
+						filesReadInQuery,
+						maxFilesReadPerQuery: MAX_FILES_READ_PER_QUERY,
+					})
+
 					// Skip tool execution if file read limit was exceeded in a previous iteration
-					if (fileReadLimitExceeded) {
+					if (fileReadGate.action === 'skip_already_exceeded') {
 						// Don't execute any more tools - just continue to final LLM call
 						shouldSendAnotherMessage = true
 						continue
 					}
 
-					// CRITICAL: Prevent excessive file reads that can cause infinite loops
-					// For codebase queries, limit the number of files read
-					// Check limit BEFORE incrementing to ensure we don't exceed it
-					if (toolCall.name === 'read_file') {
-						if (filesReadInQuery >= MAX_FILES_READ_PER_QUERY) {
-							// Too many files read - likely stuck in a loop
-							// Add a message explaining the limit, then make one final LLM call to generate an answer
-							this._addMessageToThread(threadId, {
-								role: 'assistant',
-								displayContent: `I've read ${filesReadInQuery} files, which is the limit. I'll provide an answer based on what I've gathered so far.`,
-								reasoning: '',
-								anthropicReasoning: null
-							})
+					// Too many files read - likely stuck in a loop. Add a message explaining the limit, set the
+					// flag, then make one final LLM call to generate an answer based on what we've read.
+					if (fileReadGate.action === 'hit_limit_now') {
+						this._addMessageToThread(threadId, {
+							role: 'assistant',
+							displayContent: `I've read ${fileReadGate.filesReadCount} files, which is the limit. I'll provide an answer based on what I've gathered so far.`,
+							reasoning: '',
+							anthropicReasoning: null
+						})
 
-							// Set flag to prevent further tool calls
-							fileReadLimitExceeded = true
+						// Set flag to prevent further tool calls
+						fileReadLimitExceeded = fileReadGate.nextFileReadLimitExceeded
 
-							// Make one final LLM call to generate the answer based on what we've read
-							// Set state to 'LLM' to show we're generating the final answer
-							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating final answer based on files read...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) })
+						// Set state to 'LLM' to show we're generating the final answer
+						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Generating final answer based on files read...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => { }) })
 
-							// Force shouldSendAnotherMessage to true to make one more LLM call
-							// This will generate the final answer before returning
-							shouldSendAnotherMessage = true
-							// Skip tool execution and continue to next LLM call
-							continue
-						}
-						// Only increment if we're actually going to read the file
-						filesReadInQuery++
+						// Force one more LLM call to generate the final answer before returning
+						shouldSendAnotherMessage = true
+						continue
 					}
+
+					// proceed: only increments filesReadInQuery on an actual read_file (non-read tools untouched)
+					filesReadInQuery = fileReadGate.nextFilesReadInQuery
 
 					// CRITICAL: Check for pending plan before executing tool (fast check)
 					if (checkPlanGenerated()) {
