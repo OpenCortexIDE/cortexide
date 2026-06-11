@@ -84,3 +84,73 @@ export const findTextInCode = (
 
 	return returnAns(fileContents, idx);
 };
+
+
+/** A SEARCH/REPLACE block reduced to the fields the apply transaction needs. */
+export interface SearchReplaceBlockLike {
+	/** the ORIGINAL text to locate (the SEARCH side). */
+	orig: string;
+	/** the replacement text (the REPLACE side). */
+	final: string;
+}
+
+export type SearchReplaceComputeResult =
+	| { ok: true; newCode: string }
+	| { ok: false; reason: 'Not found' | 'Not unique' | 'Has overlap'; blockOrig: string };
+
+/**
+ * The pure multi-edit transaction for instant Search/Replace apply (extracted from
+ * editCodeService._instantlyApplySRBlocks). Locates every block's ORIGINAL (validate-ALL first), maps
+ * each to a [origStart, origEnd] character span, sorts by position, REJECTS the whole set if any two
+ * spans overlap, then applies the replacements RIGHT-TO-LEFT so earlier offsets don't shift. Either all
+ * blocks apply or none do (the caller throws on a non-ok result before writing) - so a partial/corrupt
+ * write can't happen. Mirrors the inline logic byte-for-byte; the caller keeps getModel / the
+ * _errContentOfInvalidStr message / _writeURIText.
+ *
+ * Returns the rewritten file, or the first failing block's reason + its ORIGINAL text.
+ */
+export const computeSearchReplaceResult = (
+	fileContent: string,
+	blocks: ReadonlyArray<SearchReplaceBlockLike>
+): SearchReplaceComputeResult => {
+	const modelStrLines = fileContent.split('\n');
+
+	const replacements: { origStart: number; origEnd: number; orig: string; final: string }[] = [];
+	for (const b of blocks) {
+		const res = findTextInCode(b.orig, fileContent, true, { returnType: 'lines' });
+		if (typeof res === 'string')
+			return { ok: false, reason: res, blockOrig: b.orig };
+		let [startLine, endLine] = res;
+		startLine -= 1; // 0-index
+		endLine -= 1;
+
+		// including newline before start
+		const origStart = (startLine !== 0 ?
+			modelStrLines.slice(0, startLine).join('\n') + '\n'
+			: '').length;
+
+		// including endline at end
+		const origEnd = modelStrLines.slice(0, endLine + 1).join('\n').length - 1;
+
+		replacements.push({ origStart, origEnd, orig: b.orig, final: b.final });
+	}
+
+	// sort in increasing order
+	replacements.sort((a, b) => a.origStart - b.origStart);
+
+	// ensure no overlap
+	for (let i = 1; i < replacements.length; i++) {
+		if (replacements[i].origStart <= replacements[i - 1].origEnd) {
+			return { ok: false, reason: 'Has overlap', blockOrig: replacements[i]?.orig };
+		}
+	}
+
+	// apply each replacement from right to left (so indexes don't shift)
+	let newCode: string = fileContent;
+	for (let i = replacements.length - 1; i >= 0; i--) {
+		const { origStart, origEnd, final } = replacements[i];
+		newCode = newCode.slice(0, origStart) + final + newCode.slice(origEnd + 1, Infinity);
+	}
+
+	return { ok: true, newCode };
+};

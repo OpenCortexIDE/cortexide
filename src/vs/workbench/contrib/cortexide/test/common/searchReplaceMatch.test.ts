@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { findTextInCode } from '../../common/searchReplaceMatch.js';
+import { findTextInCode, computeSearchReplaceResult } from '../../common/searchReplaceMatch.js';
 
 const lines = (opts?: { startingAtLine?: number }) => ({ startingAtLine: opts?.startingAtLine, returnType: 'lines' as const });
 
@@ -85,5 +85,74 @@ suite('findTextInCode - not found + whitespace fallback', () => {
 		// exact "f( a )" is absent (no line has a space before the close paren); the whitespace-stripped
 		// "f(a)" appears twice, so the fallback path reports Not unique
 		assert.strictEqual(findTextInCode('f( a )', 'f(a)\nf( a)', true, lines()), 'Not unique');
+	});
+});
+
+suite('computeSearchReplaceResult - multi-edit transaction', () => {
+	test('single block replaces the located lines', () => {
+		const r = computeSearchReplaceResult('line1\nline2\nline3', [{ orig: 'line2', final: 'REPLACED' }]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'line1\nREPLACED\nline3' });
+	});
+
+	test('block at the start of the file', () => {
+		const r = computeSearchReplaceResult('first\nsecond', [{ orig: 'first', final: '1ST' }]);
+		assert.deepStrictEqual(r, { ok: true, newCode: '1ST\nsecond' });
+	});
+
+	test('multi-line ORIGINAL replaced', () => {
+		const r = computeSearchReplaceResult('a\nb\nc\nd', [{ orig: 'b\nc', final: 'X' }]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'a\nX\nd' });
+	});
+
+	test('multiple non-overlapping blocks given out of order are sorted and all applied (right-to-left, no index shift)', () => {
+		const r = computeSearchReplaceResult('a\nb\nc\nd\ne', [
+			{ orig: 'd', final: 'D' },
+			{ orig: 'b', final: 'B' },
+		]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'a\nB\nc\nD\ne' });
+	});
+
+	test('a longer replacement does not corrupt a later block (right-to-left apply)', () => {
+		const r = computeSearchReplaceResult('AAA\nBBB\nCCC', [
+			{ orig: 'AAA', final: 'a-much-longer-replacement' },
+			{ orig: 'CCC', final: 'c' },
+		]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'a-much-longer-replacement\nBBB\nc' });
+	});
+
+	test('empty block list leaves the file unchanged', () => {
+		assert.deepStrictEqual(computeSearchReplaceResult('abc', []), { ok: true, newCode: 'abc' });
+	});
+
+	test('overlapping blocks are rejected (all-or-nothing), reporting the offending ORIGINAL', () => {
+		const r = computeSearchReplaceResult('xx\nyy', [
+			{ orig: 'xx\nyy', final: 'Z' },
+			{ orig: 'yy', final: 'W' },
+		]);
+		assert.deepStrictEqual(r, { ok: false, reason: 'Has overlap', blockOrig: 'yy' });
+	});
+
+	test('a not-found block fails the whole transaction (no partial apply)', () => {
+		const r = computeSearchReplaceResult('a\nb\nc', [
+			{ orig: 'b', final: 'B' },
+			{ orig: 'zzz', final: 'X' },
+		]);
+		assert.deepStrictEqual(r, { ok: false, reason: 'Not found', blockOrig: 'zzz' });
+	});
+
+	test('a non-unique block fails the whole transaction', () => {
+		const r = computeSearchReplaceResult('dup\ndup', [{ orig: 'dup', final: 'x' }]);
+		assert.deepStrictEqual(r, { ok: false, reason: 'Not unique', blockOrig: 'dup' });
+	});
+
+	test('all-or-nothing: a failing 2nd block means the 1st is NOT applied (caller throws before writing)', () => {
+		// The function returns ok:false; the caller never writes, so the file is untouched. Prove the
+		// result carries no newCode (it is the error variant).
+		const r = computeSearchReplaceResult('keep me\nx', [
+			{ orig: 'keep me', final: 'CHANGED' },
+			{ orig: 'not-present', final: 'Y' },
+		]);
+		assert.strictEqual(r.ok, false);
+		assert.ok(!('newCode' in r));
 	});
 });
