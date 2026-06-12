@@ -14,6 +14,8 @@ import { IMCPService } from '../common/mcpService.js';
 import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/common/aiEmbeddingVectorService.js';
 import { ProviderName } from '../common/cortexideSettingsTypes.js';
 import { buildEgressReport, formatEgressReport, EgressReportConfig } from '../common/egressReport.js';
+import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+import { OPT_OUT_KEY } from '../common/storageKeys.js';
 
 /**
  * Phase 8: a user-facing "what can leave my machine" privacy report. Gathers the current routing
@@ -65,6 +67,7 @@ registerAction2(class extends Action2 {
 				vectorStore: (configService.getValue<'none' | 'qdrant' | 'chroma'>('cortexide.rag.vectorStore')) || 'none',
 				vectorStoreUrl: configService.getValue<string>('cortexide.rag.vectorStoreUrl') || undefined,
 				mcpServers,
+				telemetryOptOutStoredValue: accessor.get(IStorageService).get(OPT_OUT_KEY, StorageScope.APPLICATION),
 			};
 
 			const report = buildEgressReport(cfg);

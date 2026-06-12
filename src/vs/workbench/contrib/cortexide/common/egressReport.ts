@@ -6,6 +6,7 @@
 import type { RoutingPolicy, ProviderName } from './cortexideSettingsTypes.js';
 import { localProviderNames } from './cortexideSettingsTypes.js';
 import { EgressModality, canEgress, classifyDestination, classifyProviderDestination, isLocalOnly } from './egressPolicy.js';
+import { isTelemetryEnabled } from './telemetryConsent.js';
 
 /**
  * "What can leave my machine" -- a PURE, tested egress POSTURE report.
@@ -33,6 +34,8 @@ export interface EgressReportConfig {
 	readonly vectorStoreUrl?: string;
 	/** Configured MCP servers (from mcp.json). */
 	readonly mcpServers: ReadonlyArray<{ readonly name: string; readonly url?: string; readonly isStdio: boolean }>;
+	/** Raw stored value of the telemetry opt-out key (OPT_OUT_KEY); undefined when never set (= opted out). */
+	readonly telemetryOptOutStoredValue?: string;
 }
 
 export type EgressChannelStatus =
@@ -168,6 +171,23 @@ export function buildEgressReport(cfg: EgressReportConfig): EgressReport {
 			data: 'your IP address and the app version',
 			status: d.allowed ? 'open' : 'blocked',
 			reason: d.allowed ? undefined : d.reason,
+		});
+	}
+
+	// 7) Product telemetry. Off by default (opt-IN); local-only forces it off. Mirror the SAME
+	//    resolution the electron-main metrics gate uses (routingPolicy==='local-only' OR localFirstAI),
+	//    via the telemetryConsent SSOT, so the report can't disagree with what actually ships.
+	{
+		const telemetryLocalOnly = localOnly || cfg.localFirstAI === true;
+		const enabled = isTelemetryEnabled(cfg.telemetryOptOutStoredValue, telemetryLocalOnly);
+		const status: EgressChannelStatus = enabled ? 'open' : (telemetryLocalOnly ? 'blocked' : 'not-configured');
+		channels.push({
+			modality: 'telemetry',
+			label: 'Product telemetry',
+			destination: 'PostHog (us.i.posthog.com)',
+			data: 'anonymous usage events, app version, OS, and a generated machine id',
+			status,
+			reason: status === 'blocked' ? 'local-only privacy mode forces telemetry off' : undefined,
 		});
 	}
 

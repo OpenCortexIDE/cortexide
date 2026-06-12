@@ -37,7 +37,8 @@ export type EgressModality =
 	| 'embeddings'
 	| 'vector-store'
 	| 'model-catalog'
-	| 'update-check';
+	| 'update-check'
+	| 'telemetry';
 
 export type EgressDestinationKind =
 	/** localhost / 127.0.0.0/8 / ::1 / 0.0.0.0 / *.localhost -- never leaves the machine. */
@@ -233,5 +234,7 @@ export function canEgress(ctx: EgressContext, req: EgressRequest): EgressDecisio
 			return { allowed: false, reason: `Local-only privacy mode is on: skipping the ${kindLabel(kind)} model-catalog refresh${provider} (it would send your API key off the machine).` };
 		case 'update-check':
 			return { allowed: false, reason: `Local-only privacy mode is on: skipping the ${kindLabel(kind)} update check.` };
+		case 'telemetry':
+			return { allowed: false, reason: `Local-only privacy mode is on: product telemetry is disabled (it would send usage data to a ${kindLabel(kind)} analytics endpoint).` };
 	}
 }
