@@ -17,6 +17,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
+import { ICortexideSkillsService, parseSkillInvocation, buildSkillInvocationMessage } from '../common/cortexideSkillsService.js';
 import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
@@ -360,6 +361,11 @@ export interface IChatThreadService {
 	/** R7: start a top-level agent on a hidden thread that runs WITHOUT blocking the active chat.
 	 *  Tracked in IBackgroundAgentsService (the "Running agents" panel). Returns the hidden threadId. */
 	startBackgroundAgent(description: string, prompt: string): Promise<string>;
+	/** Phase 6 (Skills): if `input` is a `/<skill-name> [args]` invocation matching a discovered
+	 *  `.cortexide/skills/<name>/SKILL.md`, return the expanded chat message; otherwise null. */
+	getSkillExpansion(input: string): string | null;
+	/** Phase 6 (Skills): names of the currently-discovered skills (for slash-command discoverability). */
+	listSkillNames(): string[];
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
@@ -460,6 +466,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
+		@ICortexideSkillsService private readonly _skillsService: ICortexideSkillsService,
 		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
 		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
 		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
@@ -3148,6 +3155,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		})
 
 		return childId
+	}
+
+	/** Phase 6 (Skills): expand a `/<skill-name> [args]` invocation into the skill's instructions, or
+	 *  null when the input isn't a slash invocation or names no discovered skill. Pure lookup -- the
+	 *  caller (the chat input's slash-command handler) submits the returned string as a normal turn. */
+	getSkillExpansion(input: string): string | null {
+		const invocation = parseSkillInvocation(input)
+		if (!invocation) { return null }
+		const skill = this._skillsService.getSkill(invocation.name)
+		if (!skill) { return null }
+		return buildSkillInvocationMessage(skill, invocation.args)
+	}
+
+	listSkillNames(): string[] {
+		return this._skillsService.skills.map(s => s.name)
 	}
 
 	private async _runChatAgent({
