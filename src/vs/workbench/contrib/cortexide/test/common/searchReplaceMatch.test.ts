@@ -155,4 +155,43 @@ suite('computeSearchReplaceResult - multi-edit transaction', () => {
 		assert.strictEqual(r.ok, false);
 		assert.ok(!('newCode' in r));
 	});
+
+	// ---- REGRESSION: a partial-line ORIGINAL must replace ONLY the matched text (no data loss) ----
+
+	test('mid-line ORIGINAL replaces only the matched substring, NOT the whole line', () => {
+		const r = computeSearchReplaceResult(`export const API_KEY = process.env.SECRET || 'default';`, [
+			{ orig: `'default'`, final: `'newdefault'` },
+		]);
+		assert.deepStrictEqual(r, { ok: true, newCode: `export const API_KEY = process.env.SECRET || 'newdefault';` });
+	});
+
+	test('cross-line partial ORIGINAL preserves the unmatched prefix/suffix of the boundary lines', () => {
+		const r = computeSearchReplaceResult('alpha\nfoo BAR\nBAZ qux\nomega', [
+			{ orig: 'BAR\nBAZ', final: 'REPLACED' },
+		]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'alpha\nfoo REPLACED qux\nomega' });
+	});
+
+	test('full-line ORIGINAL is unchanged by the fix (exact span equals the line)', () => {
+		assert.deepStrictEqual(
+			computeSearchReplaceResult('line1\nline2\nline3', [{ orig: 'line2', final: 'LINE2' }]),
+			{ ok: true, newCode: 'line1\nLINE2\nline3' });
+	});
+
+	test('two non-overlapping edits on the SAME line both apply (exact spans no longer falsely overlap)', () => {
+		const r = computeSearchReplaceResult('let a = 1, b = 2;', [
+			{ orig: 'a = 1', final: 'a = 10' },
+			{ orig: 'b = 2', final: 'b = 20' },
+		]);
+		assert.deepStrictEqual(r, { ok: true, newCode: 'let a = 10, b = 20;' });
+	});
+
+	test('genuinely overlapping exact spans are still rejected', () => {
+		const r = computeSearchReplaceResult('abcdef', [
+			{ orig: 'abcd', final: 'X' },
+			{ orig: 'cdef', final: 'Y' },
+		]);
+		assert.strictEqual(r.ok, false);
+		if (!r.ok) { assert.strictEqual(r.reason, 'Has overlap'); }
+	});
 });

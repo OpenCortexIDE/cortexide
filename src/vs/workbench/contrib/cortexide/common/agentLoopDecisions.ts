@@ -422,3 +422,20 @@ export function decideFileReadGate(p: FileReadGateInputs): FileReadGateResult {
 		nextFileReadLimitExceeded: p.fileReadLimitExceeded,
 	};
 }
+
+/* ============================================================================
+ * 7. plan-step outcome from the tail tool message
+ * ========================================================================== */
+
+export type ToolStepOutcome = 'succeeded' | 'failed' | 'indeterminate';
+
+/**
+ * Classify the plan-step outcome from the tail tool message type (shared by the main loop + the
+ * pre-loop callThisToolFirst path): 'success' => succeeded, 'tool_error' => failed, everything else
+ * (incl. null / invalid_params) => indeterminate (leave as-is).
+ */
+export function classifyToolStepOutcome(lastToolMessageType: ToolMessageType | null): ToolStepOutcome {
+	if (lastToolMessageType === 'success') { return 'succeeded'; }
+	if (lastToolMessageType === 'tool_error') { return 'failed'; }
+	return 'indeterminate';
+}

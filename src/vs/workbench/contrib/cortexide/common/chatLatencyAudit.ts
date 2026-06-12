@@ -369,14 +369,20 @@ export class ChatLatencyAudit {
 	 */
 	completeRequest(requestId: string): ChatLatencyMetrics | null {
 		const metrics = this.getMetrics(requestId);
-		this.contexts.delete(requestId);
+		this.releaseContext(requestId);
+		return metrics;
+	}
 
-		// Stop render monitoring if no active requests
+	/**
+	 * Release a context + stop render monitoring when idle, WITHOUT computing metrics. The caller MUST
+	 * call this (or completeRequest) for every startRequest, else the context + the 60Hz interval leak.
+	 * Idempotent.
+	 */
+	releaseContext(requestId: string): void {
+		this.contexts.delete(requestId);
 		if (this.contexts.size === 0 && this.renderFrameInterval) {
 			this.stopRenderMonitoring();
 		}
-
-		return metrics;
 	}
 
 	/**
