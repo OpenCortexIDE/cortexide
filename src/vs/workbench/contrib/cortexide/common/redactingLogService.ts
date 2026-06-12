@@ -7,6 +7,7 @@ import { ILogService, LogLevel } from '../../../../platform/log/common/log.js';
 import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
+import { redactLogMessage, redactLogArgs } from './logRedaction.js';
 
 /**
  * Wraps ILogService to redact secrets from all log output
@@ -34,31 +35,14 @@ export class RedactingLogService extends Disposable implements ILogService {
 		return this.logService.getLevel();
 	}
 
+	// Delegate to the pure, node-tested core (common/logRedaction.ts). The injected service's
+	// detectSecrets/redactSecretsInObject are thin wrappers over the same free functions + getConfig().
 	private redactMessage(message: string): string {
-		const config = this.secretDetectionService.getConfig();
-		if (!config.enabled) {
-			return message;
-		}
-		const result = this.secretDetectionService.detectSecrets(message);
-		return result.hasSecrets ? result.redactedText : message;
+		return redactLogMessage(message, this.secretDetectionService.getConfig());
 	}
 
 	private redactArgs(args: any[]): any[] {
-		const config = this.secretDetectionService.getConfig();
-		if (!config.enabled) {
-			return args;
-		}
-		return args.map(arg => {
-			if (typeof arg === 'string') {
-				const result = this.secretDetectionService.detectSecrets(arg);
-				return result.hasSecrets ? result.redactedText : arg;
-			}
-			if (arg && typeof arg === 'object') {
-				const result = this.secretDetectionService.redactSecretsInObject(arg);
-				return result.hasSecrets ? result.redacted : arg;
-			}
-			return arg;
-		});
+		return redactLogArgs(args, this.secretDetectionService.getConfig()) as any[];
 	}
 
 	trace(message: string, ...args: any[]): void {
