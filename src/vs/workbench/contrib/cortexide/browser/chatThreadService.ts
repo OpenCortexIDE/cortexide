@@ -23,6 +23,7 @@ import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { decideAutoApprove } from '../common/autoApprovePolicy.js';
 import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IToolsService } from './toolsService.js';
@@ -2433,121 +2434,104 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Check YOLO mode for NL shell commands
 				const isNLCommand = isBuiltInTool && toolName === 'run_nl_command';
 
-				// Check if auto-approve is explicitly enabled for this approval type
-				// Default to true for 'edits' if not explicitly set (backward compatible)
-				let shouldAutoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType];
-				// If autoApprove is undefined for 'edits', default to true (basic operations should work by default)
-				if (approvalType === 'edits' && shouldAutoApprove === undefined) {
-					shouldAutoApprove = true;
-				}
+				// Compute the scalar inputs the pure auto-approve policy needs, in the original order
+				// (terminal command risk -> cwd containment -> YOLO NL heuristic -> edit risk scoring), then
+				// make ONE decision via the tested common/autoApprovePolicy.decideAutoApprove. Side effects
+				// (telemetry, the hard-block message, the auto-apply notification) stay here and are gated on
+				// the decision's per-rule flags, so they fire exactly as the old inline code did.
 
-				// Phase 1: terminal command risk gate. Previously _detectCommandDanger only fired a
-				// non-blocking notification, so with autoApprove.terminal=true a destructive command ran
-				// anyway. Now: a DANGEROUS command can never be auto-approved (force explicit approval,
-				// mirroring the HIGH-risk-edit override), and a CATASTROPHIC command is refused outright.
-				// Applies to run_command / run_persistent_command (run_nl_command is parsed later).
+				// (a) terminal command risk + cwd containment (run_command / run_persistent_command).
+				let commandRisk: ReturnType<typeof classifyCommandRisk> | undefined;
+				let cwdEscapes = false;
 				if (approvalType === 'terminal' && isBuiltInTool && (toolName === 'run_command' || toolName === 'run_persistent_command')) {
 					const command = (toolParams as BuiltinToolCallParams['run_command'] | BuiltinToolCallParams['run_persistent_command']).command;
 					if (typeof command === 'string' && command.trim()) {
-						const risk = classifyCommandRisk(command);
-						if (risk.hardBlock) {
-							this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: risk.categories.join(',') });
-							this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${risk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
-							return {};
-						}
-						if (risk.requiresApproval && shouldAutoApprove) {
-							// A dangerous command can never be auto-approved — force explicit user approval.
-							shouldAutoApprove = false;
-							this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: risk.categories.join(',') });
-						}
+						commandRisk = classifyCommandRisk(command);
 					}
-					// cwd containment: a command whose working directory escapes the workspace must not
-					// auto-run — force explicit approval (the model can't silently `cwd: '/etc'`).
 					const cwd = (toolParams as BuiltinToolCallParams['run_command']).cwd ?? null;
-					if (shouldAutoApprove && cwd) {
+					if (cwd) {
 						const workspaceFsPaths = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-						if (cwdEscapesWorkspace(cwd, workspaceFsPaths)) {
-							shouldAutoApprove = false;
-							this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
-						}
+						cwdEscapes = cwdEscapesWorkspace(cwd, workspaceFsPaths);
 					}
 				}
-				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
 
-				// If YOLO mode is enabled and this is an NL command, check if it's safe
+				// (b) YOLO natural-language-command safe heuristic.
+				let nlInput: string | undefined;
+				let nlCommandYoloSafe = false;
 				if (isNLCommand && this._settingsService.state.globalSettings.enableYOLOMode) {
 					try {
 						const nlParams = toolParams as BuiltinToolCallParams['run_nl_command'];
-						const nlInput = nlParams.nlInput.toLowerCase();
-
+						nlInput = nlParams.nlInput.toLowerCase();
 						// Simple heuristics for safe commands (read-only, informational)
 						const safePatterns = ['list', 'show', 'check', 'status', 'get', 'display', 'print', 'view', 'read', 'cat', 'ls', 'pwd', 'whoami', 'date', 'time'];
 						const dangerousPatterns = ['delete', 'remove', 'rm', 'kill', 'destroy', 'format', 'reset', 'clear', 'drop', 'truncate', 'sudo', 'chmod', 'chown'];
-
-						const isSafe = safePatterns.some(pattern => nlInput.includes(pattern)) &&
-							!dangerousPatterns.some(pattern => nlInput.includes(pattern));
-
-						if (isSafe) {
-							shouldAutoApprove = true;
-							// Track YOLO auto-approval metric
-							this._metricsService.capture('yolo_auto_approved', {
-								operation: toolName,
-								nlInput: nlInput.substring(0, 50), // Truncate for privacy
-							});
-						}
+						nlCommandYoloSafe = safePatterns.some(pattern => nlInput!.includes(pattern)) &&
+							!dangerousPatterns.some(pattern => nlInput!.includes(pattern));
 					} catch (error) {
 						// If check fails, fall back to normal approval flow
 						console.debug('[ChatThreadService] NL command safety check failed, using normal approval:', error);
 					}
 				}
 
-				// If this is an edit operation, score the risk (for both YOLO mode and to respect autoApprove safely)
+				// (c) edit risk scoring (always runs for edit ops; failure falls back to normal approval).
+				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
+				let editContextForNotification: EditContext | undefined;
+				const yoloEnabled = this._settingsService.state.globalSettings.enableYOLOMode === true;
+				const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
+				const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
 				if (isEditOperation) {
 					try {
-						const editContext = await this._buildEditContext(toolName, toolParams, threadId);
-						riskScore = await this._editRiskScoringService.scoreEdit(editContext);
-
-						// If autoApprove is enabled, respect it for LOW and MEDIUM risk operations
-						// Only block HIGH risk operations even when autoApprove is true (safety)
-						if (shouldAutoApprove && riskScore.riskLevel === 'HIGH') {
-							// High-risk edits always require approval, even if autoApprove is true
-							shouldAutoApprove = false;
-							// Track high-risk blocked metric
-							this._metricsService.capture('high_risk_blocked_despite_autoapprove', {
-								riskScore: riskScore.riskScore,
-								confidenceScore: riskScore.confidenceScore,
-								operation: toolName,
-							});
-						}
-
-						// If YOLO mode is enabled, use risk thresholds for additional auto-approval
-						if (this._settingsService.state.globalSettings.enableYOLOMode) {
-							const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
-							const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
-
-							// Auto-approve if risk is low and confidence is high (even if autoApprove wasn't explicitly set)
-							if (riskScore.riskScore < yoloRiskThreshold && riskScore.confidenceScore > yoloConfidenceThreshold) {
-								shouldAutoApprove = true;
-								// Track YOLO auto-approval metric
-								this._metricsService.capture('yolo_auto_approved', {
-									riskScore: riskScore.riskScore,
-									confidenceScore: riskScore.confidenceScore,
-									riskLevel: riskScore.riskLevel,
-									operation: toolName,
-								});
-
-								// Show non-intrusive notification for medium-risk auto-applies (not very low risk)
-								// Very low risk (< 0.1) edits are silent to avoid notification fatigue
-								if (riskScore.riskScore >= 0.1) {
-									this._showAutoApplyNotification(editContext, riskScore, toolName);
-								}
-							}
-						}
+						editContextForNotification = await this._buildEditContext(toolName, toolParams, threadId);
+						riskScore = await this._editRiskScoringService.scoreEdit(editContextForNotification);
 					} catch (error) {
-						// If risk scoring fails, fall back to normal approval flow
-						// If autoApprove was already true, keep it true (don't block due to scoring failure)
+						// If risk scoring fails, fall back to normal approval flow (don't block on scoring failure).
 						console.debug('[ChatThreadService] Risk scoring failed, using normal approval:', error);
 					}
+				}
+
+				// (d) THE auto-approve decision (pure, tested -- common/autoApprovePolicy.ts).
+				const autoApproveDecision = decideAutoApprove({
+					approvalType,
+					autoApproveSetting: this._settingsService.state.globalSettings.autoApprove[approvalType],
+					isEditOperation,
+					commandRisk: commandRisk ? { hardBlock: commandRisk.hardBlock, requiresApproval: commandRisk.requiresApproval } : undefined,
+					cwdEscapes,
+					nlCommandYoloSafe,
+					editRisk: riskScore ? { riskLevel: riskScore.riskLevel, riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore } : undefined,
+					yolo: { enabled: yoloEnabled, riskThreshold: yoloRiskThreshold, confidenceThreshold: yoloConfidenceThreshold },
+				});
+
+				// (e) side effects, gated on the decision's per-rule flags (telemetry parity with the old code).
+				if (autoApproveDecision.outcome === 'hard-block' && commandRisk) {
+					this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: commandRisk.categories.join(',') });
+					this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${commandRisk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
+					return {};
+				}
+				// The terminal-command telemetry was NOT inside a try/catch in the old code, so let it propagate.
+				if (autoApproveDecision.dangerousCommandForcedApproval && commandRisk) {
+					this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: commandRisk.categories.join(',') });
+				}
+				if (autoApproveDecision.cwdEscapeForcedApproval) {
+					this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
+				}
+				// The NL-command + edit telemetry/notification WERE inside the scoring try/catch in the old code
+				// (a throw was swallowed + logged, and the run continued); preserve that exact swallow semantics.
+				try {
+					if (autoApproveDecision.yoloNlAutoApproved) {
+						this._metricsService.capture('yolo_auto_approved', { operation: toolName, nlInput: (nlInput ?? '').substring(0, 50) });
+					}
+					if (autoApproveDecision.highRiskBlockedDespiteAutoApprove && riskScore) {
+						this._metricsService.capture('high_risk_blocked_despite_autoapprove', { riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore, operation: toolName });
+					}
+					if (autoApproveDecision.yoloEditAutoApproved && riskScore) {
+						this._metricsService.capture('yolo_auto_approved', { riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore, riskLevel: riskScore.riskLevel, operation: toolName });
+						// Very low risk (< 0.1) edits are silent to avoid notification fatigue.
+						if (riskScore.riskScore >= 0.1 && editContextForNotification) {
+							this._showAutoApplyNotification(editContextForNotification, riskScore, toolName);
+						}
+					}
+				} catch (error) {
+					console.debug('[ChatThreadService] auto-approve telemetry/notification failed (non-fatal):', error);
 				}
 
 				// add a tool_request because we use it for UI if a tool is loading (this should be improved in the future)
@@ -2566,7 +2550,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					mcpServerName
 				});
 
-				if (!shouldAutoApprove) {
+				if (autoApproveDecision.outcome === 'require-approval') {
 					return { awaitingUserApproval: true }
 				}
 			}
