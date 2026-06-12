@@ -108,6 +108,17 @@ suite('egressReport', () => {
 		assert.ok(/^[\x00-\x7F]*$/.test(text), 'report text must be ASCII');
 	});
 
+	test('report surfaces platform-inherited egress it does NOT govern (honesty, not over-claim)', () => {
+		const report = buildEgressReport(fullConfig('local-only'));
+		assert.ok(report.platformNotes.length >= 3, 'should list the known platform-inherited egress');
+		assert.ok(report.platformNotes.some(n => n.includes('vscode-cdn.net')), 'webview CDN note');
+		assert.ok(report.platformNotes.some(n => n.toLowerCase().includes('copilot')), 'built-in agent note');
+		assert.ok(report.platformNotes.some(n => n.includes('curl')), 'on-demand installer note');
+		// and it renders into the formatted text under a clear heading
+		const text = formatEgressReport(report);
+		assert.ok(text.includes('Platform-inherited egress NOT governed'), 'notes heading must render');
+	});
+
 	test('no configured providers + no extras: minimal report still total', () => {
 		const report = buildEgressReport({
 			routingPolicy: undefined,

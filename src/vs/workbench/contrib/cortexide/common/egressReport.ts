@@ -66,7 +66,20 @@ export interface EgressReport {
 	readonly localCount: number;
 	readonly summary: string;
 	readonly channels: ReadonlyArray<EgressChannelReport>;
+	/** Platform-inherited egress that CortexIDE's routing gates do NOT control (honesty footnotes). */
+	readonly platformNotes: ReadonlyArray<string>;
 }
+
+/**
+ * Egress inherited from the VS Code platform that CortexIDE's local-only gate does NOT govern. Surfaced
+ * so the report never implies local-only blocks literally everything -- these are out of CortexIDE's
+ * control (or only fire on explicit user action). From the Phase 8 egress-leak audit's secondary findings.
+ */
+export const PLATFORM_INHERITED_EGRESS: ReadonlyArray<string> = [
+	'Webviews may load UI assets from the VS Code CDN (vscode-cdn.net) -- a platform behavior, not routed through CortexIDE.',
+	'If the built-in GitHub Copilot chat agent is enabled, it contacts its own endpoints, separate from CortexIDE model routing.',
+	'Installing a local model from Settings runs an on-demand "curl | sh" script (ollama.com / Homebrew) -- only when you click it.',
+];
 
 function statusOf(allowed: boolean, kind: 'loopback' | 'private' | 'remote' | 'unknown' | 'stdio'): EgressChannelStatus {
 	if (kind === 'loopback' || kind === 'stdio') { return 'local'; }
@@ -199,7 +212,7 @@ export function buildEgressReport(cfg: EgressReportConfig): EgressReport {
 		? `Local-only privacy mode is ON. ${blockedCount} off-machine channel(s) blocked; ${localCount} local channel(s) still work; ${openCount} open.`
 		: `Local-only privacy mode is OFF. ${openCount} channel(s) can send data off-machine; ${localCount} stay local. Enable local-only to block all off-machine egress.`;
 
-	return { localOnly, openCount, blockedCount, localCount, summary, channels };
+	return { localOnly, openCount, blockedCount, localCount, summary, channels, platformNotes: PLATFORM_INHERITED_EGRESS };
 }
 
 /** Render the report as plain ASCII text (for an output channel / copy-paste). */
@@ -215,6 +228,11 @@ export function formatEgressReport(report: EgressReport): string {
 		lines.push(`         -> ${c.destination}`);
 		lines.push(`         sends: ${c.data}`);
 		if (c.reason) { lines.push(`         note: ${c.reason}`); }
+	}
+	if (report.platformNotes.length > 0) {
+		lines.push('');
+		lines.push('Platform-inherited egress NOT governed by CortexIDE local-only mode:');
+		for (const note of report.platformNotes) { lines.push(`  - ${note}`); }
 	}
 	lines.push('');
 	lines.push('Posture report only -- CortexIDE does not log actual outbound requests.');
