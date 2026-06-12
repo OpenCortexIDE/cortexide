@@ -1056,7 +1056,10 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 				runOnText()
 			}
 			else if (e.content_block.type === 'tool_use') {
-				fullToolName += e.content_block.name ?? '' // anthropic gives us the tool name in the start block
+				// Keep only the FIRST tool_use block's name: the agent loop runs one tool per turn and
+				// finalMessage (below) uses tools[0], so `+=` concatenated parallel tool names into garbage
+				// like "read_filelist_dir" in the streamed toolCall.
+				if (!fullToolName) fullToolName = e.content_block.name ?? '' // anthropic gives us the tool name in the start block
 				runOnText()
 			}
 		}

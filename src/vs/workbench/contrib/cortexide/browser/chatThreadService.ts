@@ -3135,6 +3135,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._backgroundAgentsService.setStatus(childId, 'error', { error: getErrorMessage(e), endTime: Date.now() })
 				this._notificationService.warn(`Background agent failed: ${description} — ${getErrorMessage(e)}`)
 			}
+		}).finally(() => {
+			// Drop the hidden thread now that the run has settled and its summary is captured in the agent
+			// record. The thread is in-memory only (never persisted / in openTabs) and the Running-agents
+			// panel renders the record's resultSummary, never the thread, so nothing inspects it after this.
+			// Without this, every background agent leaves a thread object in allThreads forever.
+			if (this.state.allThreads[childId]) {
+				const next = { ...this.state.allThreads }
+				delete next[childId]
+				this._setState({ allThreads: next })
+			}
 		})
 
 		return childId
@@ -4138,6 +4148,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatLatencyAudit.markNetworkEnd(finalRequestId)
 						// Mark stream as complete with 0 tokens on error
 						chatLatencyAudit.markStreamComplete(finalRequestId, 0)
+						// Release the context, else it (and the 60Hz render-monitor interval) leaks on every
+						// errored request. A retry/fallover re-arms a fresh context under the same finalRequestId
+						// before its next attempt, so this is safe even when the loop is about to retry.
+						chatLatencyAudit.releaseContext(finalRequestId)
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
 						this._setStreamState(threadId, { isRunning: undefined, error })
@@ -4163,6 +4177,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
+						// Abort is terminal for this request: release the context so the 60Hz render-monitor can stop.
+						chatLatencyAudit.releaseContext(finalRequestId)
 						resMessageIsDonePromise({ type: 'llmAborted' })
 						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, chatMode })
 					},
@@ -4355,11 +4371,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								// Type assertion is safe because nextModel is not "auto" (it came from fallback chain)
 								const nextProviderName = nextModel.providerName as Exclude<typeof nextModel.providerName, 'auto'>
 								resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[nextProviderName]?.[nextModel.modelName]
-								// Update request ID for new model
-								const newRequestId = generateUuid()
-								chatLatencyAudit.startRequest(newRequestId, nextModel.providerName, nextModel.modelName)
-								chatLatencyAudit.markRouterStart(newRequestId)
-								chatLatencyAudit.markRouterEnd(newRequestId)
+								// Re-arm the latency context for the next attempt. The retry loop keeps using
+								// finalRequestId (it is `const`, declared before the loop), so the context must be
+								// started under THAT id. The previous code started a throwaway newRequestId the retry
+								// never used, orphaning a context (and its 60Hz interval) that was never released.
+								chatLatencyAudit.startRequest(finalRequestId, nextModel.providerName, nextModel.modelName)
+								chatLatencyAudit.markRouterStart(finalRequestId)
+								chatLatencyAudit.markRouterEnd(finalRequestId)
 								// Reset attempt counter for new model (but keep triedModels to avoid retrying same model)
 								nAttempts = 0
 								shouldRetryLLM = true
