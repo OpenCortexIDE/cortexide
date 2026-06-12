@@ -81,11 +81,22 @@ export const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]
  * type-less properties. This emits the typed properties. `as const` keeps the `type` literals so the
  * result is assignable to the SDK's ChatCompletionTool at the call site (kept out of this pure module).
  */
+/**
+ * Build the JSON-Schema `properties` map from an InternalToolInfo's params, giving EVERY param an explicit
+ * `type: 'string'`. Shared by all three provider tool-schema builders (OpenAI-compatible here, Anthropic +
+ * Gemini in electron-main) so the "every property is typed" contract -- the regression that shipped
+ * type-less OpenAI schemas (fixed in ff1718a708d) -- is pinned in ONE tested place. Pure; never mutates `params`.
+ */
+export const buildTypedToolProperties = (params: InternalToolInfo['params']): { [s: string]: { description: string; type: 'string' } } => {
+	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
+	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	return paramsWithType
+}
+
 export const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
 
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	const paramsWithType = buildTypedToolProperties(params)
 
 	return {
 		type: 'function' as const,

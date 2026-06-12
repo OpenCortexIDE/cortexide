@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties } from '../../common/providerToolFormat.js';
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
@@ -944,8 +944,7 @@ const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_,
 // ------------ ANTHROPIC (HELPERS) ------------
 const toAnthropicTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	const paramsWithType = buildTypedToolProperties(params)
 	return {
 		name: name,
 		description: description,
@@ -1328,18 +1327,17 @@ const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, setti
 
 const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
+	// Same typed-properties core as the other providers, mapped to the Gemini SDK's Type.STRING at this boundary.
+	const properties = Object.entries(buildTypedToolProperties(params)).reduce((acc, [key, value]) => {
+		acc[key] = { type: Type.STRING, description: value.description };
+		return acc;
+	}, {} as Record<string, Schema>)
 	return {
 		name,
 		description,
 		parameters: {
 			type: Type.OBJECT,
-			properties: Object.entries(params).reduce((acc, [key, value]) => {
-				acc[key] = {
-					type: Type.STRING,
-					description: value.description
-				};
-				return acc;
-			}, {} as Record<string, Schema>)
+			properties,
 		}
 	} satisfies FunctionDeclaration
 }
