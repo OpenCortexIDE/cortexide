@@ -453,10 +453,10 @@ export const builtinTools: {
 
 	multi_edit: {
 		name: 'multi_edit',
-		description: `Apply multiple text replacements to a single file in one atomic operation. Pre-checks every old_string is found before applying anything; if any miss, no edits are applied. Prefer this over multiple edit_file calls when changing 2+ places in the same file.`,
+		description: `Apply multiple text replacements to a single file in one atomic operation. Edits are applied IN SEQUENCE (each edit sees the result of the edits before it), so a later edit may target text an earlier edit produced. The whole operation is all-or-nothing: if any edit fails to match, NO edits are applied. Prefer this over multiple edit_file calls when changing 2+ places in the same file.`,
 		params: {
 			...uriParam('file'),
-			edits: { description: 'Array of edits. Each item: { "old_string": "...", "new_string": "...", "replace_all": false }. old_string MUST match the file exactly (whitespace included). Set replace_all=true to replace every occurrence; default false replaces only the first.' },
+			edits: { description: 'Array of edits. Each item: { "old_string": "...", "new_string": "...", "replace_all": false }. old_string MUST match the file exactly (whitespace included). With replace_all=false (default), old_string must be UNIQUE in the file at that point: if it occurs more than once the edit fails (add surrounding context to disambiguate). Set replace_all=true to replace EVERY occurrence.' },
 		},
 	},
 
