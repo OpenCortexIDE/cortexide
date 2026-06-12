@@ -17,6 +17,7 @@ import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { OfflineGate } from '../common/offlineGate.js';
 import { canEgress } from '../common/egressPolicy.js';
+import { formatRetrievalResult, RetrievalResult } from '../common/retrievalResult.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
@@ -1257,47 +1258,22 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	/**
 	 * Format an index entry as a result string with citations
 	 */
+	/** Build the structured retrieval hit from an index entry (+ optional chunk). The file URI is a
+	 *  discrete field here -- see retrievalResult.ts for why (the old formatted-string-only shape
+	 *  broke the consumers that need the path). */
+	private _buildResult(entry: IndexEntry, chunk: IndexChunk | undefined): RetrievalResult {
+		return {
+			uri: entry.uri,
+			symbols: entry.symbols,
+			snippet: chunk ? chunk.text : entry.snippet,
+			startLine: chunk ? chunk.startLine : (entry.snippetStartLine || 1),
+			endLine: chunk ? chunk.endLine : (entry.snippetEndLine || 1),
+		};
+	}
+
 	private _formatResult(entry: IndexEntry, chunk: IndexChunk | undefined, query: string): string {
-		const parts: string[] = [];
-
-		// Format file path with line range citation
-		let fileHeader = `File: ${entry.uri}`;
-		let citationStartLine = entry.snippetStartLine || 1;
-		let citationEndLine = entry.snippetEndLine || 1;
-
-		if (chunk) {
-			// Use chunk line numbers if available
-			citationStartLine = chunk.startLine;
-			citationEndLine = chunk.endLine;
-		}
-
-		if (citationStartLine === citationEndLine) {
-			fileHeader += `:${citationStartLine}`;
-		} else {
-			fileHeader += `:${citationStartLine}-${citationEndLine}`;
-		}
-		parts.push(fileHeader);
-
-		// Add symbols if available
-		if (entry.symbols.length > 0) {
-			const qLower = query.toLowerCase();
-			const matchingSymbols = entry.symbols.filter(s =>
-				s.toLowerCase().includes(qLower) || qLower.includes(s.toLowerCase())
-			);
-			const otherSymbols = entry.symbols.filter(s =>
-				!matchingSymbols.includes(s)
-			);
-			const prioritizedSymbols = [...matchingSymbols.slice(0, 5), ...otherSymbols.slice(0, 5)].slice(0, 10);
-			parts.push(`Symbols: ${prioritizedSymbols.join(', ')}`);
-		}
-
-		// Add snippet or chunk text with citation
-		const displayText = chunk ? chunk.text : entry.snippet;
-		if (displayText) {
-			parts.push(`Content preview:\n${displayText}`);
-		}
-
-		return parts.join('\n');
+		// Byte-identical to the previous inline formatting -- now via the pure, tested common module.
+		return formatRetrievalResult(this._buildResult(entry, chunk), query);
 	}
 
 	private _fallbackToContextCache(text: string, k: number, startTime: number, flags: { timedOut: boolean; earlyTerminated: boolean }): Promise<{ results: string[]; metrics: QueryMetrics }> {
