@@ -757,9 +757,16 @@ export class ToolsService implements IToolsService {
 				if (!isRegex && searchInFolder === null) {
 					try {
 						const k = MAX_CHILDREN_URIs_PAGE * pageNumber
-						const results = await this.repoIndexerService.query(queryStr, k)
+						const results = await this.repoIndexerService.queryStructured(queryStr, k)
 						if (results && results.length) {
-							indexedUris = results.map(p => URI.file(p))
+							// Dedupe by file path -- a file can match via multiple chunks/symbols.
+							const seen = new Set<string>()
+							indexedUris = []
+							for (const r of results) {
+								if (seen.has(r.uri)) { continue }
+								seen.add(r.uri)
+								indexedUris.push(URI.file(r.uri))
+							}
 						}
 					} catch { /* ignore and fall back */ }
 				}

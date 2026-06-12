@@ -44,6 +44,17 @@ suite('retrievalResult.formatRetrievalResult', () => {
 		assert.strictEqual(formatRetrievalResult(r, 'foo'),
 			'File: file:///x.ts:3-5\nSymbols: foo\nContent preview:\nfoo()');
 	});
+
+	// The structured-vs-string consistency the queryStructured() fix relies on: the discrete `uri`
+	// field is EXACTLY the path the citation block embeds. Consumers (codebaseQueryCommands, the
+	// agent's search_for_files) URI.file() the discrete field; if a future change relativized or
+	// URI-encoded the citation path it must stay equal to `uri`, or the two forms silently diverge.
+	test('CONSISTENCY: the formatted citation begins with the exact discrete uri field', () => {
+		for (const uri of ['/abs/path/to/file.ts', 'file:///a/b.ts', 'C:\\win\\path.ts', '/p/with space.ts']) {
+			const out = formatRetrievalResult({ uri, symbols: ['s'], snippet: 'x', startLine: 4, endLine: 9 }, 'q');
+			assert.ok(out.startsWith(`File: ${uri}:`), `citation must embed the discrete uri verbatim, got: ${out}`);
+		}
+	});
 });
 
 suite('retrievalResult.prioritizeSymbols', () => {

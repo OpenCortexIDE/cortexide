@@ -66,6 +66,8 @@ export interface IRepoIndexerService {
 	warmIndex(workspaceRoot?: URI): Promise<void>;
 	query(text: string, k?: number): Promise<string[]>;
 	queryWithMetrics(text: string, k?: number): Promise<{ results: string[]; metrics: QueryMetrics }>;
+	/** Structured retrieval hits (each with a discrete file URI) -- for consumers that resolve/open the matched files. */
+	queryStructured(text: string, k?: number): Promise<RetrievalResult[]>;
 	rebuildIndex(): Promise<void>;
 }
 
@@ -87,7 +89,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _pathIndex: Map<string, number> = new Map(); // URI -> entry index
 
 	// Query result cache (O(1) LRU cache for recent queries)
-	private _queryCache: LRUCache<string, { results: string[]; metrics: QueryMetrics; timestamp: number }>;
+	private _queryCache: LRUCache<string, { results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics; timestamp: number }>;
 	private static readonly QUERY_CACHE_SIZE = 200; // Cache last 200 queries (increased from 50)
 	private static readonly QUERY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -935,6 +937,25 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	async queryWithMetrics(text: string, k: number = 5): Promise<{ results: string[]; metrics: QueryMetrics }> {
+		const { results, metrics } = await this._queryWithStructured(text, k);
+		return { results, metrics };
+	}
+
+	/**
+	 * Structured variant of {@link queryWithMetrics}: returns the discrete retrieval hits (each with a
+	 * real file URI) instead of the formatted citation strings. Consumers that need to open or resolve
+	 * the matched files (codebaseQueryCommands, the agent's search_for_files indexer path) MUST use this
+	 * -- the string form is one opaque citation blob and URI.file()'ing it yields a bogus URI.
+	 *
+	 * The structured hits run in lockstep with the formatted strings (same entries, same order). The
+	 * context-cache fallback has no per-result URI metadata, so it returns no structured hits.
+	 */
+	async queryStructured(text: string, k: number = 5): Promise<RetrievalResult[]> {
+		const { structured } = await this._queryWithStructured(text, k);
+		return structured;
+	}
+
+	private async _queryWithStructured(text: string, k: number = 5): Promise<{ results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics }> {
 		// PERFORMANCE: Lazy load index on first query if not already loaded
 		if (!this._isWarmed && this._index.length === 0) {
 			await this._loadIndex();
@@ -950,7 +971,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		if (cached && (performance.now() - cached.timestamp) < RepoIndexerService.QUERY_CACHE_TTL_MS) {
 			// Return cached result with updated timestamp (LRU cache auto-updates access time)
 			cached.timestamp = performance.now();
-			return { results: cached.results, metrics: cached.metrics };
+			return { results: cached.results, structured: cached.structured, metrics: cached.metrics };
 		}
 
 		// Compute query embedding if available (for hybrid search)
@@ -1006,6 +1027,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		const results: string[] = [];
+		const structured: RetrievalResult[] = []; // structured hits, pushed in lockstep with `results`
 		const q = text.toLowerCase();
 		let deduplicated: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }> = [];
 		let timedOut = false;
@@ -1040,6 +1062,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						results.push(...topResults.map(({ entry }) => {
 							return this._formatResult(entry, undefined, q);
 						}));
+						structured.push(...topResults.map(({ entry }) => this._buildResult(entry, undefined)));
 
 						if (results.length >= k) {
 							// We have enough results from common query cache
@@ -1053,8 +1076,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 								timedOut: false,
 								earlyTerminated: false
 							};
-							this._cacheQueryResult(cacheKey, results, metrics);
-							return { results, metrics };
+							this._cacheQueryResult(cacheKey, results, structured, metrics);
+							return { results, structured, metrics };
 						}
 					}
 				}
@@ -1203,6 +1226,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				results.push(...topResults.map(({ entry, chunk }) => {
 					return this._formatResult(entry, chunk, q);
 				}));
+				structured.push(...topResults.map(({ entry, chunk }) => this._buildResult(entry, chunk)));
 			}
 		}
 
@@ -1235,10 +1259,11 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		};
 
 		// Cache result (with LRU eviction)
-		this._cacheQueryResult(cacheKey, results, metrics);
+		this._cacheQueryResult(cacheKey, results, structured, metrics);
 
 		return {
 			results,
+			structured,
 			metrics
 		};
 	}
@@ -1246,10 +1271,11 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	/**
 	 * Cache query result with O(1) LRU eviction (automatic via LRUCache)
 	 */
-	private _cacheQueryResult(key: string, results: string[], metrics: QueryMetrics): void {
+	private _cacheQueryResult(key: string, results: string[], structured: RetrievalResult[], metrics: QueryMetrics): void {
 		// LRUCache automatically handles eviction in O(1) time
 		this._queryCache.set(key, {
 			results,
+			structured,
 			metrics,
 			timestamp: performance.now()
 		});
@@ -1276,7 +1302,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		return formatRetrievalResult(this._buildResult(entry, chunk), query);
 	}
 
-	private _fallbackToContextCache(text: string, k: number, startTime: number, flags: { timedOut: boolean; earlyTerminated: boolean }): Promise<{ results: string[]; metrics: QueryMetrics }> {
+	private _fallbackToContextCache(text: string, k: number, startTime: number, flags: { timedOut: boolean; earlyTerminated: boolean }): Promise<{ results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics }> {
 		const q = text.toLowerCase();
 		const results: string[] = [];
 		const snippets = this.contextGatheringService.getCachedSnippets();
@@ -1293,6 +1319,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 		return Promise.resolve({
 			results,
+			// Context-cache snippets carry no per-result file URI, so there are no structured hits to surface.
+			structured: [],
 			metrics: {
 				retrievalLatencyMs,
 				tokensInjected,
