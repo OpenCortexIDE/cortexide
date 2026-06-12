@@ -80,6 +80,15 @@ export function isLocalOnly(ctx: EgressContext): boolean {
 	return ctx.routingPolicy === 'local-only' || ctx.requiresPrivacy === true;
 }
 
+/**
+ * Resolve local-only for electron-main gates (telemetry, update check), which can't read the
+ * renderer's GlobalSettings.routingPolicy directly. Reads the main-readable `cortexide.global.routingPolicy`
+ * mirror with the deprecated `localFirstAI` flag as a fail-safe fallback (EITHER signal => local-only).
+ */
+export function resolveLocalOnlyForMainProcess(routingPolicyConfigValue: string | undefined, localFirstAIConfigValue: boolean | undefined): boolean {
+	return routingPolicyConfigValue === 'local-only' || localFirstAIConfigValue === true;
+}
+
 /** Classify an IPv4 literal (by its first two octets) into a destination kind. */
 function classifyV4(a: number, b: number): EgressDestinationKind {
 	if (a === 0 || a === 127) { return 'loopback'; } // 0.0.0.0 unspecified + 127/8 loopback

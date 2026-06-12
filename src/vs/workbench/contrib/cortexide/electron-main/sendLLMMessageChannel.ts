@@ -12,6 +12,7 @@ import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMess
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { IMetricsService } from '../common/metricsService.js';
 import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
+import { canDispatchToProvider } from '../common/egressPolicy.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
 
@@ -151,8 +152,14 @@ export class LLMMessageChannel implements IServerChannel {
 
 
 	_callOllamaList = (params: MainModelListParams<OllamaModelResponse>) => {
-		const { requestId } = params
+		const { requestId, settingsOfProvider, localOnly } = params
 		const emitters = this.listEmitters.ollama
+		// EGRESS GATE defense-in-depth: also refuse a non-loopback refresh under local-only here
+		const egress = canDispatchToProvider(localOnly === true, 'ollama', settingsOfProvider?.['ollama']?.endpoint)
+		if (!egress.allowed) {
+			emitters.error.fire({ requestId, error: egress.reason ?? 'Local-only privacy mode is on: model refresh skipped.' })
+			return
+		}
 		const mainThreadParams: ModelListParams<OllamaModelResponse> = {
 			...params,
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },
@@ -162,8 +169,14 @@ export class LLMMessageChannel implements IServerChannel {
 	}
 
 	_callOpenAICompatibleList = (params: MainModelListParams<OpenaiCompatibleModelResponse>) => {
-		const { requestId, providerName } = params
+		const { requestId, providerName, settingsOfProvider, localOnly } = params
 		const emitters = this.listEmitters.openaiCompat
+		// EGRESS GATE (Phase 8) defense-in-depth (see _callOllamaList).
+		const egress = canDispatchToProvider(localOnly === true, providerName, settingsOfProvider?.[providerName]?.endpoint)
+		if (!egress.allowed) {
+			emitters.error.fire({ requestId, error: egress.reason ?? 'Local-only privacy mode is on: model refresh skipped.' })
+			return
+		}
 		const mainThreadParams: ModelListParams<OpenaiCompatibleModelResponse> = {
 			...params,
 			onSuccess: (p) => { emitters.success.fire({ requestId, ...p }); },

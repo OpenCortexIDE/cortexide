@@ -452,6 +452,13 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 			this.state.globalSettings.localFirstAI = configLocalFirstAI
 		}
 
+		// Mirror routingPolicy into a main-process-readable config (self-heals installs); electron-main
+		// gates read it for local-only. GlobalSettings remains the source of truth.
+		const resolvedRoutingPolicy = this.state.globalSettings.routingPolicy
+		if (resolvedRoutingPolicy !== undefined && this._configurationService.getValue('cortexide.global.routingPolicy') !== resolvedRoutingPolicy) {
+			this._configurationService.updateValue('cortexide.global.routingPolicy', resolvedRoutingPolicy).catch(() => { })
+		}
+
 		this._resolver();
 		this._onDidChangeState.fire();
 
@@ -539,6 +546,11 @@ class VoidSettingsService extends Disposable implements ICortexideSettingsServic
 		this.state = _validatedModelState(newState)
 		await this._storeState()
 		this._onDidChangeState.fire()
+
+		// mirror routingPolicy into the main-process-readable config (electron-main gates read it)
+		if (settingName === 'routingPolicy') {
+			await this._configurationService.updateValue('cortexide.global.routingPolicy', newVal)
+		}
 
 		// hooks
 		if (this.state.globalSettings.syncApplyToChat) this._onUpdate_syncApplyToChat()

@@ -13,6 +13,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
+import { canDispatchToProvider } from './egressPolicy.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -322,6 +323,15 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		const { settingsOfProvider } = this.cortexideSettingsService.state
 
+		// EGRESS GATE: a model-list refresh to a non-loopback endpoint still leaves the machine; skip
+		// the IPC under local-only (the default localhost endpoint is allowed).
+		const localOnly = this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only'
+		const ollamaEgress = canDispatchToProvider(localOnly, 'ollama', settingsOfProvider['ollama']?.endpoint)
+		if (!ollamaEgress.allowed) {
+			onError({ error: ollamaEgress.reason ?? 'Local-only privacy mode is on: model refresh skipped.' })
+			return
+		}
+
 		// add state for request id
 		const requestId_ = generateUuid();
 		this.listHooks.ollama.success[requestId_] = onSuccess
@@ -332,6 +342,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			providerName: 'ollama',
 			requestId: requestId_,
+			localOnly,
 		} satisfies MainModelListParams<OllamaModelResponse>)
 	}
 
@@ -340,6 +351,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		const { onSuccess, onError, ...proxyParams } = params
 
 		const { settingsOfProvider } = this.cortexideSettingsService.state
+
+		// EGRESS GATE: same as ollamaList -- don't refresh a remotely-pointed provider under local-only
+		const localOnly = this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only'
+		const compatEgress = canDispatchToProvider(localOnly, proxyParams.providerName, settingsOfProvider[proxyParams.providerName]?.endpoint)
+		if (!compatEgress.allowed) {
+			onError({ error: compatEgress.reason ?? 'Local-only privacy mode is on: model refresh skipped.' })
+			return
+		}
 
 		// add state for request id
 		const requestId_ = generateUuid();
@@ -350,6 +369,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			...proxyParams,
 			settingsOfProvider,
 			requestId: requestId_,
+			localOnly,
 		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>)
 	}
 
@@ -373,6 +393,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		delete this.llmMessageHooks.onText[requestId]
 		delete this.llmMessageHooks.onFinalMessage[requestId]
 		delete this.llmMessageHooks.onError[requestId]
+		delete this.llmMessageHooks.onAbort[requestId] // was never cleared -> a closure leaked per LLM request
 
 		delete this.listHooks.ollama.success[requestId]
 		delete this.listHooks.ollama.error[requestId]

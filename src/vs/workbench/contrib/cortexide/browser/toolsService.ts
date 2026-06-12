@@ -32,6 +32,9 @@ import { IRequestService, asJson, asTextOrError } from '../../../../platform/req
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js'
 import { LRUCache } from '../../../../base/common/map.js'
 import { OfflineGate } from '../common/offlineGate.js'
+import { classifyDestination } from '../common/egressPolicy.js'
+import { wrapUntrustedContent } from '../common/untrustedContent.js'
+import { classifyCommandRisk } from '../common/commandRisk.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
 import { IMemoriesService } from '../common/memoriesService.js'
@@ -224,46 +227,15 @@ const checkIfIsFolder = (uriStr: string) => {
 export const assertNotSSRF = (url: string) => {
 	let parsed: URL
 	try { parsed = new URL(url) } catch { return } // malformed URLs are rejected elsewhere
-	let host = parsed.hostname.toLowerCase()
-	if (!host) throw new Error(`Blocked: URL has no hostname.`)
+	if (!parsed.hostname) throw new Error(`Blocked: URL has no hostname.`)
 
-	// localhost variants
-	if (host === 'localhost' || host.endsWith('.localhost')) {
-		throw new Error(`Blocked: ${host} is a loopback hostname. browse_url cannot target local/private network resources.`)
-	}
-
-	// IPv6 literals are bracketed in URL.hostname only for the [::1]-style form;
-	// URL strips the brackets, so host is the bare IPv6 string here.
-	if (host.includes(':')) {
-		// IPv4-mapped IPv6: ::ffff:127.0.0.1 — extract the trailing IPv4 and re-check
-		const v4MappedMatch = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
-		if (v4MappedMatch) { host = v4MappedMatch[1] /* fall through to IPv4 checks below */ }
-		else {
-			const compact = host.replace(/^\[|\]$/g, '')
-			if (compact === '::' || compact === '::1') {
-				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 loopback/unspecified address.`)
-			}
-			// fe80::/10 — link-local
-			if (/^fe[89ab][0-9a-f]?:/i.test(compact)) {
-				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 link-local address.`)
-			}
-			// fc00::/7 — unique-local (fc.. and fd..)
-			if (/^f[cd][0-9a-f]{2}:/i.test(compact)) {
-				throw new Error(`Blocked: ${parsed.hostname} is an IPv6 unique-local address.`)
-			}
-			return // other IPv6 — assume public
-		}
-	}
-
-	// IPv4 literal checks
-	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-	if (v4) {
-		const [a, b] = [Number(v4[1]), Number(v4[2])]
-		if (a === 0 || a === 127) throw new Error(`Blocked: ${host} is in the loopback/unspecified range.`)
-		if (a === 10) throw new Error(`Blocked: ${host} is in the 10.0.0.0/8 private range.`)
-		if (a === 192 && b === 168) throw new Error(`Blocked: ${host} is in the 192.168.0.0/16 private range.`)
-		if (a === 172 && b >= 16 && b <= 31) throw new Error(`Blocked: ${host} is in the 172.16.0.0/12 private range.`)
-		if (a === 169 && b === 254) throw new Error(`Blocked: ${host} is in the 169.254.0.0/16 link-local range (includes cloud metadata services).`)
+	// Delegate to the egress-policy SSOT (classifyDestination), which also decodes Node's
+	// hex-canonicalized IPv4-mapped IPv6 (e.g. http://[::ffff:127.0.0.1] -> [::ffff:7f00:1]) that the
+	// old inline dotted regex missed. 'remote'/'unknown' pass through (DNS-rebind is a separate follow-up).
+	const kind = classifyDestination(url)
+	if (kind === 'loopback' || kind === 'private') {
+		const desc = kind === 'loopback' ? 'loopback/unspecified' : 'private/link-local'
+		throw new Error(`Blocked: ${parsed.hostname} is a ${desc} address. Web tools cannot target local or private network resources.`)
 	}
 }
 
@@ -1295,6 +1267,18 @@ export class ToolsService implements IToolsService {
 				// Parse natural language to shell command
 				const parsed = await this.nlShellParserService.parseNLToShell(nlInput, cwd, CancellationToken.None);
 
+				// SAFETY GATE: run_nl_command's resolved command is unknown at dispatch, so the
+				// chatThreadService risk gate can't see it (it could auto-run under autoApprove.terminal /
+				// YOLO). Enforce classifyCommandRisk here, the only chokepoint with the parsed command:
+				// catastrophic -> refuse; dangerous -> re-issue via run_command so it's reviewed.
+				const nlRisk = classifyCommandRisk(parsed.command);
+				if (nlRisk.hardBlock) {
+					throw new Error(`Blocked: this request resolved to a catastrophic command "${parsed.command}" and was refused (${nlRisk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`);
+				}
+				if (nlRisk.requiresApproval) {
+					throw new Error(`Blocked: this request resolved to a dangerous command "${parsed.command}". Dangerous commands are not auto-run via run_nl_command -- re-issue it with the run_command tool so the exact command can be reviewed and approved.`);
+				}
+
 				// Check for dangerous commands using existing detection
 				const dangerLevel = this._detectCommandDanger(parsed.command);
 
@@ -2055,15 +2039,19 @@ export class ToolsService implements IToolsService {
 				if (result.results.length === 0) {
 					return `No search results found for "${params.query}".`;
 				}
-				return result.results.map((r, i) =>
+				const body = result.results.map((r, i) =>
 					`${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`
 				).join('\n\n');
+				// fence untrusted external results (prompt-injection defense)
+				return `Search results for "${params.query}":\n\n` + wrapUntrustedContent(body, { sourceLabel: 'web search results', nonce: generateUuid() });
 			},
 
 			browse_url: (params, result) => {
 				const titleStr = result.title ? `Title: ${result.title}\n\n` : '';
 				const metadataStr = result.metadata?.publishedDate ? `Published: ${result.metadata.publishedDate}\n\n` : '';
-				return `${titleStr}${metadataStr}Content from ${result.url}:\n\n${result.content.substring(0, 10000)}${result.content.length > 10000 ? '\n\n... (content truncated)' : ''}`;
+				const body = `${titleStr}${metadataStr}${result.content.substring(0, 10000)}${result.content.length > 10000 ? '\n\n... (content truncated)' : ''}`;
+				// fence the untrusted page content (prompt-injection defense)
+				return `Content from ${result.url}:\n\n` + wrapUntrustedContent(body, { sourceLabel: result.url, nonce: generateUuid() });
 			},
 
 			grep_search: (params, result) => {
