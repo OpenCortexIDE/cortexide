@@ -102,10 +102,15 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	) {
 		super();
 		this.evaluationService = new RoutingEvaluationService(this.storageService);
-		// Invalidate cache when settings change
+		// Invalidate caches when settings change
 		this._register(this.settingsService.onDidChangeState(() => {
 			this.capabilityCache.clear();
 			this.capabilityCacheVersion++;
+			this.routingCache.clear(); // a provider/model/policy change can stale a cached routing decision
+		}));
+		// a free-tier quota change can stale a cached routing decision (point it at a 429'd provider)
+		this._register(this.freeTierQuotaService.onQuotaChange(() => {
+			this.routingCache.clear();
 		}));
 	}
 

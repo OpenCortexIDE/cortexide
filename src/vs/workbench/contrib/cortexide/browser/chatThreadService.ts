@@ -29,7 +29,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
@@ -465,6 +465,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
 	) {
 		super()
+		// Register the streaming-RAF cancellation ONCE (was re-registered per batch -> unbounded growth).
+		this._register({ dispose: () => { if (this._streamStateRafId !== undefined) { cancelAnimationFrame(this._streamStateRafId); this._streamStateRafId = undefined; } } })
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabs: [] } // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {}
@@ -694,8 +696,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					this._pendingStreamStateUpdates.clear()
 					this._streamStateRafId = undefined
 				})
-				// Register cancellation so RAF never fires after the service is disposed
-				this._register({ dispose: () => { if (this._streamStateRafId !== undefined) { cancelAnimationFrame(this._streamStateRafId); this._streamStateRafId = undefined; } } })
+				// (RAF cancellation is registered ONCE in the constructor -- not per batch.)
 			}
 		} else {
 			// For non-streaming updates (idle, error, etc.), fire immediately
@@ -3061,6 +3062,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		this._fileReadCacheLRU.delete(childId)
 		this._planCache.delete(childId)
 		this._pendingStreamStateUpdates.delete(childId)
+		this._fileOpJournalByThread.delete(childId) // before-content snapshots can be large; don't leak them
 		delete this._suppressPlanOnceByThread[childId]
 		delete this.streamState[childId]
 	}
@@ -3323,7 +3325,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Plan mode always generates a plan; agent mode uses heuristics
 			const shouldGeneratePlan = chatMode === 'plan' || this._shouldGeneratePlan(threadId)
 			if (shouldGeneratePlan) {
-				await this._generatePlanFromUserRequest(threadId, modelSelection, modelSelectionOptions)
+				// Use the RESOLVED selection: prepareLLMChatMessages throws on a literal 'auto', which
+				// dead-ended Plan mode when Auto was selected (the default).
+				await this._generatePlanFromUserRequest(threadId, resolvedModelSelection, resolvedModelSelectionOptions)
 				// CRITICAL: Force cache refresh ONLY here after plan generation
 				this._planCache.delete(threadId)
 				const planAfterGen = this._getCurrentPlan(threadId, true) // Force refresh
@@ -3443,9 +3447,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						refreshPlanStep()
 					}
 				}
-			} else {
-				// Mark step as completed on success
-				if (activePlanTracking?.currentStep) {
+			} else if (activePlanTracking?.currentStep) {
+				// Mark the step from the ACTUAL tool outcome (mirrors the main loop): an errored
+				// pre-approved callThisToolFirst must be a FAILED step, not silently completed.
+				const preLoopTailMsg = this.state.allThreads[threadId]?.messages.slice(-1)[0]
+				const preLoopToolMsg = preLoopTailMsg?.role === 'tool' ? (preLoopTailMsg as ToolMessage<ToolName>) : undefined
+				const preLoopOutcome = classifyToolStepOutcome(preLoopToolMsg?.type ?? null)
+				if (preLoopOutcome === 'failed') {
+					const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, (preLoopToolMsg?.type === 'tool_error' && preLoopToolMsg.result) || 'Tool execution failed')
+					if (updatedStep) {
+						activePlanTracking.currentStep = updatedStep
+						activePlanTracking.planInfo = { plan: updatedStep.plan, planIdx: updatedStep.planIdx }
+					} else {
+						refreshPlanStep()
+					}
+				} else if (preLoopOutcome === 'succeeded') {
 					// PERFORMANCE: Use returned step info instead of re-looking up
 					const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, true)
 					if (updatedStep) {
@@ -3482,6 +3498,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					}
 				}
+				// 'indeterminate' (e.g. invalid_params / rejected): leave the step status as-is, matching the main loop
 			}
 		}
 		this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })  // just decorative, for clarity
@@ -3677,14 +3694,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				contextSize = cached.contextSize;
 			} else {
 				// Prepare messages (expensive operation)
-				const prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
-					chatMessages: preprocessedMessages,
-					modelSelection,
-					chatMode,
-					repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
-					subagentSystemPrompt: runCtx?.systemPromptOverride,
-					allowedToolNames: runCtx?.allowedToolNames
-				});
+				let prepResult: Awaited<ReturnType<typeof this._convertToLLMMessagesService.prepareLLMChatMessages>>;
+				try {
+					prepResult = await this._convertToLLMMessagesService.prepareLLMChatMessages({
+						chatMessages: preprocessedMessages,
+						modelSelection,
+						chatMode,
+						repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
+						subagentSystemPrompt: runCtx?.systemPromptOverride,
+						allowedToolNames: runCtx?.allowedToolNames
+					});
+				} catch (prepErr) {
+					// The first prompt assembly can throw (and has no prior messages to fall back to);
+					// surface it like the LLM error path instead of ending the turn as a silent "Done".
+					this._setStreamState(threadId, { isRunning: undefined, error: { message: `Failed to assemble the request: ${getErrorMessage(prepErr)}`, fullError: prepErr instanceof Error ? prepErr : null } });
+					chatLatencyAudit.releaseContext(finalRequestId); // started at 3659; release so the render-monitor interval can stop
+					this._addUserCheckpoint({ threadId });
+					return;
+				}
 				messages = prepResult.messages;
 				separateSystemMessage = prepResult.separateSystemMessage;
 
@@ -4072,10 +4099,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						const outputTokens = textToCount.length > 0 ? Math.max(1, Math.ceil(textToCount.length / 3.5)) : 0
 						chatLatencyAudit.markStreamComplete(finalRequestId, outputTokens)
 						// Log metrics for debugging
-						// PERFORMANCE: Only compute metrics if audit is enabled (metrics computation has overhead)
-						const metrics = auditEnabled ? chatLatencyAudit.completeRequest(finalRequestId) : null
-						if (metrics) {
-							chatLatencyAudit.logMetrics(metrics)
+						// Always release the context (else it leaks + the 60Hz render-monitor never stops);
+						// only compute metrics when auditing (getMetrics has overhead).
+						let metrics: ReturnType<typeof chatLatencyAudit.completeRequest> = null
+						if (auditEnabled) {
+							metrics = chatLatencyAudit.completeRequest(finalRequestId)
+							if (metrics) {
+								chatLatencyAudit.logMetrics(metrics)
+							}
+						} else {
+							chatLatencyAudit.releaseContext(finalRequestId)
 						}
 
 						// Audit log: record reply
@@ -4822,15 +4855,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							const lastMsg = thread.messages[thread.messages.length - 1]
 							if (lastMsg && lastMsg.role === 'tool') {
 								const toolMsg = lastMsg as ToolMessage<ToolName>
-								if (toolMsg.type === 'tool_error') {
+								// Shared, tested classification (same fn the pre-loop callThisToolFirst path uses).
+								const stepOutcome = classifyToolStepOutcome(toolMsg.type)
+								if (stepOutcome === 'failed') {
 									// PERFORMANCE: Use returned step info instead of re-looking up
-									const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, toolMsg.result || 'Tool execution failed')
+									const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, (toolMsg.type === 'tool_error' && toolMsg.result) || 'Tool execution failed')
 									if (updatedStep) {
 										activePlanTracking.currentStep = updatedStep
 									} else {
 										refreshPlanStep()
 									}
-								} else if (toolMsg.type === 'success') {
+								} else if (stepOutcome === 'succeeded') {
 									// PERFORMANCE: Use returned step info instead of re-looking up
 									const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, true)
 									if (updatedStep) {
@@ -6089,6 +6124,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._fileReadCacheLRU.delete(threadId)
 		this._planCache.delete(threadId)
 		this._pendingStreamStateUpdates.delete(threadId)
+		this._fileOpJournalByThread.delete(threadId) // rollback before-content snapshots can be large; don't leak them
 		delete this._suppressPlanOnceByThread[threadId]
 		delete this.streamState[threadId]
 

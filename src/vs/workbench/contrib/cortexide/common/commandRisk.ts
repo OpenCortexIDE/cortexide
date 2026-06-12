@@ -93,12 +93,31 @@ export function cwdEscapesWorkspace(cwd: string | null | undefined, workspaceFsP
 	const isAbsolute = c.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(c) || c.startsWith('\\\\');
 	if (!isAbsolute) { return false; } // relative paths resolve within the workspace
 	if (!workspaceFsPaths.length) { return true; } // absolute cwd with no workspace -> treat as escape
-	const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+	// Collapse '.'/'..' before the prefix check, else '/ws/project/../../etc' looks contained but
+	// resolves to '/etc'. (No node 'path' import -- this is in the browser bundle.)
+	const norm = (p: string) => collapseDotSegments(p.replace(/\\/g, '/').replace(/\/+$/, ''));
 	const cn = norm(c);
 	return !workspaceFsPaths.some(root => {
 		const rn = norm(root);
 		return cn === rn || cn.startsWith(rn + '/');
 	});
+}
+
+/** Resolve '.'/'..' path segments without touching the filesystem (POSIX-style, '/'-separated). */
+function collapseDotSegments(p: string): string {
+	const isAbs = p.startsWith('/');
+	const out: string[] = [];
+	for (const seg of p.split('/')) {
+		if (seg === '' || seg === '.') { continue; }
+		if (seg === '..') {
+			if (out.length && out[out.length - 1] !== '..') { out.pop(); }
+			else if (!isAbs) { out.push('..'); } // a relative path may legitimately rise above its base
+			// at an absolute root, '..' is a no-op (can't go above '/')
+			continue;
+		}
+		out.push(seg);
+	}
+	return (isAbs ? '/' : '') + out.join('/');
 }
 
 export function classifyCommandRisk(command: string): CommandRisk {

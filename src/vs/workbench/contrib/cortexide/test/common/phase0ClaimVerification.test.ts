@@ -31,6 +31,7 @@ import { builtinToolNames, builtinToolCount } from '../../common/builtinToolName
 // secretDetectionConfiguration.ts, not by the global settings contribution.
 const KEYS_READ_BY_SERVICES: { key: string; readBy: string }[] = [
 	{ key: 'cortexide.global.localFirstAI', readBy: 'cortexideSettingsService.ts' },
+	{ key: 'cortexide.global.routingPolicy', readBy: 'metricsMainService.ts + cortexideUpdateMainService.ts (main-process local-only mirror)' },
 	{ key: 'cortexide.index.ast', readBy: 'treeSitterService.ts' },
 	{ key: 'cortexide.safety.rollback.enable', readBy: 'rollbackSnapshotService.ts' },
 	{ key: 'cortexide.safety.rollback.maxSnapshotBytes', readBy: 'rollbackSnapshotService.ts' },

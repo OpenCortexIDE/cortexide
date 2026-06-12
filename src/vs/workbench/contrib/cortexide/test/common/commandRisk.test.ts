@@ -122,4 +122,15 @@ suite('Phase 1 — terminal cwd containment', () => {
 		assert.strictEqual(cwdEscapesWorkspace('/b/two/sub', multi), false);
 		assert.strictEqual(cwdEscapesWorkspace('/c/three', multi), true);
 	});
+
+	test('REGRESSION: a ".." traversal cwd that resolves outside the workspace is an escape', () => {
+		const ws = ['/home/me/project'];
+		// string-starts-with '/home/me/project/' but resolves to /etc -> must be an escape
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/../../etc', ws), true);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/sub/../../..', ws), true);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/../project-evil', ws), true);
+		// a ".." that stays inside is still allowed
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/src/../lib', ws), false);
+		assert.strictEqual(cwdEscapesWorkspace('/home/me/project/./src', ws), false);
+	});
 });

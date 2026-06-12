@@ -45,6 +45,21 @@ export const CORTEXIDE_CONFIG_KEYS: readonly CortexideConfigKeyDef[] = [
 		scope: 'application',
 		description: 'Prefer local models (Ollama, vLLM, LM Studio, localhost endpoints) over cloud models when possible. Cloud models are used only as a fallback when local models are unavailable or insufficient. This is a preference, not a hard privacy boundary — for a hard boundary use a local-only routing policy.',
 	},
+	{
+		// Main-process-readable mirror of GlobalSettings.routingPolicy (the settings service writes it
+		// on change + at startup) so electron-main telemetry/update gates can read the privacy mode.
+		key: 'cortexide.global.routingPolicy',
+		type: 'enum',
+		default: 'auto-cheapest',
+		scope: 'application',
+		enumValues: ['auto-cheapest', 'free-tier', 'local-only'],
+		enumDescriptions: [
+			'Score-based mixture of rules + learned routing (default).',
+			'Prefer free-tier providers in quality-ranked order with quota tracking.',
+			'HARD privacy boundary: never dispatch off-machine. Cloud LLMs, web tools, remote MCP, telemetry, update checks, and remote catalogs/embeddings/vector stores are all blocked.',
+		],
+		description: 'Model routing policy; "local-only" is the hard privacy boundary (nothing leaves the machine). The main process reads this mirror to gate telemetry and update checks. Set it from the in-app Privacy setting rather than here.',
+	},
 
 	// ---- Codebase indexing -------------------------------------------------------------
 	{

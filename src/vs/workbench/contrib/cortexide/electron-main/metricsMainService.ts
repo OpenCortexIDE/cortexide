@@ -11,9 +11,12 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { StorageTarget, StorageScope } from '../../../../platform/storage/common/storage.js';
 import { IApplicationStorageMainService } from '../../../../platform/storage/electron-main/storageMainService.js';
 
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { PostHog } from 'posthog-node'
 import { OPT_OUT_KEY } from '../common/storageKeys.js';
+import { isTelemetryEnabled } from '../common/telemetryConsent.js';
+import { resolveLocalOnlyForMainProcess } from '../common/egressPolicy.js';
 
 
 const os = isWindows ? 'windows' : isMacintosh ? 'mac' : isLinux ? 'linux' : null
@@ -86,6 +89,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 		@IProductService private readonly _productService: IProductService,
 		@IEnvironmentMainService private readonly _envMainService: IEnvironmentMainService,
 		@IApplicationStorageMainService private readonly _appStorage: IApplicationStorageMainService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super()
 		this.client = new PostHog('phc_UanIdujHiLp55BkUTjB1AuBXcasVkdqRwgnwRlWESH2', {
@@ -123,35 +127,52 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 			properties: this._initProperties,
 		}
 
-		const didOptOut = this._appStorage.getBoolean(OPT_OUT_KEY, StorageScope.APPLICATION, false)
+		// Telemetry is opt-IN: default OFF, local-only always forces off (was opt-OUT/on-by-default).
+		const enabled = this._telemetryEnabled()
+		const localOnly = resolveLocalOnlyForMainProcess(
+			this._configurationService.getValue('cortexide.global.routingPolicy'),
+			this._configurationService.getValue<boolean>('cortexide.global.localFirstAI'),
+		)
 
-		console.log('User is opted out of basic CortexIDE metrics?', didOptOut)
-		if (didOptOut) {
-			this.client.optOut()
-		}
-		else {
+		console.log('CortexIDE telemetry enabled (opt-in)?', enabled, '(local-only privacy mode:', localOnly, ')')
+		if (enabled) {
 			this.client.optIn()
 			this.client.identify(identifyMessage)
+			console.log('CortexIDE posthog metrics info:', JSON.stringify(identifyMessage, null, 2))
 		}
+		else {
+			this.client.optOut()
+		}
+	}
 
-
-		console.log('CortexIDE posthog metrics info:', JSON.stringify(identifyMessage, null, 2))
+	/**
+	 * Phase 8 (telemetry opt-IN): telemetry may leave the machine only if the user EXPLICITLY opted
+	 * in (OPT_OUT_KEY stored as 'false') AND local-only privacy mode is off. Absent preference =>
+	 * OFF. Re-checked on every capture so toggling local-only / consent takes effect immediately.
+	 */
+	private _telemetryEnabled(): boolean {
+		const stored = this._appStorage.get(OPT_OUT_KEY, StorageScope.APPLICATION)
+		// routingPolicy mirror (true source) + localFirstAI fallback, so an in-app "Local only" gates this.
+		const localOnly = resolveLocalOnlyForMainProcess(
+			this._configurationService.getValue('cortexide.global.routingPolicy'),
+			this._configurationService.getValue<boolean>('cortexide.global.localFirstAI'),
+		)
+		return isTelemetryEnabled(stored, localOnly)
 	}
 
 
 	capture: IMetricsService['capture'] = (event, params) => {
+		// defense-in-depth: re-check so a mid-session opt-out / local-only toggle stops events at once
+		if (!this._telemetryEnabled()) { return }
 		const capture = { distinctId: this.distinctId, event, properties: params } as const
 		// console.log('full capture:', this.distinctId)
 		this.client.capture(capture)
 	}
 
 	setOptOut: IMetricsService['setOptOut'] = (newVal: boolean) => {
-		if (newVal) {
-			this._appStorage.store(OPT_OUT_KEY, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE)
-		}
-		else {
-			this._appStorage.remove(OPT_OUT_KEY, StorageScope.APPLICATION)
-		}
+		// store 'true' (opt out) / 'false' (opt in) explicitly -- under the opt-in default, opting in must persist
+		this._appStorage.store(OPT_OUT_KEY, newVal ? 'true' : 'false', StorageScope.APPLICATION, StorageTarget.MACHINE)
+		if (newVal) { this.client.optOut() } else if (this._telemetryEnabled()) { this.client.optIn() }
 	}
 
 	async getDebuggingProperties() {

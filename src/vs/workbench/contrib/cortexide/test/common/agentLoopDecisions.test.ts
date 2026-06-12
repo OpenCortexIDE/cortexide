@@ -12,6 +12,7 @@ import {
 	classifyCompletionState, CompletionInputs,
 	computeCompactionOverflowDecision, CompactionOverflowInputs,
 	decideFileReadGate, FileReadGateInputs,
+	classifyToolStepOutcome, ToolMessageType,
 } from '../../common/agentLoopDecisions.js';
 
 /**
@@ -269,5 +270,40 @@ suite('Phase 2 - decideFileReadGate', () => {
 		const r = g({ toolName: 'read_file', filesReadInQuery: 0 });
 		assert.strictEqual(r.action, 'proceed');
 		assert.strictEqual(r.nextFilesReadInQuery, 1);
+	});
+});
+
+/**
+ * Section 7: classifyToolStepOutcome -- the plan-step outcome read from the tail tool message.
+ * Pins the EXACT mapping the main agent loop uses, so the pre-loop callThisToolFirst twin (which
+ * previously marked any non-interrupted tool as a completed step) now agrees: only 'success'
+ * completes the step, only 'tool_error' fails it, everything else leaves it unchanged.
+ */
+suite('classifyToolStepOutcome', () => {
+	test("'success' -> 'succeeded'", () => {
+		assert.strictEqual(classifyToolStepOutcome('success'), 'succeeded');
+	});
+
+	test("'tool_error' -> 'failed' (the bug fix: an errored pre-loop tool is NOT a completed step)", () => {
+		assert.strictEqual(classifyToolStepOutcome('tool_error'), 'failed');
+	});
+
+	test("null -> 'indeterminate' (no tail tool message)", () => {
+		assert.strictEqual(classifyToolStepOutcome(null), 'indeterminate');
+	});
+
+	test("every non-success/non-tool_error type -> 'indeterminate' (matches the main loop verbatim)", () => {
+		const indeterminate: ToolMessageType[] = ['invalid_params', 'tool_request', 'running_now', 'rejected'];
+		for (const t of indeterminate) {
+			assert.strictEqual(classifyToolStepOutcome(t), 'indeterminate', `expected ${t} -> indeterminate`);
+		}
+	});
+
+	test('exhaustive: exactly one type completes and one fails; the rest are indeterminate', () => {
+		const all: (ToolMessageType | null)[] = ['success', 'tool_error', 'invalid_params', 'tool_request', 'running_now', 'rejected', null];
+		const succeeded = all.filter(t => classifyToolStepOutcome(t) === 'succeeded');
+		const failed = all.filter(t => classifyToolStepOutcome(t) === 'failed');
+		assert.deepStrictEqual(succeeded, ['success']);
+		assert.deepStrictEqual(failed, ['tool_error']);
 	});
 });

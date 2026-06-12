@@ -104,8 +104,9 @@ export type SearchReplaceComputeResult =
  * each to a [origStart, origEnd] character span, sorts by position, REJECTS the whole set if any two
  * spans overlap, then applies the replacements RIGHT-TO-LEFT so earlier offsets don't shift. Either all
  * blocks apply or none do (the caller throws on a non-ok result before writing) - so a partial/corrupt
- * write can't happen. Mirrors the inline logic byte-for-byte; the caller keeps getModel / the
- * _errContentOfInvalidStr message / _writeURIText.
+ * write can't happen. The span is the EXACT matched text (not the whole line) so a partial-line ORIGINAL
+ * replaces only what it matched. The caller keeps getModel / the _errContentOfInvalidStr message /
+ * _writeURIText.
  *
  * Returns the rewritten file, or the first failing block's reason + its ORIGINAL text.
  */
@@ -120,17 +121,28 @@ export const computeSearchReplaceResult = (
 		const res = findTextInCode(b.orig, fileContent, true, { returnType: 'lines' });
 		if (typeof res === 'string')
 			return { ok: false, reason: res, blockOrig: b.orig };
-		let [startLine, endLine] = res;
-		startLine -= 1; // 0-index
-		endLine -= 1;
 
-		// including newline before start
-		const origStart = (startLine !== 0 ?
-			modelStrLines.slice(0, startLine).join('\n') + '\n'
-			: '').length;
-
-		// including endline at end
-		const origEnd = modelStrLines.slice(0, endLine + 1).join('\n').length - 1;
+		// Replace the EXACT matched span, not the whole line. Expanding a partial-line match to line
+		// boundaries silently destroyed the unmatched prefix/suffix (data loss, ok:true). A verbatim
+		// substring has an unambiguous span (uniqueness already proven); only the whitespace fallback
+		// (b.orig not a verbatim substring) can't map back to exact chars, so it keeps the line span.
+		const exactIdx = fileContent.indexOf(b.orig);
+		let origStart: number;
+		let origEnd: number;
+		if (exactIdx !== -1) {
+			origStart = exactIdx;
+			origEnd = exactIdx + b.orig.length - 1;
+		} else {
+			let [startLine, endLine] = res;
+			startLine -= 1; // 0-index
+			endLine -= 1;
+			// including newline before start
+			origStart = (startLine !== 0 ?
+				modelStrLines.slice(0, startLine).join('\n') + '\n'
+				: '').length;
+			// including endline at end
+			origEnd = modelStrLines.slice(0, endLine + 1).join('\n').length - 1;
+		}
 
 		replacements.push({ origStart, origEnd, orig: b.orig, final: b.final });
 	}

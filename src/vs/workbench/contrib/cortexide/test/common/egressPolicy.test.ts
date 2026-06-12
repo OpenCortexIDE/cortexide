@@ -11,6 +11,7 @@ import {
 	classifyProviderDestination,
 	canEgress,
 	canDispatchToProvider,
+	resolveLocalOnlyForMainProcess,
 	EgressModality,
 	EgressDestinationKind,
 } from '../../common/egressPolicy.js';
@@ -41,6 +42,27 @@ suite('egressPolicy', () => {
 		assert.strictEqual(isLocalOnly({ routingPolicy: 'auto-cheapest', requiresPrivacy: true }), true);
 		assert.strictEqual(isLocalOnly({ routingPolicy: undefined, requiresPrivacy: true }), true);
 		assert.strictEqual(isLocalOnly({ routingPolicy: 'local-only', requiresPrivacy: false }), true);
+	});
+
+	// ---- resolveLocalOnlyForMainProcess (the main-process gate source-of-truth fix) ------
+
+	test('resolveLocalOnlyForMainProcess: routingPolicy config drives the main-process gates', () => {
+		// THE regression: UI selects "Local only" -> routingPolicy config 'local-only', but the
+		// deprecated localFirstAI flag stays false. The gate must STILL be local-only.
+		assert.strictEqual(resolveLocalOnlyForMainProcess('local-only', false), true);
+		assert.strictEqual(resolveLocalOnlyForMainProcess('local-only', undefined), true);
+		// non-local policies are not local-only
+		assert.strictEqual(resolveLocalOnlyForMainProcess('auto-cheapest', false), false);
+		assert.strictEqual(resolveLocalOnlyForMainProcess('free-tier', false), false);
+		assert.strictEqual(resolveLocalOnlyForMainProcess(undefined, false), false);
+		assert.strictEqual(resolveLocalOnlyForMainProcess(undefined, undefined), false);
+	});
+
+	test('resolveLocalOnlyForMainProcess: deprecated localFirstAI flag is a fail-SAFE fallback', () => {
+		// a user who set only the old flag still gets local-only (OR semantics)
+		assert.strictEqual(resolveLocalOnlyForMainProcess('auto-cheapest', true), true);
+		assert.strictEqual(resolveLocalOnlyForMainProcess(undefined, true), true);
+		assert.strictEqual(resolveLocalOnlyForMainProcess('local-only', true), true);
 	});
 
 	// ---- classifyDestination (mirrors assertNotSSRF IP rules) ----------------------------
@@ -100,6 +122,44 @@ suite('egressPolicy', () => {
 		assert.strictEqual(classifyDestination(null), 'unknown');
 		assert.strictEqual(classifyDestination('not a url'), 'unknown');
 		assert.strictEqual(classifyDestination('ftp://'), 'unknown'); // no hostname
+	});
+
+	// ---- SSRF-guard parity (classifyDestination is the SSOT behind assertNotSSRF) ---------
+	// `assertNotSSRF` (browser/toolsService.ts) now DELEGATES to classifyDestination and throws
+	// iff the kind is 'loopback' or 'private'. These vectors mirror test/browser/ssrfGuard.test.ts
+	// so the contract is pinned in the NODE-runnable suite -- the browser test is EXCLUDED from
+	// the node runner, which is exactly why the hex-canonicalized IPv4-mapped bypass shipped
+	// unnoticed. SSRF-blocked == classifyDestination in { loopback, private }.
+	const ssrfBlocked = (url: string) => {
+		const kind = classifyDestination(url);
+		assert.ok(kind === 'loopback' || kind === 'private', `expected ${url} to be SSRF-blocked, got '${kind}'`);
+	};
+	const ssrfAllowed = (url: string) => {
+		const kind = classifyDestination(url);
+		assert.ok(kind === 'remote' || kind === 'unknown', `expected ${url} to be SSRF-allowed, got '${kind}'`);
+	};
+
+	test('SSRF parity: blocks localhost / IPv4 loopback / private / link-local', () => {
+		['http://localhost', 'http://localhost:8080/foo', 'https://api.localhost/v1',
+			'http://127.0.0.1', 'http://127.1.2.3:9000/path', 'http://0.0.0.0',
+			'http://10.0.0.1', 'http://10.255.255.255', 'http://192.168.1.1', 'http://172.16.0.1', 'http://172.31.255.255',
+			'http://169.254.169.254/latest/meta-data/', 'http://169.254.0.1'].forEach(ssrfBlocked);
+	});
+
+	test('SSRF parity: blocks IPv6 loopback / link-local / unique-local', () => {
+		['http://[::1]/', 'http://[::]/', 'http://[fe80::1]/', 'http://[fc00::1]/', 'http://[fd12:3456:789a::1]/'].forEach(ssrfBlocked);
+	});
+
+	test('SSRF parity (REGRESSION): blocks hex-canonicalized IPv4-mapped IPv6 -- the closed bypass', () => {
+		// Node canonicalizes these to [::ffff:7f00:1] / [::ffff:a00:1] / [::ffff:a9fe:a9fe]; the
+		// old dotted-only regex in assertNotSSRF missed them -> SSRF to loopback / cloud metadata.
+		['http://[::ffff:127.0.0.1]/', 'http://[::ffff:10.0.0.1]/', 'http://[::ffff:169.254.169.254]/'].forEach(ssrfBlocked);
+	});
+
+	test('SSRF parity: allows public IPv4 / IPv6 / DNS hostnames / malformed', () => {
+		['https://example.com', 'https://api.github.com/repos/foo/bar', 'http://8.8.8.8',
+			'http://172.15.0.1', 'http://172.32.0.1', 'http://192.169.0.1',
+			'https://[2606:4700:4700::1111]/', 'not a url'].forEach(ssrfAllowed);
 	});
 
 	// ---- classifyProviderDestination -----------------------------------------------------
