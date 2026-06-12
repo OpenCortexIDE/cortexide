@@ -67,6 +67,10 @@ export const unicodeFilter = Object.freeze<string[]>([
 	// extensions/copilot has its own code style
 	'!extensions/copilot/**',
 
+	// CortexIDE AppImage packaging script embeds intentional translated (non-ASCII)
+	// desktop-menu names (Japanese/Korean/Russian/Chinese "New Empty Window" etc.)
+	'!scripts/appimage/create_appimage.sh',
+
 	'!src/vs/base/browser/dompurify/**',
 	'!src/vs/workbench/services/keybinding/browser/keyboardLayouts/**',
 	'!src/vs/workbench/contrib/terminal/common/scripts/psreadline/**',
@@ -143,6 +147,8 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!**/*.{svg,exe,png,bmp,jpg,scpt,bat,cmd,cur,ttf,woff,eot,md,ps1,psm1,template,yaml,yml,d.ts.recipe,ico,icns,plist,opus,admx,adml,wasm}',
 	'!build/{lib,download,linux,darwin}/**/*.js',
 	'!build/**/*.sh',
+	// CortexIDE AppImage packaging script keeps its own (space) shell indentation
+	'!scripts/appimage/create_appimage.sh',
 	'!build/azure-pipelines/**/*.js',
 	'!build/azure-pipelines/**/*.config',
 	'!build/npm/gyp/custom-headers/*.patch',
