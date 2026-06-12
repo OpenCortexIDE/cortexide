@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId } from '../../common/providerToolFormat.js';
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
@@ -703,20 +703,18 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 
 	// Helper function to process non-streaming response
 	const processNonStreamingResponse = async (response: any) => {
-		const choice = response.choices[0]
-		if (!choice) {
+		const extracted = extractToolCallFromNonStreamingChoice(response.choices[0])
+		if (extracted.empty) {
 			onError({ message: 'CortexIDE: Response from model was empty.', fullError: null })
 			return
 		}
 
-		const fullText = choice.message?.content ?? ''
-		const toolCalls = choice.message?.tool_calls ?? []
-
-		if (toolCalls.length > 0) {
-			const toolCall = toolCalls[0]
-			toolName = toolCall.function?.name ?? ''
-			toolParamsStr = toolCall.function?.arguments ?? ''
-			toolId = toolCall.id ?? ''
+		const fullText = extracted.fullText
+		// only overwrite the tool vars when THIS response has a tool call (same guard as before)
+		if (extracted.hasToolCall) {
+			toolName = extracted.toolName
+			toolParamsStr = extracted.toolParamsStr
+			toolId = extracted.toolId
 		}
 
 		// Call onText once with full text
@@ -1432,20 +1430,13 @@ const sendGeminiChat = async ({
 		.then(async (stream) => {
 			_setAborter(() => { stream.return(fullTextSoFar); });
 
-			// Process the stream
+			// Process the stream (pure per-chunk reducer: text appends, functionCall REPLACES -- last wins)
 			for await (const chunk of stream) {
-				// message
-				const newText = chunk.text ?? ''
-				fullTextSoFar += newText
-
-				// tool call
-				const functionCalls = chunk.functionCalls
-				if (functionCalls && functionCalls.length > 0) {
-					const functionCall = functionCalls[0] // Get the first function call
-					toolName = functionCall.name ?? ''
-					toolParamsStr = JSON.stringify(functionCall.args ?? {})
-					toolId = functionCall.id ?? ''
-				}
+				const next = reduceGeminiChunk({ fullTextSoFar, toolName, toolParamsStr, toolId }, chunk)
+				fullTextSoFar = next.fullTextSoFar
+				toolName = next.toolName
+				toolParamsStr = next.toolParamsStr
+				toolId = next.toolId
 
 				// (do not handle reasoning yet)
 
@@ -1461,7 +1452,7 @@ const sendGeminiChat = async ({
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 				onError({ message: 'CortexIDE: Response from model was empty.', fullError: null })
 			} else {
-				if (!toolId) toolId = generateUuid() // ids are empty, but other providers might expect an id
+				toolId = finalizeGeminiToolId(toolId, generateUuid) // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
 				const toolCallObj = toolCall ? { toolCall } : {}
 				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
