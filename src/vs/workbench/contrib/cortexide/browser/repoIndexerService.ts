@@ -16,7 +16,7 @@ import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/c
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { OfflineGate } from '../common/offlineGate.js';
-import { canEgress } from '../common/egressPolicy.js';
+import { canUseEmbeddings } from '../common/embeddingsGate.js';
 import { formatRetrievalResult, RetrievalResult } from '../common/retrievalResult.js';
 import { partialSort } from '../common/partialSort.js';
 import { tokenize, scoreEntry, naiveScore } from '../common/bm25Score.js';
@@ -1944,26 +1944,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Check if embeddings can be computed (service enabled, not offline/privacy mode)
 	 */
 	private _canComputeEmbeddings(): boolean {
-		if (!this.embeddingService || !this.embeddingService.isEnabled()) {
-			return false;
-		}
-		// Phase 8 egress gate: the embedding vectors come from an opaque, extension-registered
-		// embedding provider (the stock AI-embedding-vector API) whose destination CortexIDE
-		// cannot classify. Under local-only privacy mode we must NOT send (even redacted) code
-		// text to it -- fail-closed and fall back to BM25-only retrieval. This replaces the
-		// reliance on the (formerly fake) privacy gate, which never enforced privacy at all.
-		const egress = canEgress(
-			{ routingPolicy: this.settingsService.state.globalSettings.routingPolicy },
-			{ modality: 'embeddings', destinationKind: 'unknown' }
-		);
-		if (!egress.allowed) {
-			return false;
-		}
-		// Skip embeddings when offline (genuine offline detection; fallback to BM25-only).
-		if (this.privacyGate.isOffline()) {
-			return false;
-		}
-		return true;
+		// Fail-closed privacy/availability gate (pure, tested -- common/embeddingsGate.ts). Embeddings go to
+		// an opaque, unclassifiable provider, so local-only mode blocks them; offline also falls back to BM25.
+		return canUseEmbeddings({
+			hasEnabledProvider: !!this.embeddingService && this.embeddingService.isEnabled(),
+			routingPolicy: this.settingsService.state.globalSettings.routingPolicy,
+			isOffline: this.privacyGate.isOffline(),
+		});
 	}
 
 	/**
