@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { parseStashIndex } from './gitStashRef.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -133,9 +134,8 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 	async restoreStash(stashRef: string): Promise<void> {
 		try {
-			// Parse stash index from ref (format: "stash@{0}")
-			const match = stashRef.match(/stash@\{(\d+)\}/);
-			const stashIndex = match ? parseInt(match[1], 10) : 0;
+			// Parse stash index from ref (format: "stash@{0}") -- pure, tested (common/gitStashRef.ts).
+			const stashIndex = parseStashIndex(stashRef);
 
 			// For index 0 (latest), use stashPopLatest/stashApplyLatest which don't require repository
 			// Try stash pop (apply and drop) first, fallback to stash apply
@@ -184,9 +184,8 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 	async dropStash(stashRef: string): Promise<void> {
 		try {
-			// Parse stash index from ref (format: "stash@{0}")
-			const match = stashRef.match(/stash@\{(\d+)\}/);
-			const stashIndex = match ? parseInt(match[1], 10) : 0;
+			// Parse stash index from ref (format: "stash@{0}") -- pure, tested (common/gitStashRef.ts).
+			const stashIndex = parseStashIndex(stashRef);
 			await this._commandService.executeCommand('git.stashDrop', stashIndex);
 		} catch (error) {
 			this._logService.warn('[GitAutoStash] Failed to drop stash:', error);

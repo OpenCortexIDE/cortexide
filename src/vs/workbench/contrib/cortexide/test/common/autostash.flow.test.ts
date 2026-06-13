@@ -5,35 +5,30 @@
 
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
+import { parseStashIndex } from '../../common/gitStashRef.js';
 
-// TODO: Implement full test suite with mocked services
-suite('AutoStash Flow', () => {
-	test('dirty repo creates stash', async () => {
-		// TODO: Setup dirty git repo
-		// TODO: Call createStash
-		// TODO: Verify stash created, ref recorded
-		assert.ok(true, 'Test placeholder');
+/**
+ * Real tests for the git stash-ref parsing GitAutoStashService delegates to (was a 4-test assert.ok(true)
+ * placeholder). The actual stash create/restore/drop need the live git command service, so they are not
+ * node-testable; the ref parsing -- duplicated in restoreStash + dropStash -- is the pure piece, pinned here.
+ * (The placeholder's "dirty-only mode skips stash" case is dropped: createStash has no such mode.)
+ */
+suite('gitStashRef.parseStashIndex', () => {
+
+	test('parses the index from a well-formed ref', () => {
+		assert.strictEqual(parseStashIndex('stash@{0}'), 0);
+		assert.strictEqual(parseStashIndex('stash@{2}'), 2);
+		assert.strictEqual(parseStashIndex('stash@{17}'), 17);
 	});
 
-	test('clean repo (dirty-only mode) skips stash', async () => {
-		// TODO: Setup clean repo
-		// TODO: Call createStash with mode='dirty-only'
-		// TODO: Verify no stash created
-		assert.ok(true, 'Test placeholder');
+	test('a missing / malformed ref defaults to 0 (the latest stash)', () => {
+		assert.strictEqual(parseStashIndex(''), 0);
+		assert.strictEqual(parseStashIndex('not a stash ref'), 0);
+		assert.strictEqual(parseStashIndex('stash@{}'), 0);
+		assert.strictEqual(parseStashIndex('stash@{abc}'), 0);
 	});
 
-	test('on failure, stash restore attempted', async () => {
-		// TODO: Create stash
-		// TODO: Simulate failure
-		// TODO: Verify restoreStash called
-		assert.ok(true, 'Test placeholder');
-	});
-
-	test('happy path success leaves stash untouched', async () => {
-		// TODO: Create stash
-		// TODO: Simulate success
-		// TODO: Verify stash still exists (not dropped)
-		assert.ok(true, 'Test placeholder');
+	test('finds the index even when the ref is embedded in other text', () => {
+		assert.strictEqual(parseStashIndex('refs/stash@{3} (auto)'), 3);
 	});
 });
-
