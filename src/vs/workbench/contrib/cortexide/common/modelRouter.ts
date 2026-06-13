@@ -54,9 +54,11 @@ export interface TaskContext {
 }
 
 /**
- * Quality tier for pre-flight routing decision
+ * Quality tier for pre-flight routing decision (definition + the pure estimator moved to ./routing/qualityTier.ts)
  */
-export type QualityTier = 'cheap_fast' | 'standard' | 'escalate' | 'abstain';
+export type { QualityTier } from './routing/qualityTier.js';
+import type { QualityTier } from './routing/qualityTier.js';
+import { estimateQualityTier } from './routing/qualityTier.js';
 
 /**
  * Routing decision with explanation
@@ -243,8 +245,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			};
 		}
 
-		// Quality gate: pre-flight quality estimate
-		const qualityTier = this.estimateQualityTier(context);
+		// Quality gate: pre-flight quality estimate (pure, tested -- ./routing/qualityTier.ts)
+		const qualityTier = estimateQualityTier(context);
 
 		// Check if we should abstain (ask for clarification)
 		const abstainCheck = this.shouldAbstain(context);
@@ -641,24 +643,6 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Estimate quality tier for pre-flight routing decision
 	 */
-	private estimateQualityTier(context: TaskContext): QualityTier {
-		// Simple questions can use cheap/fast models
-		if (context.isSimpleQuestion && !context.requiresComplexReasoning && !context.hasImages && !context.hasPDFs) {
-			return 'cheap_fast';
-		}
-
-		// Complex tasks need escalation
-		if (context.requiresComplexReasoning ||
-			context.isMultiStepTask ||
-			(context.contextSize && context.contextSize > 100_000) ||
-			context.isSecurityTask) {
-			return 'escalate';
-		}
-
-		// Default to standard
-		return 'standard';
-	}
-
 	/**
 	 * Check if we should abstain and ask for clarification
 	 */
