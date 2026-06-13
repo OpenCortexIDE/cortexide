@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
 import { URI } from '../../../../../base/common/uri.js';
-import { parseSkillFile, parseSkillInvocation, buildSkillInvocationMessage, Skill } from '../../common/cortexideSkillsService.js';
+import { parseSkillFile, parseSkillInvocation, buildSkillInvocationMessage, Skill, RESERVED_SLASH_COMMANDS, isReservedSkillName, dedupeSkillsByName } from '../../common/cortexideSkillsService.js';
 
 /**
  * Phase 6 (Skills): pure tests for the `.cortexide/skills/<name>/SKILL.md` parser + slash-command
@@ -116,5 +116,46 @@ suite('cortexideSkills.buildSkillInvocationMessage', () => {
 			buildSkillInvocationMessage(skill, '   '),
 			'[Invoking skill: review]\n\nRead the diff and report bugs.'
 		);
+	});
+});
+
+suite('cortexideSkills.parseSkillFile - allowedTools (agent parity)', () => {
+	const u = URI.file('/ws/.cortexide/skills/x/SKILL.md');
+	test('allowed-tools / allowed_tools / tools all parse into a token list', () => {
+		assert.deepStrictEqual(parseSkillFile('x', '---\nallowed-tools: read_file, grep_search\n---\nbody', u).allowedTools, ['read_file', 'grep_search']);
+		assert.deepStrictEqual(parseSkillFile('x', '---\nallowed_tools: read_file grep_search\n---\nbody', u).allowedTools, ['read_file', 'grep_search']);
+		assert.deepStrictEqual(parseSkillFile('x', '---\ntools: read_file\n---\nbody', u).allowedTools, ['read_file']);
+	});
+	test('no tools frontmatter -> allowedTools undefined (unrestricted), empty -> undefined', () => {
+		assert.strictEqual(parseSkillFile('x', 'just a body', u).allowedTools, undefined);
+		assert.strictEqual(parseSkillFile('x', '---\ntools:\n---\nbody', u).allowedTools, undefined);
+	});
+});
+
+suite('cortexideSkills.parseSkillInvocation - tightened name', () => {
+	test('a file path or doubled slash is NOT a skill invocation', () => {
+		assert.strictEqual(parseSkillInvocation('/src/foo.ts'), null);
+		assert.strictEqual(parseSkillInvocation('//x'), null);
+		assert.strictEqual(parseSkillInvocation('/a.b'), null); // '.' is not in the name charset
+	});
+	test('hyphen/underscore/digits in the name still parse', () => {
+		assert.deepStrictEqual(parseSkillInvocation('/review-pr_2 fix it'), { name: 'review-pr_2', args: 'fix it' });
+	});
+});
+
+suite('cortexideSkills hardening helpers', () => {
+	const sk = (name: string): Skill => ({ name, description: '', instructions: 'x', uri: URI.file('/ws/.cortexide/skills/' + name + '/SKILL.md') });
+
+	test('RESERVED_SLASH_COMMANDS / isReservedSkillName flag built-ins (case-insensitive)', () => {
+		assert.ok(RESERVED_SLASH_COMMANDS.has('help'));
+		assert.strictEqual(isReservedSkillName('Help'), true);
+		assert.strictEqual(isReservedSkillName('clear'), true);
+		assert.strictEqual(isReservedSkillName('review'), false);
+	});
+
+	test('dedupeSkillsByName keeps the FIRST of a case-insensitive name clash and reports conflicts', () => {
+		const { kept, conflicts } = dedupeSkillsByName([sk('Review'), sk('review'), sk('deploy')]);
+		assert.deepStrictEqual(kept.map(s => s.name), ['Review', 'deploy']);
+		assert.deepStrictEqual(conflicts, ['review']);
 	});
 });

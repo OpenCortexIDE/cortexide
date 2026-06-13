@@ -44,6 +44,9 @@ export interface Skill {
 	description: string;
 	/** The instruction block (the Markdown body after frontmatter) injected when invoked. */
 	instructions: string;
+	/** Optional restricted tool list (from `allowed-tools`/`tools` frontmatter); undefined = unrestricted.
+	 *  Parsed for parity with custom agents; enforcement at dispatch is a separate (not-yet-wired) step. */
+	allowedTools?: string[];
 	/** Absolute URI of the SKILL.md file. */
 	uri: URI;
 }
@@ -77,10 +80,14 @@ export function parseSkillFile(dirName: string, text: string, uri: URI): Skill {
 			if (m) { fm[m[1].toLowerCase()] = m[2].trim().replace(/^["']|["']$/g, ''); }
 		}
 	}
+	// allowed-tools / allowed_tools / tools -> a restricted tool list (mirrors parseCustomAgentFile's tokenizer).
+	const toolsStr = fm['allowed-tools'] ?? fm['allowed_tools'] ?? fm['tools'];
+	const allowedTools = toolsStr ? toolsStr.split(/[,\s]+/).map(s => s.trim()).filter(Boolean) : undefined;
 	return {
 		name: (fm['name'] || dirName).trim(),
 		description: fm['description'] ?? '',
 		instructions: body.trim(),
+		allowedTools: allowedTools && allowedTools.length > 0 ? allowedTools : undefined,
 		uri,
 	};
 }
@@ -93,9 +100,36 @@ export function parseSkillFile(dirName: string, text: string, uri: URI): Skill {
 export function parseSkillInvocation(input: string): { name: string; args: string } | null {
 	const trimmed = input.trim();
 	if (!trimmed.startsWith('/')) { return null; }
-	const m = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);
+	// The name is a single [A-Za-z0-9_-] run (matching skill directory names). This is deliberately tight
+	// so a file path like `/src/foo.ts` or a doubled `//x` is NOT mistaken for a skill invocation.
+	const m = /^\/([A-Za-z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(trimmed);
 	if (!m) { return null; }
 	return { name: m[1].toLowerCase(), args: (m[2] ?? '').trim() };
+}
+
+/** Built-in slash commands a skill must not shadow (the chat input handles these directly). */
+export const RESERVED_SLASH_COMMANDS: ReadonlySet<string> = new Set(['clear', 'new', 'settings', 'model', 'help']);
+
+/** Whether `name` collides with a reserved built-in slash command (case-insensitive). */
+export function isReservedSkillName(name: string): boolean {
+	return RESERVED_SLASH_COMMANDS.has(name.trim().toLowerCase());
+}
+
+/**
+ * De-duplicate skills by name, case-insensitively, FIRST-WINS (matching getSkill's first-match lookup).
+ * Returns the kept skills and the names that were dropped, so the loader can keep the set unambiguous.
+ */
+export function dedupeSkillsByName(skills: readonly Skill[]): { kept: Skill[]; conflicts: string[] } {
+	const seen = new Set<string>();
+	const kept: Skill[] = [];
+	const conflicts: string[] = [];
+	for (const skill of skills) {
+		const key = skill.name.trim().toLowerCase();
+		if (seen.has(key)) { conflicts.push(skill.name); continue; }
+		seen.add(key);
+		kept.push(skill);
+	}
+	return { kept, conflicts };
 }
 
 /**
@@ -180,7 +214,8 @@ class CortexideSkillsService extends Disposable implements ICortexideSkillsServi
 		} catch {
 			// Directory doesn't exist -- emit empty so consumers get a clean state.
 		}
-		this._skills = newSkills;
+		// Keep the set unambiguous: first-wins on a case-insensitive name clash (matches getSkill's lookup).
+		this._skills = dedupeSkillsByName(newSkills).kept;
 		this._onDidChangeSkills.fire(this._skills);
 	}
 }
