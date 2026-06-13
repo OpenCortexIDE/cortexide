@@ -20,6 +20,7 @@ import { canEgress } from '../common/egressPolicy.js';
 import { formatRetrievalResult, RetrievalResult } from '../common/retrievalResult.js';
 import { partialSort } from '../common/partialSort.js';
 import { tokenize, scoreEntry, naiveScore } from '../common/bm25Score.js';
+import { blendScores } from '../common/hybridRerank.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
@@ -1572,30 +1573,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const topBM25Count = Math.min(k * 1.5, items.length); // Get top 1.5k candidates for hybrid scoring
 		const bm25Reranked = this._partialSort(items, topBM25Count);
 
-		// Hybrid weights (tuned for code retrieval: BM25 for exact matches, vector for semantic similarity)
-		const BM25_WEIGHT = 0.6;
-		const VECTOR_WEIGHT = 0.4;
-
-		// Normalize BM25 scores to 0-1 range for blending
-		const bm25Scores = bm25Reranked.map(item => item.score);
-		const maxBm25 = Math.max(...bm25Scores, 1); // Avoid division by zero
-		const minBm25 = Math.min(...bm25Scores, 0);
-
-		// PERFORMANCE: Compute hybrid scores - vector similarity only computed for top BM25 candidates
-		const hybridScored = bm25Reranked.map((item) => {
-			// Normalize BM25 score to 0-1
-			const normalizedBm25 = maxBm25 > minBm25
-				? (item.score - minBm25) / (maxBm25 - minBm25)
-				: 0.5; // Default to middle if all scores are same
-
-			// Compute vector similarity (expensive operation - only done for top candidates)
-			const vectorScore = this._computeVectorSimilarity(queryEmbedding, item.entry, item.chunk);
-
-			// Weighted blend
-			const hybridScore = (normalizedBm25 * BM25_WEIGHT) + (vectorScore * VECTOR_WEIGHT);
-
-			return { ...item, score: hybridScore };
-		});
+		// Blend BM25 + (computed) vector similarity (pure, tested -- common/hybridRerank.ts). The vector
+		// score is the expensive cosine similarity, computed only for these top BM25 candidates.
+		const hybridScored = blendScores(
+			bm25Reranked,
+			(item) => this._computeVectorSimilarity(queryEmbedding, item.entry, item.chunk),
+			{ bm25Weight: 0.6, vectorWeight: 0.4 }
+		);
 
 		// Partial sort for top results
 		return this._partialSort(hybridScored, Math.min(k, hybridScored.length));
@@ -1625,34 +1609,20 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const topBM25Count = Math.min(k * 1.5, items.length); // Get top 1.5k candidates for hybrid scoring
 		const bm25Reranked = this._partialSort(items, topBM25Count);
 
-		// Hybrid weights (tuned for code retrieval: BM25 for exact matches, vector for semantic similarity)
-		const BM25_WEIGHT = 0.6;
-		const VECTOR_WEIGHT = 0.4;
-
-		// Normalize BM25 scores to 0-1 range for blending
-		const bm25Scores = bm25Reranked.map(item => item.score);
-		const maxBm25 = Math.max(...bm25Scores, 1);
-		const minBm25 = Math.min(...bm25Scores, 0);
-
-		// Compute hybrid scores
-		const hybridScored = bm25Reranked.map((item) => {
-			// Normalize BM25 score to 0-1
-			const normalizedBm25 = maxBm25 > minBm25
-				? (item.score - minBm25) / (maxBm25 - minBm25)
-				: 0.5;
-
-			// Get vector score from vector store results
-			// Document ID format: `${entry.uri}:${chunkIndex}` or `${entry.uri}`
-			const docId = item.chunk
-				? `${item.entry.uri}:${item.entry.chunks?.indexOf(item.chunk) ?? -1}`
-				: `${item.entry.uri}`;
-			const vectorScore = vectorScoreMap.get(docId) || 0;
-
-			// Weighted blend
-			const hybridScore = (normalizedBm25 * BM25_WEIGHT) + (vectorScore * VECTOR_WEIGHT);
-
-			return { ...item, score: hybridScore };
-		});
+		// Blend BM25 + vector-store scores (pure, tested -- common/hybridRerank.ts). The per-item vector
+		// score is looked up by document id. NOTE: chunks?.indexOf(chunk) relies on the chunk object being
+		// the SAME reference stored on the entry (it is, in this path) -- a copy would yield -1 and silently
+		// drop the vector signal; the derivation is kept in the caller so the blend stays pure/testable.
+		const hybridScored = blendScores(
+			bm25Reranked,
+			(item) => {
+				const docId = item.chunk
+					? `${item.entry.uri}:${item.entry.chunks?.indexOf(item.chunk) ?? -1}`
+					: `${item.entry.uri}`;
+				return vectorScoreMap.get(docId) || 0;
+			},
+			{ bm25Weight: 0.6, vectorWeight: 0.4 }
+		);
 
 		// Partial sort for top results
 		return this._partialSort(hybridScored, Math.min(k, hybridScored.length));
