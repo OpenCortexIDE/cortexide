@@ -19,6 +19,7 @@ import { OfflineGate } from '../common/offlineGate.js';
 import { canEgress } from '../common/egressPolicy.js';
 import { formatRetrievalResult, RetrievalResult } from '../common/retrievalResult.js';
 import { partialSort } from '../common/partialSort.js';
+import { tokenize, scoreEntry, naiveScore } from '../common/bm25Score.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
@@ -1943,81 +1944,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Fast scoring using pre-computed tokens
 	 */
 	private _scoreEntryFast(q: string, qTokens: Set<string>, entry: IndexEntry): number {
-		let score = 0;
-		const qLower = q.toLowerCase();
-
-		// Exact symbol name match (highest weight) - use pre-computed symbol tokens
-		for (const sym of entry.symbols) {
-			const symLower = sym.toLowerCase();
-			if (symLower === qLower) {
-				score += 10; // Exact match boost
-			} else if (symLower.includes(qLower) || qLower.includes(symLower)) {
-				score += 4; // Partial symbol match
-			} else if (entry.symbolTokens) {
-				// Token overlap in symbol name (using pre-computed tokens)
-				for (const token of qTokens) {
-					if (entry.symbolTokens.has(token)) score += 2;
-				}
-			}
-		}
-
-		// URI match (medium weight) - use pre-computed URI tokens
-		if (entry.uriTokens) {
-			for (const token of qTokens) {
-				if (entry.uriTokens.has(token)) {
-					score += 3;
-					break; // URI match is binary
-				}
-			}
-		} else {
-			const uriLower = entry.uri.toLowerCase();
-			if (uriLower.includes(qLower)) score += 3;
-		}
-
-		// Lexical overlap in snippet (weighted by token matches) - use pre-computed snippet tokens
-		if (entry.snippetTokens) {
-			let snippetTokenMatches = 0;
-			for (const token of qTokens) {
-				if (entry.snippetTokens.has(token)) {
-					snippetTokenMatches++;
-				}
-			}
-			if (snippetTokenMatches > 0) {
-				// Weight by how many query tokens matched
-				score += Math.min(snippetTokenMatches * 1.5, 5);
-			}
-		} else {
-			// Fallback to old method if tokens not pre-computed
-			const snippetLower = entry.snippet.toLowerCase();
-			let snippetTokenMatches = 0;
-			for (const token of qTokens) {
-				if (snippetLower.includes(token)) {
-					snippetTokenMatches++;
-					if (snippetLower.split(/[^a-z0-9_]+/g).includes(token)) {
-						snippetTokenMatches += 0.5;
-					}
-				}
-			}
-			if (snippetTokenMatches > 0) {
-				score += Math.min(snippetTokenMatches * 1.5, 5);
-			}
-		}
-
-		// Exact phrase match in snippet (lower weight but useful)
-		const snippetLower = entry.snippet.toLowerCase();
-		if (snippetLower.includes(qLower)) {
-			score += 1;
-		}
-
-		return score;
+		// pure, tested -- common/bm25Score.ts
+		return scoreEntry(q, qTokens, entry);
 	}
 
 	private _score(q: string, doc: string): number {
-		// very naive token overlap
-		const qt = new Set(q.split(/[^a-z0-9_]+/g).filter(Boolean));
-		let score = 0;
-		for (const t of qt) if (doc.includes(t)) score += 1;
-		return score;
+		// pure, tested -- common/bm25Score.ts
+		return naiveScore(q, doc);
 	}
 
 	/**
@@ -2031,8 +1964,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			return cached;
 		}
 
-		// Tokenize and cache
-		const tokens = new Set(text.toLowerCase().split(/[^a-z0-9_]+/g).filter(Boolean));
+		// Tokenize (pure, tested -- common/bm25Score.ts) and cache
+		const tokens = tokenize(text);
 		this._tokenizationCache.set(text, tokens);
 		return tokens;
 	}
