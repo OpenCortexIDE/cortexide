@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { serializeEvents, shouldRotate, rotatedLogPath } from './auditLogFormat.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -129,12 +130,12 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		}
 
 		const events = this._pendingWrites.splice(0);
-		const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+		const lines = serializeEvents(events); // pure, tested -- common/auditLogFormat.ts
 		const buffer = VSBuffer.fromString(lines);
 		const sizeBytes = buffer.byteLength;
 
 		// Check if rotation needed
-		if (this._currentFileSize + sizeBytes > this._rotationSizeMB * 1024 * 1024) {
+		if (shouldRotate(this._currentFileSize, sizeBytes, this._rotationSizeMB)) {
 			await this._rotateLogFile();
 		}
 
@@ -181,8 +182,8 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			let rotationNum = 1;
 			let rotatedPath: URI;
 			do {
-				const extension = compressed.length < contentBuffer.byteLength ? '.gz' : '';
-				rotatedPath = this._logPath.with({ path: this._logPath.path.replace(/\.jsonl$/, `.${rotationNum}.jsonl${extension}`) });
+				const compressedSmaller = compressed.length < contentBuffer.byteLength;
+				rotatedPath = this._logPath.with({ path: rotatedLogPath(this._logPath.path, rotationNum, compressedSmaller) });
 				rotationNum++;
 			} while (await this._fileService.exists(rotatedPath));
 
