@@ -20,6 +20,7 @@ import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js'
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { computeMaxTokensForLocalProvider } from '../../common/localProviderMaxTokens.js';
+import { isLoopbackEndpoint } from '../../common/loopbackEndpoint.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -112,19 +113,8 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
 const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }): Promise<OpenAI> => {
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	// Only cache for local providers
@@ -189,21 +179,8 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 
 	// Detect local providers: explicit local providers + localhost endpoints
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	const timeoutMs = isLocalProvider ? 30_000 : 60_000 // 30s for local, 60s for remote
@@ -342,21 +319,8 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	// Detect if this is a local provider for streaming optimization
 	// Note: vLLM and lmStudio don't support FIM, so we only check for ollama here
 	const isExplicitLocalProvider = providerName === 'ollama'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	// Check FIM support - only allow if model explicitly supports it OR if it's a provider that supports FIM
@@ -541,19 +505,8 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 
 	// Detect if this is a local provider for timeout optimization
 	const isExplicitLocalProviderChat = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpointChat = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpointChat = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				isLocalhostEndpointChat = false
-			}
-		}
-	}
+	const isLocalhostEndpointChat = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalChat = isExplicitLocalProviderChat || isLocalhostEndpointChat
 
 	// Helper function to process streaming response
