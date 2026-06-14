@@ -5,7 +5,7 @@
 
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
-import { serializeEvents, shouldRotate, rotatedLogPath } from '../../common/auditLogFormat.js';
+import { serializeEvents, shouldRotate, rotatedLogPath, parseJsonl } from '../../common/auditLogFormat.js';
 
 /**
  * Real tests for the audit-log on-disk format + rotation policy that AuditLogService delegates to (was a
@@ -26,10 +26,52 @@ suite('auditLogFormat.serializeEvents', () => {
 		assert.ok(serializeEvents([{ a: 1 }]).endsWith('\n'));
 	});
 
-	test('the serialized form round-trips back to the events (one JSON.parse per non-empty line)', () => {
+	test('the serialized form round-trips back to the events via parseJsonl', () => {
 		const events = [{ ts: 1, action: 'x', meta: { n: 5 } }, { ts: 2, action: 'y' }];
-		const parsed = serializeEvents(events).split('\n').filter(Boolean).map(l => JSON.parse(l));
-		assert.deepStrictEqual(parsed, events);
+		const parsed = parseJsonl(serializeEvents(events));
+		assert.deepStrictEqual(parsed.events, events);
+		assert.strictEqual(parsed.skipped, 0);
+	});
+});
+
+suite('auditLogFormat.parseJsonl', () => {
+
+	test('empty content -> no events, nothing skipped', () => {
+		assert.deepStrictEqual(parseJsonl(''), { events: [], skipped: 0 });
+		assert.deepStrictEqual(parseJsonl('\n'), { events: [], skipped: 0 });
+	});
+
+	test('blank and whitespace-only lines are ignored, NOT counted as corrupt', () => {
+		const content = '{"a":1}\n\n   \n{"b":2}\n';
+		const parsed = parseJsonl(content);
+		assert.deepStrictEqual(parsed.events, [{ a: 1 }, { b: 2 }]);
+		assert.strictEqual(parsed.skipped, 0);
+	});
+
+	test('a truncated trailing line (crash mid-append) is skipped; every prior event survives', () => {
+		// serializeEvents output, then a partial JSON object appended with NO trailing newline.
+		const content = serializeEvents([{ ts: 1, action: 'snapshot:create' }, { ts: 2, action: 'git:stash' }]) + '{"ts":3,"action":"run_co';
+		const parsed = parseJsonl(content);
+		assert.deepStrictEqual(parsed.events, [{ ts: 1, action: 'snapshot:create' }, { ts: 2, action: 'git:stash' }]);
+		assert.strictEqual(parsed.skipped, 1);
+	});
+
+	test('a corrupt line in the MIDDLE is skipped while later valid lines still parse', () => {
+		const content = '{"ts":1}\nNOT JSON\n{"ts":2}\n';
+		const parsed = parseJsonl(content);
+		assert.deepStrictEqual(parsed.events, [{ ts: 1 }, { ts: 2 }]);
+		assert.strictEqual(parsed.skipped, 1);
+	});
+
+	test('parseJsonl is the exact inverse of serializeEvents over a batch (golden round-trip)', () => {
+		const events = [
+			{ ts: 100, action: 'edit', file: 'a/b.ts', risk: 'low' },
+			{ ts: 101, action: 'run_command', cmd: 'rm -rf node_modules', approved: true },
+			{ ts: 102, action: 'snapshot:rollback', n: 3 },
+		];
+		const parsed = parseJsonl(serializeEvents(events));
+		assert.deepStrictEqual(parsed.events, events);
+		assert.strictEqual(parsed.skipped, 0);
 	});
 });
 

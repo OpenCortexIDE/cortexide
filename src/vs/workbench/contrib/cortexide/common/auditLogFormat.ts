@@ -27,3 +27,34 @@ export function shouldRotate(currentFileSize: number, addBytes: number, rotation
 export function rotatedLogPath(jsonlPath: string, rotationNum: number, compressed: boolean): string {
 	return jsonlPath.replace(/\.jsonl$/, `.${rotationNum}.jsonl${compressed ? '.gz' : ''}`);
 }
+
+export interface ParsedJsonl {
+	readonly events: unknown[];
+	/**
+	 * Count of non-blank lines that failed JSON.parse -- i.e. a truncated or corrupt line. The audit log is
+	 * append-only and can be cut mid-write by a crash, so the LAST line is the usual culprit.
+	 */
+	readonly skipped: number;
+}
+
+/**
+ * The read-side inverse of serializeEvents(): parse an audit JSONL document back into events, one JSON
+ * object per line. Blank/whitespace-only lines are ignored (serializeEvents always ends in a trailing
+ * newline). A non-blank line that fails JSON.parse is SKIPPED and counted, never thrown -- a single
+ * truncated trailing line (crash mid-append) must not lose the whole tamper-evident log. Recovery-oriented:
+ * every well-formed line before the corruption is still returned. The deferred audit-view/export consumes
+ * this; the file read itself stays in AuditLogService.
+ */
+export function parseJsonl(content: string): ParsedJsonl {
+	const events: unknown[] = [];
+	let skipped = 0;
+	for (const line of content.split('\n')) {
+		if (line.trim() === '') { continue; }
+		try {
+			events.push(JSON.parse(line));
+		} catch {
+			skipped++;
+		}
+	}
+	return { events, skipped };
+}
