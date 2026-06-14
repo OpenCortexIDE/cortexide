@@ -4237,9 +4237,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0
 								const hasPDFs = originalUserMessage.pdfs && originalUserMessage.pdfs.length > 0
 								const hasCode = this._detectCodeInMessage(originalUserMessage.content)
-								const lowerMessage = originalUserMessage.content.toLowerCase().trim()
-								const isCodebaseQuestion = /\b(codebase|code base|repository|repo|project)\b/.test(lowerMessage) ||
-									/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/.test(lowerMessage)
+								// Use the SAME tested detector as the initial routing (line ~764) so failover routing
+								// agrees with it. The previous inline regex had drifted to a narrower subset of these patterns.
+								const isCodebaseQuestion = looksLikeCodebaseQuestion(originalUserMessage.content)
 								const requiresComplexReasoning = isCodebaseQuestion
 								const isLongMessage = originalUserMessage.content.length > 500
 
