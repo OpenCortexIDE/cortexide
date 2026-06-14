@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
+import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames, isAutoModelSelection } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
 import { ICortexideSkillsService, parseSkillInvocation, buildSkillInvocationMessage } from '../common/cortexideSkillsService.js';
@@ -3901,9 +3901,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Store original routing decision for fallback chain (only in auto mode)
 			let originalRoutingDecision: RoutingDecision | null = null
 			// Track if we're in auto mode (user selected "auto")
-			const isAutoMode = !modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') ||
-				(this._settingsService.state.modelSelectionOfFeature['Chat']?.providerName === 'auto' &&
-					this._settingsService.state.modelSelectionOfFeature['Chat']?.modelName === 'auto')
+			const isAutoMode = !modelSelection || isAutoModelSelection(modelSelection) ||
+				isAutoModelSelection(this._settingsService.state.modelSelectionOfFeature['Chat'])
 
 			// If in auto mode and we have a model selection, try to get the routing decision for fallback chain
 			if (isAutoMode && modelSelection && modelSelection.providerName !== 'auto') {
@@ -5618,7 +5617,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Check if user selected "Auto" mode
 		const userModelSelection = this._currentModelSelectionProps().modelSelection
-		const isAutoMode = userModelSelection?.providerName === 'auto' && userModelSelection?.modelName === 'auto'
+		const isAutoMode = isAutoModelSelection(userModelSelection)
 
 		// Auto-select model based on task context if in auto mode, otherwise use user's selection
 		// Generate requestId early for router tracking in auto mode, then reuse it in _runChatAgent
