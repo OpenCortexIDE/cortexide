@@ -8,6 +8,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { languageIdFromPath } from '../common/treeSitterLanguageMap.js';
 
 export interface ASTSymbol {
 	name: string;
@@ -92,25 +93,8 @@ class TreeSitterService implements ITreeSitterService {
 	}
 
 	private _getLanguageFromUri(uri: URI): string | null {
-		const ext = uri.path.split('.').pop()?.toLowerCase();
-		const languageMap: Record<string, string> = {
-			'ts': 'typescript',
-			'tsx': 'tsx',
-			'js': 'javascript',
-			'jsx': 'javascript',
-			'py': 'python',
-			'java': 'java',
-			'go': 'go',
-			'rs': 'rust',
-			'cpp': 'cpp',
-			'c': 'c',
-			'cs': 'csharp',
-			'php': 'php',
-			'rb': 'ruby',
-			'swift': 'swift',
-			'kt': 'kotlin',
-		};
-		return languageMap[ext || ''] || null;
+		// The extension -> grammar map lives in the pure, node-tested common/treeSitterLanguageMap.ts.
+		return languageIdFromPath(uri.path);
 	}
 
 	async extractSymbols(uri: URI, content: string): Promise<ASTSymbol[]> {
