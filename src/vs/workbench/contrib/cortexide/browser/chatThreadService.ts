@@ -31,7 +31,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, computePostEscalationCounters, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
@@ -3549,8 +3549,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					nAttempts: 0, CHAT_RETRIES,
 				})
 				if (escDec.shouldCallEscalate && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
-					nMessagesSent = 0
-					consecutiveToolErrors = 0
+					// Escalation gives the fresh model a clean budget (both loop counters reset). Centralized
+					// so every escalation site -- including the tool-error sites below -- resets uniformly.
+					const reset = computePostEscalationCounters('iterCap')
+					nMessagesSent = reset.nMessagesSent
+					consecutiveToolErrors = reset.consecutiveToolErrors
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 					continue
 				}
@@ -4744,7 +4747,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					consecutiveToolErrors += 1
 					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
 						if (await tryEscalateModel(`the previous model emitted ${consecutiveToolErrors} unparseable tool calls in a row`)) {
-							consecutiveToolErrors = 0
+							// Match the iter-cap escalation: the fresh model gets a clean budget -- reset BOTH loop
+							// counters (previously only consecutiveToolErrors reset, so the new model inherited a spent
+							// iteration budget and could hit the iteration cap before finishing).
+							const reset = computePostEscalationCounters('toolErrorCap')
+							nMessagesSent = reset.nMessagesSent
+							consecutiveToolErrors = reset.consecutiveToolErrors
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}
@@ -4862,7 +4870,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// names, writes empty files, never converges). Escalate to a more capable model and let it
 						// recover the SAME task — it sees the failed attempts in history and corrects.
 						if (await tryEscalateModel(`the previous model failed ${consecutiveToolErrors} tool calls in a row`)) {
-							consecutiveToolErrors = 0
+							// Match the iter-cap escalation: the fresh model gets a clean budget -- reset BOTH loop
+							// counters (previously only consecutiveToolErrors reset, so the new model inherited a spent
+							// iteration budget and could hit the iteration cap before finishing).
+							const reset = computePostEscalationCounters('toolErrorCap')
+							nMessagesSent = reset.nMessagesSent
+							consecutiveToolErrors = reset.consecutiveToolErrors
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}

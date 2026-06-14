@@ -132,6 +132,36 @@ export function shouldEscalateModel(p: EscalateInputs): EscalateResult {
 	return { shouldCallEscalate: guardPasses, avoidFreeTier, escalationBlocked: !guardPasses };
 }
 
+/** Where a SUCCESSFUL mid-task escalation fired from (the sites that reset the per-attempt loop counters). */
+export type EscalationResetSite = 'iterCap' | 'toolErrorCap';
+
+export interface PostEscalationCounters {
+	readonly nMessagesSent: number;
+	readonly consecutiveToolErrors: number;
+}
+
+/**
+ * The per-attempt loop counters AFTER a successful mid-task model escalation (tryEscalateModel returned
+ * true). Escalation hands the SAME task to a fresh, more capable model, so that model MUST start with a
+ * clean budget at EVERY trigger site: both the iteration counter (nMessagesSent) and the consecutive-
+ * tool-error counter reset to 0.
+ *
+ * This centralizes a real divergence: the iteration-cap site (chatThreadService ~3552) reset BOTH
+ * counters, but the two tool-error escalation sites (~4747 unparseable, ~4865 failed) reset only
+ * consecutiveToolErrors -- so a tool-error-escalated model silently inherited a SPENT iteration budget
+ * and could hit the iteration cap and stop before it had a fair chance to finish the task. Routing every
+ * reset site through this fn makes the reset uniform and pins it against regression.
+ *
+ * NOTE: the global escalation budget (escalationCount, bounded by MAX_MODEL_ESCALATIONS) is intentionally
+ * NOT reset here -- it caps total cross-model work on the task and is owned by tryEscalateModel. Only the
+ * per-attempt loop counters reset. The triggerSite is taken so each call site is self-documenting and the
+ * golden table can enumerate every site; the reset is uniform across sites by contract.
+ */
+export function computePostEscalationCounters(triggerSite: EscalationResetSite): PostEscalationCounters {
+	void triggerSite;
+	return { nMessagesSent: 0, consecutiveToolErrors: 0 };
+}
+
 /* ============================================================================
  * 3. loop continuation  (iter-cap 3517 + post-tool-call 4807-4889)
  * ========================================================================== */
