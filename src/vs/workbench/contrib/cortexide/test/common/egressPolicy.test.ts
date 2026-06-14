@@ -8,6 +8,8 @@ import { suite, test } from 'mocha';
 import {
 	isLocalOnly,
 	classifyDestination,
+	classifyResolvedAddress,
+	isPrivateResolvedIP,
 	classifyProviderDestination,
 	canEgress,
 	canDispatchToProvider,
@@ -340,5 +342,43 @@ suite('egressPolicy', () => {
 		assert.strictEqual(canEgress(localOnly, { modality: 'embeddings', destinationKind: 'loopback' }).allowed, true);
 		// stdio MCP
 		assert.strictEqual(canEgress(localOnly, { modality: 'mcp', isStdio: true }).allowed, true);
+	});
+});
+
+suite('egressPolicy.classifyResolvedAddress (SSRF DNS-rebind building block, raw IPs)', () => {
+
+	test('loopback IPv4 + IPv4-mapped-IPv6 loopback', () => {
+		assert.strictEqual(classifyResolvedAddress('127.0.0.1'), 'loopback');
+		assert.strictEqual(classifyResolvedAddress('0.0.0.0'), 'loopback');
+		assert.strictEqual(classifyResolvedAddress('::1'), 'loopback');
+		assert.strictEqual(classifyResolvedAddress('::ffff:127.0.0.1'), 'loopback');
+		assert.strictEqual(classifyResolvedAddress('::ffff:7f00:1'), 'loopback'); // hex-canonicalized form
+	});
+
+	test('private / link-local / cloud-metadata are private (incl. hex IPv4-mapped IPv6)', () => {
+		assert.strictEqual(classifyResolvedAddress('10.0.0.5'), 'private');
+		assert.strictEqual(classifyResolvedAddress('192.168.1.1'), 'private');
+		assert.strictEqual(classifyResolvedAddress('172.16.0.1'), 'private');
+		assert.strictEqual(classifyResolvedAddress('169.254.169.254'), 'private'); // cloud metadata
+		assert.strictEqual(classifyResolvedAddress('::ffff:10.0.0.1'), 'private');
+		assert.strictEqual(classifyResolvedAddress('::ffff:a9fe:a9fe'), 'private'); // 169.254.169.254
+		assert.strictEqual(classifyResolvedAddress('fe80::1'), 'private');
+		assert.strictEqual(classifyResolvedAddress('fc00::1'), 'private');
+	});
+
+	test('a public IP is remote; a bare hostname / empty is unknown', () => {
+		assert.strictEqual(classifyResolvedAddress('8.8.8.8'), 'remote');
+		assert.strictEqual(classifyResolvedAddress('2606:4700::1'), 'remote');
+		assert.strictEqual(classifyResolvedAddress('example.com'), 'unknown');
+		assert.strictEqual(classifyResolvedAddress(''), 'unknown');
+		assert.strictEqual(classifyResolvedAddress(undefined), 'unknown');
+	});
+
+	test('isPrivateResolvedIP is true exactly for loopback + private (an SSRF guard would block these)', () => {
+		assert.strictEqual(isPrivateResolvedIP('127.0.0.1'), true);
+		assert.strictEqual(isPrivateResolvedIP('169.254.169.254'), true);
+		assert.strictEqual(isPrivateResolvedIP('::ffff:10.0.0.1'), true);
+		assert.strictEqual(isPrivateResolvedIP('8.8.8.8'), false);
+		assert.strictEqual(isPrivateResolvedIP('example.com'), false); // unknown -> not blockable here (caller resolves)
 	});
 });

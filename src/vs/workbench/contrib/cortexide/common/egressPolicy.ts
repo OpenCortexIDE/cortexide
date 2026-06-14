@@ -138,24 +138,44 @@ export function classifyDestination(rawUrl: string | undefined | null): EgressDe
 	// localhost variants.
 	if (host === 'localhost' || host.endsWith('.localhost')) { return 'loopback'; }
 
-	// IPv6 literals: Node keeps the brackets in URL.hostname, e.g. "[::1]".
+	// The IP-literal / IPv6 / unknown-hostname rules are shared with classifyResolvedAddress.
+	return classifyResolvedAddress(host);
+}
+
+/**
+ * Classify a RAW resolved IP string (NOT a URL) into an {@link EgressDestinationKind}. This is the
+ * building block for an SSRF DNS-rebind preflight: resolve a hostname to its IP, then classify that IP so
+ * a name that points at a loopback/private/cloud-metadata address is caught even though the hostname looked
+ * public. Reuses the exact IPv4 / IPv4-mapped-IPv6 / IPv6 rules as classifyDestination; a non-IP string
+ * (a bare hostname) is 'unknown'. Brackets around an IPv6 literal are tolerated.
+ */
+export function classifyResolvedAddress(ip: string | undefined | null): EgressDestinationKind {
+	const host = (ip ?? '').trim().toLowerCase();
+	if (!host) { return 'unknown'; }
+
+	// IPv6 literals (with or without brackets).
 	if (host.includes(':')) {
 		const compact = host.replace(/^\[|\]$/g, '');
-		// IPv4-mapped IPv6 -- decode and run the IPv4 rules.
 		const mapped = decodeV4Mapped(compact);
 		if (mapped) { return classifyV4(mapped[0], mapped[1]); }
 		if (compact === '::' || compact === '::1') { return 'loopback'; }
 		if (/^fe[89ab][0-9a-f]?:/i.test(compact)) { return 'private'; } // fe80::/10 link-local
 		if (/^f[cd][0-9a-f]{2}:/i.test(compact)) { return 'private'; } // fc00::/7 unique-local
-		return 'remote'; // other IPv6 -- assume public
+		return 'remote';
 	}
 
-	// IPv4 literal checks.
+	// IPv4 literal.
 	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
 	if (v4) { return classifyV4(Number(v4[1]), Number(v4[2])); }
 
-	// A DNS hostname we did not resolve. Could be public or a LAN .local name -- fail-closed.
+	// Not an IP literal (a bare hostname) -- caller resolves it; here we cannot say.
 	return 'unknown';
+}
+
+/** Whether a resolved IP is an internal target an SSRF guard must block (loopback or private/link-local). */
+export function isPrivateResolvedIP(ip: string | undefined | null): boolean {
+	const kind = classifyResolvedAddress(ip);
+	return kind === 'loopback' || kind === 'private';
 }
 
 /**
