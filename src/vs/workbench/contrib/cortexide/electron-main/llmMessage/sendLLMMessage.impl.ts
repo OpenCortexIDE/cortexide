@@ -19,6 +19,7 @@ import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesF
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
+import { computeMaxTokensForLocalProvider } from '../../common/localProviderMaxTokens.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -181,22 +182,6 @@ const parseHeadersJSON = (s: string | undefined): Record<string, string | null |
  * - Ctrl+K / Apply: 150-250 tokens (small edits)
  * - Other/Cloud: 300 tokens (default)
  */
-const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName: FeatureName | undefined): number => {
-	if (!isLocalProvider) {
-		return 300 // Default for cloud providers
-	}
-
-	// Infer feature from featureName or default to safe value
-	if (featureName === 'Autocomplete') {
-		return 96 // Small value for fast autocomplete
-	} else if (featureName === 'Ctrl+K' || featureName === 'Apply') {
-		return 200 // Medium value for quick edits
-	}
-
-	// Default for local providers when featureName is unknown
-	return 300
-}
-
 const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
 	// Network optimizations: timeouts and connection reuse
 	// The OpenAI SDK handles HTTP keep-alive and connection pooling internally
