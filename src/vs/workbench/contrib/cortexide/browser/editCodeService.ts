@@ -34,6 +34,8 @@ import { QuickEditPropsType } from './quickEditActions.js';
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
 import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks } from '../common/helpers/extractCodeFromResult.js';
 import { findTextInCode, computeSearchReplaceResult } from '../common/searchReplaceMatch.js';
+import { decideStreamRevert } from '../common/editStreamRevertDecision.js';
+import { computeAcceptedOriginalCode, computeRejectWrite } from '../common/perHunkAccept.js';
 import { INotificationService, } from '../../../../platform/notification/common/notification.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -1856,15 +1858,17 @@ class EditCodeService extends Disposable implements IEditCodeService {
 							// callback actually runs). A string result is an error handled by the bail just below.
 							const thisBlockRange = typeof originalBounds === 'string' ? null : convertOriginalRangeToFinalRange(originalBounds)
 
-							// Check for overlap with existing modified ranges
-							const hasOverlap = thisBlockRange !== null && addedTrackingZoneOfBlockNum.some(trackingZone => {
-								const [existingStart, existingEnd] = trackingZone.metadata.originalBounds;
-								const hasNoOverlap = thisBlockRange[1] < existingStart || thisBlockRange[0] > existingEnd
-								return !hasNoOverlap
+							// The revert-or-continue decision (this block couldn't be located, OR its range overlaps a
+							// block already applied this stream) is the pure, node-tested common/editStreamRevertDecision.ts.
+							// The side effects below (delete tracking zones, rewrite file, abort) stay here.
+							const revertDecision = decideStreamRevert({
+								originalBoundsError: typeof originalBounds === 'string' ? originalBounds : null,
+								thisBlockRange,
+								existingRanges: addedTrackingZoneOfBlockNum.map(trackingZone => trackingZone.metadata.originalBounds),
 							});
 
-							if (typeof originalBounds === 'string' || hasOverlap) {
-								const errorMessage = typeof originalBounds === 'string' ? originalBounds : 'Has overlap' as const
+							if (revertDecision.revert) {
+								const errorMessage = revertDecision.errorMessage as 'Not found' | 'Not unique' | 'Has overlap'
 
 								const content = this._errContentOfInvalidStr(errorMessage, block.orig)
 								const retryMsg = 'All of your previous outputs have been ignored. Please re-output ALL SEARCH/REPLACE blocks starting from the first one, and avoid the error this time.'
@@ -1897,7 +1901,10 @@ class EditCodeService extends Disposable implements IEditCodeService {
 								return
 							}
 
-
+							// decideStreamRevert returns revert=true for every locate-error (string) originalBounds, so
+							// past this point originalBounds is the located [start,end] tuple. Re-narrow for the compiler
+							// (this branch is unreachable -- the revert block above already returned for the string case).
+							if (typeof originalBounds === 'string') { return }
 
 							const [startLine, endLine] = convertOriginalRangeToFinalRange(originalBounds)
 
@@ -2161,38 +2168,8 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// add to history
 		const { onFinishEdit } = this._addToHistory(uri)
 
-		const originalLines = diffArea.originalCode.split('\n')
-		let newOriginalCode: string
-
-		if (diff.type === 'deletion') {
-			newOriginalCode = [
-				...originalLines.slice(0, (diff.originalStartLine - 1)), // everything before startLine
-				// <-- deletion has nothing here
-				...originalLines.slice((diff.originalEndLine - 1) + 1, Infinity) // everything after endLine
-			].join('\n')
-		}
-		else if (diff.type === 'insertion') {
-			newOriginalCode = [
-				...originalLines.slice(0, (diff.originalStartLine - 1)), // everything before startLine
-				diff.code, // code
-				...originalLines.slice((diff.originalStartLine - 1), Infinity) // startLine (inclusive) and on (no +1)
-			].join('\n')
-		}
-		else if (diff.type === 'edit') {
-			newOriginalCode = [
-				...originalLines.slice(0, (diff.originalStartLine - 1)), // everything before startLine
-				diff.code, // code
-				...originalLines.slice((diff.originalEndLine - 1) + 1, Infinity) // everything after endLine
-			].join('\n')
-		}
-		else {
-			throw new Error(`CortexIDE error: ${diff}.type not recognized`)
-		}
-
-		// console.log('DIFF', diff)
-		// console.log('DIFFAREA', diffArea)
-		// console.log('ORIGINAL', diffArea.originalCode)
-		// console.log('new original Code', newOriginalCode)
+		// pure splice math (common/perHunkAccept.ts) -- fold the accepted hunk into the diff-area baseline
+		const newOriginalCode = computeAcceptedOriginalCode(diffArea.originalCode, diff)
 
 		// update code now accepted as original
 		diffArea.originalCode = newOriginalCode
@@ -2244,56 +2221,9 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// add to history
 		const { onFinishEdit } = this._addToHistory(uri)
 
-		let writeText: string
-		let toRange: IRange
-
-		// if it was a deletion, need to re-insert
-		// (this image applies to writeText and toRange, not newOriginalCode)
-		//  A
-		// |B   <-- deleted here, diff.startLine == diff.endLine
-		//  C
-		if (diff.type === 'deletion') {
-			// if startLine is out of bounds (deleted lines past the diffarea), applyEdit will do a weird rounding thing, to account for that we apply the edit the line before
-			if (diff.startLine - 1 === diffArea.endLine) {
-				writeText = '\n' + diff.originalCode
-				toRange = { startLineNumber: diff.startLine - 1, startColumn: Number.MAX_SAFE_INTEGER, endLineNumber: diff.startLine - 1, endColumn: Number.MAX_SAFE_INTEGER }
-			}
-			else {
-				writeText = diff.originalCode + '\n'
-				toRange = { startLineNumber: diff.startLine, startColumn: 1, endLineNumber: diff.startLine, endColumn: 1 }
-			}
-		}
-		// if it was an insertion, need to delete all the lines
-		// (this image applies to writeText and toRange, not newOriginalCode)
-		// |A   <-- startLine
-		//  B|  <-- endLine (we want to delete this whole line)
-		//  C
-		else if (diff.type === 'insertion') {
-			// console.log('REJECTING:', diff)
-			// handle the case where the insertion was a newline at end of diffarea (applying to the next line doesnt work because it doesnt exist, vscode just doesnt delete the correct # of newlines)
-			if (diff.endLine === diffArea.endLine) {
-				// delete the line before instead of after
-				writeText = ''
-				toRange = { startLineNumber: diff.startLine - 1, startColumn: Number.MAX_SAFE_INTEGER, endLineNumber: diff.endLine, endColumn: 1 } // 1-indexed
-			}
-			else {
-				writeText = ''
-				toRange = { startLineNumber: diff.startLine, startColumn: 1, endLineNumber: diff.endLine + 1, endColumn: 1 } // 1-indexed
-			}
-
-		}
-		// if it was an edit, just edit the range
-		// (this image applies to writeText and toRange, not newOriginalCode)
-		// |A    <-- startLine
-		//  B|   <-- endLine (just swap out these lines for the originalCode)
-		//  C
-		else if (diff.type === 'edit') {
-			writeText = diff.originalCode
-			toRange = { startLineNumber: diff.startLine, startColumn: 1, endLineNumber: diff.endLine, endColumn: Number.MAX_SAFE_INTEGER } // 1-indexed
-		}
-		else {
-			throw new Error(`CortexIDE error: ${diff}.type not recognized`)
-		}
+		// pure write/range math (common/perHunkAccept.ts) -- compute the {text, range} that undoes the hunk.
+		// The diff-area end line disambiguates the "hunk reaches the end of the zone" rounding cases.
+		const { writeText, toRange } = computeRejectWrite(diff, diffArea.endLine)
 
 		// update the file
 		this._writeURIText(uri, writeText, toRange, { shouldRealignDiffAreas: true })

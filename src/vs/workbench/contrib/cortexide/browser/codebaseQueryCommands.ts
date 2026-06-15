@@ -61,22 +61,25 @@ registerAction2(class extends Action2 {
 			quickPick.busy = true;
 
 			try {
-				// Query the repo indexer (returns top 20 results)
-				const results = await repoIndexerService.query(query, 20);
+				// Query the repo indexer (returns top 20 structured hits, each with a real file URI)
+				const results = await repoIndexerService.queryStructured(query, 20);
 
-				// Convert to quick pick items
-				const items: Array<IQuickPickItem & { uri?: URI }> = results.map((filePath) => {
-					const uri = URI.file(filePath);
+				// Convert to quick pick items, deduped by file (a file can match via multiple chunks/symbols)
+				const seen = new Set<string>();
+				const items: Array<IQuickPickItem & { uri?: URI }> = [];
+				for (const r of results) {
+					if (seen.has(r.uri)) { continue; }
+					seen.add(r.uri);
+					const uri = URI.file(r.uri);
 					const relativePath = labelService.getUriLabel(uri, { relative: true });
 					const fullPath = labelService.getUriLabel(uri, { relative: false });
-
-					return {
+					items.push({
 						label: `$(file) ${relativePath}`,
 						description: fullPath,
 						uri,
 						alwaysShow: true,
-					};
-				});
+					});
+				}
 
 				if (items.length === 0) {
 					items.push({

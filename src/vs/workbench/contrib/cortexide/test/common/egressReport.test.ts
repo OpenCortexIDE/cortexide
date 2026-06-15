@@ -108,6 +108,17 @@ suite('egressReport', () => {
 		assert.ok(/^[\x00-\x7F]*$/.test(text), 'report text must be ASCII');
 	});
 
+	test('report surfaces platform-inherited egress it does NOT govern (honesty, not over-claim)', () => {
+		const report = buildEgressReport(fullConfig('local-only'));
+		assert.ok(report.platformNotes.length >= 3, 'should list the known platform-inherited egress');
+		assert.ok(report.platformNotes.some(n => n.includes('vscode-cdn.net')), 'webview CDN note');
+		assert.ok(report.platformNotes.some(n => n.toLowerCase().includes('copilot')), 'built-in agent note');
+		assert.ok(report.platformNotes.some(n => n.includes('curl')), 'on-demand installer note');
+		// and it renders into the formatted text under a clear heading
+		const text = formatEgressReport(report);
+		assert.ok(text.includes('Platform-inherited egress NOT governed'), 'notes heading must render');
+	});
+
 	test('no configured providers + no extras: minimal report still total', () => {
 		const report = buildEgressReport({
 			routingPolicy: undefined,
@@ -116,9 +127,28 @@ suite('egressReport', () => {
 			vectorStore: 'none',
 			mcpServers: [],
 		});
-		// only web-tool + update-check rows
-		assert.strictEqual(report.channels.length, 2);
+		// web-tool + update-check + telemetry rows are always present
+		assert.strictEqual(report.channels.length, 3);
 		assert.ok(report.channels.some(c => c.modality === 'web-tool'));
 		assert.ok(report.channels.some(c => c.modality === 'update-check'));
+		assert.ok(report.channels.some(c => c.modality === 'telemetry'));
+	});
+
+	test('telemetry channel: off by default (opt-IN), opens only when explicitly opted in, local-only forces it off', () => {
+		const base: EgressReportConfig = { routingPolicy: 'auto-cheapest', configuredProviders: [], embeddingsEnabled: false, vectorStore: 'none', mcpServers: [] };
+		const tel = (cfg: EgressReportConfig) => buildEgressReport(cfg).channels.find(c => c.modality === 'telemetry')!;
+
+		// default: OPT_OUT_KEY never set -> opted out -> nothing sent
+		assert.strictEqual(tel(base).status, 'not-configured');
+		// 'true' is also opted out
+		assert.strictEqual(tel({ ...base, telemetryOptOutStoredValue: 'true' }).status, 'not-configured');
+		// explicit opt-in ('false') and not local-only -> open
+		assert.strictEqual(tel({ ...base, telemetryOptOutStoredValue: 'false' }).status, 'open');
+		// opted in but local-only -> forced off (blocked) with a reason
+		const blocked = tel({ ...base, routingPolicy: 'local-only', telemetryOptOutStoredValue: 'false' });
+		assert.strictEqual(blocked.status, 'blocked');
+		assert.ok(blocked.reason && blocked.reason.length > 0);
+		// opted in but local-only via the localFirstAI flag -> also forced off
+		assert.strictEqual(tel({ ...base, localFirstAI: true, telemetryOptOutStoredValue: 'false' }).status, 'blocked');
 	});
 });

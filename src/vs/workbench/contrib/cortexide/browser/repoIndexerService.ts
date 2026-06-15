@@ -16,8 +16,11 @@ import { IAiEmbeddingVectorService } from '../../../services/aiEmbeddingVector/c
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { OfflineGate } from '../common/offlineGate.js';
-import { canEgress } from '../common/egressPolicy.js';
+import { canUseEmbeddings } from '../common/embeddingsGate.js';
 import { formatRetrievalResult, RetrievalResult } from '../common/retrievalResult.js';
+import { partialSort } from '../common/partialSort.js';
+import { tokenize, scoreEntry, naiveScore } from '../common/bm25Score.js';
+import { blendScores } from '../common/hybridRerank.js';
 import { ITreeSitterService } from './treeSitterService.js';
 import { IVectorStore } from '../common/vectorStore.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
@@ -66,6 +69,8 @@ export interface IRepoIndexerService {
 	warmIndex(workspaceRoot?: URI): Promise<void>;
 	query(text: string, k?: number): Promise<string[]>;
 	queryWithMetrics(text: string, k?: number): Promise<{ results: string[]; metrics: QueryMetrics }>;
+	/** Structured retrieval hits (each with a discrete file URI) -- for consumers that resolve/open the matched files. */
+	queryStructured(text: string, k?: number): Promise<RetrievalResult[]>;
 	rebuildIndex(): Promise<void>;
 }
 
@@ -87,7 +92,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	private _pathIndex: Map<string, number> = new Map(); // URI -> entry index
 
 	// Query result cache (O(1) LRU cache for recent queries)
-	private _queryCache: LRUCache<string, { results: string[]; metrics: QueryMetrics; timestamp: number }>;
+	private _queryCache: LRUCache<string, { results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics; timestamp: number }>;
 	private static readonly QUERY_CACHE_SIZE = 200; // Cache last 200 queries (increased from 50)
 	private static readonly QUERY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -935,6 +940,25 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	async queryWithMetrics(text: string, k: number = 5): Promise<{ results: string[]; metrics: QueryMetrics }> {
+		const { results, metrics } = await this._queryWithStructured(text, k);
+		return { results, metrics };
+	}
+
+	/**
+	 * Structured variant of {@link queryWithMetrics}: returns the discrete retrieval hits (each with a
+	 * real file URI) instead of the formatted citation strings. Consumers that need to open or resolve
+	 * the matched files (codebaseQueryCommands, the agent's search_for_files indexer path) MUST use this
+	 * -- the string form is one opaque citation blob and URI.file()'ing it yields a bogus URI.
+	 *
+	 * The structured hits run in lockstep with the formatted strings (same entries, same order). The
+	 * context-cache fallback has no per-result URI metadata, so it returns no structured hits.
+	 */
+	async queryStructured(text: string, k: number = 5): Promise<RetrievalResult[]> {
+		const { structured } = await this._queryWithStructured(text, k);
+		return structured;
+	}
+
+	private async _queryWithStructured(text: string, k: number = 5): Promise<{ results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics }> {
 		// PERFORMANCE: Lazy load index on first query if not already loaded
 		if (!this._isWarmed && this._index.length === 0) {
 			await this._loadIndex();
@@ -950,7 +974,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		if (cached && (performance.now() - cached.timestamp) < RepoIndexerService.QUERY_CACHE_TTL_MS) {
 			// Return cached result with updated timestamp (LRU cache auto-updates access time)
 			cached.timestamp = performance.now();
-			return { results: cached.results, metrics: cached.metrics };
+			return { results: cached.results, structured: cached.structured, metrics: cached.metrics };
 		}
 
 		// Compute query embedding if available (for hybrid search)
@@ -1006,6 +1030,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		const results: string[] = [];
+		const structured: RetrievalResult[] = []; // structured hits, pushed in lockstep with `results`
 		const q = text.toLowerCase();
 		let deduplicated: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }> = [];
 		let timedOut = false;
@@ -1040,6 +1065,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						results.push(...topResults.map(({ entry }) => {
 							return this._formatResult(entry, undefined, q);
 						}));
+						structured.push(...topResults.map(({ entry }) => this._buildResult(entry, undefined)));
 
 						if (results.length >= k) {
 							// We have enough results from common query cache
@@ -1053,8 +1079,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 								timedOut: false,
 								earlyTerminated: false
 							};
-							this._cacheQueryResult(cacheKey, results, metrics);
-							return { results, metrics };
+							this._cacheQueryResult(cacheKey, results, structured, metrics);
+							return { results, structured, metrics };
 						}
 					}
 				}
@@ -1203,6 +1229,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				results.push(...topResults.map(({ entry, chunk }) => {
 					return this._formatResult(entry, chunk, q);
 				}));
+				structured.push(...topResults.map(({ entry, chunk }) => this._buildResult(entry, chunk)));
 			}
 		}
 
@@ -1235,10 +1262,11 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		};
 
 		// Cache result (with LRU eviction)
-		this._cacheQueryResult(cacheKey, results, metrics);
+		this._cacheQueryResult(cacheKey, results, structured, metrics);
 
 		return {
 			results,
+			structured,
 			metrics
 		};
 	}
@@ -1246,10 +1274,11 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	/**
 	 * Cache query result with O(1) LRU eviction (automatic via LRUCache)
 	 */
-	private _cacheQueryResult(key: string, results: string[], metrics: QueryMetrics): void {
+	private _cacheQueryResult(key: string, results: string[], structured: RetrievalResult[], metrics: QueryMetrics): void {
 		// LRUCache automatically handles eviction in O(1) time
 		this._queryCache.set(key, {
 			results,
+			structured,
 			metrics,
 			timestamp: performance.now()
 		});
@@ -1276,7 +1305,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		return formatRetrievalResult(this._buildResult(entry, chunk), query);
 	}
 
-	private _fallbackToContextCache(text: string, k: number, startTime: number, flags: { timedOut: boolean; earlyTerminated: boolean }): Promise<{ results: string[]; metrics: QueryMetrics }> {
+	private _fallbackToContextCache(text: string, k: number, startTime: number, flags: { timedOut: boolean; earlyTerminated: boolean }): Promise<{ results: string[]; structured: RetrievalResult[]; metrics: QueryMetrics }> {
 		const q = text.toLowerCase();
 		const results: string[] = [];
 		const snippets = this.contextGatheringService.getCachedSnippets();
@@ -1293,6 +1322,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 		return Promise.resolve({
 			results,
+			// Context-cache snippets carry no per-result file URI, so there are no structured hits to surface.
+			structured: [],
 			metrics: {
 				retrievalLatencyMs,
 				tokensInjected,
@@ -1542,30 +1573,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const topBM25Count = Math.min(k * 1.5, items.length); // Get top 1.5k candidates for hybrid scoring
 		const bm25Reranked = this._partialSort(items, topBM25Count);
 
-		// Hybrid weights (tuned for code retrieval: BM25 for exact matches, vector for semantic similarity)
-		const BM25_WEIGHT = 0.6;
-		const VECTOR_WEIGHT = 0.4;
-
-		// Normalize BM25 scores to 0-1 range for blending
-		const bm25Scores = bm25Reranked.map(item => item.score);
-		const maxBm25 = Math.max(...bm25Scores, 1); // Avoid division by zero
-		const minBm25 = Math.min(...bm25Scores, 0);
-
-		// PERFORMANCE: Compute hybrid scores - vector similarity only computed for top BM25 candidates
-		const hybridScored = bm25Reranked.map((item) => {
-			// Normalize BM25 score to 0-1
-			const normalizedBm25 = maxBm25 > minBm25
-				? (item.score - minBm25) / (maxBm25 - minBm25)
-				: 0.5; // Default to middle if all scores are same
-
-			// Compute vector similarity (expensive operation - only done for top candidates)
-			const vectorScore = this._computeVectorSimilarity(queryEmbedding, item.entry, item.chunk);
-
-			// Weighted blend
-			const hybridScore = (normalizedBm25 * BM25_WEIGHT) + (vectorScore * VECTOR_WEIGHT);
-
-			return { ...item, score: hybridScore };
-		});
+		// Blend BM25 + (computed) vector similarity (pure, tested -- common/hybridRerank.ts). The vector
+		// score is the expensive cosine similarity, computed only for these top BM25 candidates.
+		const hybridScored = blendScores(
+			bm25Reranked,
+			(item) => this._computeVectorSimilarity(queryEmbedding, item.entry, item.chunk),
+			{ bm25Weight: 0.6, vectorWeight: 0.4 }
+		);
 
 		// Partial sort for top results
 		return this._partialSort(hybridScored, Math.min(k, hybridScored.length));
@@ -1595,34 +1609,20 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const topBM25Count = Math.min(k * 1.5, items.length); // Get top 1.5k candidates for hybrid scoring
 		const bm25Reranked = this._partialSort(items, topBM25Count);
 
-		// Hybrid weights (tuned for code retrieval: BM25 for exact matches, vector for semantic similarity)
-		const BM25_WEIGHT = 0.6;
-		const VECTOR_WEIGHT = 0.4;
-
-		// Normalize BM25 scores to 0-1 range for blending
-		const bm25Scores = bm25Reranked.map(item => item.score);
-		const maxBm25 = Math.max(...bm25Scores, 1);
-		const minBm25 = Math.min(...bm25Scores, 0);
-
-		// Compute hybrid scores
-		const hybridScored = bm25Reranked.map((item) => {
-			// Normalize BM25 score to 0-1
-			const normalizedBm25 = maxBm25 > minBm25
-				? (item.score - minBm25) / (maxBm25 - minBm25)
-				: 0.5;
-
-			// Get vector score from vector store results
-			// Document ID format: `${entry.uri}:${chunkIndex}` or `${entry.uri}`
-			const docId = item.chunk
-				? `${item.entry.uri}:${item.entry.chunks?.indexOf(item.chunk) ?? -1}`
-				: `${item.entry.uri}`;
-			const vectorScore = vectorScoreMap.get(docId) || 0;
-
-			// Weighted blend
-			const hybridScore = (normalizedBm25 * BM25_WEIGHT) + (vectorScore * VECTOR_WEIGHT);
-
-			return { ...item, score: hybridScore };
-		});
+		// Blend BM25 + vector-store scores (pure, tested -- common/hybridRerank.ts). The per-item vector
+		// score is looked up by document id. NOTE: chunks?.indexOf(chunk) relies on the chunk object being
+		// the SAME reference stored on the entry (it is, in this path) -- a copy would yield -1 and silently
+		// drop the vector signal; the derivation is kept in the caller so the blend stays pure/testable.
+		const hybridScored = blendScores(
+			bm25Reranked,
+			(item) => {
+				const docId = item.chunk
+					? `${item.entry.uri}:${item.entry.chunks?.indexOf(item.chunk) ?? -1}`
+					: `${item.entry.uri}`;
+				return vectorScoreMap.get(docId) || 0;
+			},
+			{ bm25Weight: 0.6, vectorWeight: 0.4 }
+		);
 
 		// Partial sort for top results
 		return this._partialSort(hybridScored, Math.min(k, hybridScored.length));
@@ -1633,68 +1633,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * O(n log k) complexity instead of O(n log n) for full sort
 	 */
 	private _partialSort<T extends { score: number }>(items: T[], k: number): T[] {
-		if (items.length <= k) {
-			// Small array, just sort it
-			return items.sort((a, b) => {
-				if (Math.abs(a.score - b.score) < 0.1) {
-					return 0; // Stable sort
-				}
-				return b.score - a.score;
-			});
-		}
-
-		// Use min-heap for O(n log k) instead of O(n log n)
-		// The heap maintains the k highest-scoring items
-		const heap: Array<{ score: number; item: T }> = [];
-
-		// Helper functions for min-heap operations
-		const heapifyUp = (idx: number) => {
-			while (idx > 0) {
-				const parent = Math.floor((idx - 1) / 2);
-				if (heap[parent].score <= heap[idx].score) break;
-				[heap[parent], heap[idx]] = [heap[idx], heap[parent]];
-				idx = parent;
-			}
-		};
-
-		const heapifyDown = (idx: number) => {
-			while (true) {
-				let smallest = idx;
-				const left = 2 * idx + 1;
-				const right = 2 * idx + 2;
-
-				if (left < heap.length && heap[left].score < heap[smallest].score) {
-					smallest = left;
-				}
-				if (right < heap.length && heap[right].score < heap[smallest].score) {
-					smallest = right;
-				}
-				if (smallest === idx) break;
-				[heap[idx], heap[smallest]] = [heap[smallest], heap[idx]];
-				idx = smallest;
-			}
-		};
-
-		// Build min-heap of top k items
-		for (const item of items) {
-			if (heap.length < k) {
-				heap.push({ score: item.score, item });
-				heapifyUp(heap.length - 1);
-			} else if (item.score > heap[0].score) {
-				// Replace minimum (root) with new item if it's larger
-				heap[0] = { score: item.score, item };
-				heapifyDown(0);
-			}
-		}
-
-		// Extract items from heap and sort descending
-		const result = heap.map(h => h.item);
-		return result.sort((a, b) => {
-			if (Math.abs(a.score - b.score) < 0.1) {
-				return 0;
-			}
-			return b.score - a.score;
-		});
+		// pure, tested top-k-by-score -- common/partialSort.ts
+		return partialSort(items, k);
 	}
 
 	/**
@@ -1974,81 +1914,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Fast scoring using pre-computed tokens
 	 */
 	private _scoreEntryFast(q: string, qTokens: Set<string>, entry: IndexEntry): number {
-		let score = 0;
-		const qLower = q.toLowerCase();
-
-		// Exact symbol name match (highest weight) - use pre-computed symbol tokens
-		for (const sym of entry.symbols) {
-			const symLower = sym.toLowerCase();
-			if (symLower === qLower) {
-				score += 10; // Exact match boost
-			} else if (symLower.includes(qLower) || qLower.includes(symLower)) {
-				score += 4; // Partial symbol match
-			} else if (entry.symbolTokens) {
-				// Token overlap in symbol name (using pre-computed tokens)
-				for (const token of qTokens) {
-					if (entry.symbolTokens.has(token)) score += 2;
-				}
-			}
-		}
-
-		// URI match (medium weight) - use pre-computed URI tokens
-		if (entry.uriTokens) {
-			for (const token of qTokens) {
-				if (entry.uriTokens.has(token)) {
-					score += 3;
-					break; // URI match is binary
-				}
-			}
-		} else {
-			const uriLower = entry.uri.toLowerCase();
-			if (uriLower.includes(qLower)) score += 3;
-		}
-
-		// Lexical overlap in snippet (weighted by token matches) - use pre-computed snippet tokens
-		if (entry.snippetTokens) {
-			let snippetTokenMatches = 0;
-			for (const token of qTokens) {
-				if (entry.snippetTokens.has(token)) {
-					snippetTokenMatches++;
-				}
-			}
-			if (snippetTokenMatches > 0) {
-				// Weight by how many query tokens matched
-				score += Math.min(snippetTokenMatches * 1.5, 5);
-			}
-		} else {
-			// Fallback to old method if tokens not pre-computed
-			const snippetLower = entry.snippet.toLowerCase();
-			let snippetTokenMatches = 0;
-			for (const token of qTokens) {
-				if (snippetLower.includes(token)) {
-					snippetTokenMatches++;
-					if (snippetLower.split(/[^a-z0-9_]+/g).includes(token)) {
-						snippetTokenMatches += 0.5;
-					}
-				}
-			}
-			if (snippetTokenMatches > 0) {
-				score += Math.min(snippetTokenMatches * 1.5, 5);
-			}
-		}
-
-		// Exact phrase match in snippet (lower weight but useful)
-		const snippetLower = entry.snippet.toLowerCase();
-		if (snippetLower.includes(qLower)) {
-			score += 1;
-		}
-
-		return score;
+		// pure, tested -- common/bm25Score.ts
+		return scoreEntry(q, qTokens, entry);
 	}
 
 	private _score(q: string, doc: string): number {
-		// very naive token overlap
-		const qt = new Set(q.split(/[^a-z0-9_]+/g).filter(Boolean));
-		let score = 0;
-		for (const t of qt) if (doc.includes(t)) score += 1;
-		return score;
+		// pure, tested -- common/bm25Score.ts
+		return naiveScore(q, doc);
 	}
 
 	/**
@@ -2062,8 +1934,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			return cached;
 		}
 
-		// Tokenize and cache
-		const tokens = new Set(text.toLowerCase().split(/[^a-z0-9_]+/g).filter(Boolean));
+		// Tokenize (pure, tested -- common/bm25Score.ts) and cache
+		const tokens = tokenize(text);
 		this._tokenizationCache.set(text, tokens);
 		return tokens;
 	}
@@ -2072,26 +1944,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Check if embeddings can be computed (service enabled, not offline/privacy mode)
 	 */
 	private _canComputeEmbeddings(): boolean {
-		if (!this.embeddingService || !this.embeddingService.isEnabled()) {
-			return false;
-		}
-		// Phase 8 egress gate: the embedding vectors come from an opaque, extension-registered
-		// embedding provider (the stock AI-embedding-vector API) whose destination CortexIDE
-		// cannot classify. Under local-only privacy mode we must NOT send (even redacted) code
-		// text to it -- fail-closed and fall back to BM25-only retrieval. This replaces the
-		// reliance on the (formerly fake) privacy gate, which never enforced privacy at all.
-		const egress = canEgress(
-			{ routingPolicy: this.settingsService.state.globalSettings.routingPolicy },
-			{ modality: 'embeddings', destinationKind: 'unknown' }
-		);
-		if (!egress.allowed) {
-			return false;
-		}
-		// Skip embeddings when offline (genuine offline detection; fallback to BM25-only).
-		if (this.privacyGate.isOffline()) {
-			return false;
-		}
-		return true;
+		// Fail-closed privacy/availability gate (pure, tested -- common/embeddingsGate.ts). Embeddings go to
+		// an opaque, unclassifiable provider, so local-only mode blocks them; offline also falls back to BM25.
+		return canUseEmbeddings({
+			hasEnabledProvider: !!this.embeddingService && this.embeddingService.isEnabled(),
+			routingPolicy: this.settingsService.state.globalSettings.routingPolicy,
+			isOffline: this.privacyGate.isOffline(),
+		});
 	}
 
 	/**

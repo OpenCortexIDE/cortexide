@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, MainOllamaEmbedParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -32,6 +32,7 @@ export interface ILLMMessageService {
 	sendLLMMessage: (params: ServiceSendLLMMessageParams) => string | null;
 	abort: (requestId: string) => void;
 	ollamaList: (params: ServiceModelListParams<OllamaModelResponse>) => void;
+	ollamaEmbed: (params: { modelName: string; input: string[] }) => Promise<number[][]>;
 	openAICompatibleList: (params: ServiceModelListParams<OpenaiCompatibleModelResponse>) => void;
 }
 
@@ -344,6 +345,23 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			requestId: requestId_,
 			localOnly,
 		} satisfies MainModelListParams<OllamaModelResponse>)
+	}
+
+	// Request-response (returns the vectors directly). Powers the local Ollama embedding provider for
+	// hybrid RAG; same loopback egress gate as ollamaList (Ollama is on-machine, allowed under local-only).
+	ollamaEmbed = async (params: { modelName: string; input: string[] }): Promise<number[][]> => {
+		const { settingsOfProvider } = this.cortexideSettingsService.state
+		const localOnly = this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only'
+		const ollamaEgress = canDispatchToProvider(localOnly, 'ollama', settingsOfProvider['ollama']?.endpoint)
+		if (!ollamaEgress.allowed) {
+			throw new Error(ollamaEgress.reason ?? 'Local-only privacy mode is on: embeddings skipped.')
+		}
+		return this.channel.call('ollamaEmbed', {
+			settingsOfProvider,
+			modelName: params.modelName,
+			input: params.input,
+			localOnly,
+		} satisfies MainOllamaEmbedParams)
 	}
 
 

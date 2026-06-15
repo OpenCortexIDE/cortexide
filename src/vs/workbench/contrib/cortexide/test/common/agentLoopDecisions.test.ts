@@ -8,6 +8,7 @@ import { suite, test } from 'mocha';
 import {
 	updateConsecutiveToolErrors,
 	shouldEscalateModel, EscalateInputs,
+	computePostEscalationCounters, EscalationResetSite,
 	decideLoopContinuation, LoopContinuationInputs,
 	classifyCompletionState, CompletionInputs,
 	computeCompactionOverflowDecision, CompactionOverflowInputs,
@@ -305,5 +306,35 @@ suite('classifyToolStepOutcome', () => {
 		const failed = all.filter(t => classifyToolStepOutcome(t) === 'failed');
 		assert.deepStrictEqual(succeeded, ['success']);
 		assert.deepStrictEqual(failed, ['tool_error']);
+	});
+});
+
+suite('computePostEscalationCounters', () => {
+	// The CONTRACT this pins: a successful mid-task escalation resets BOTH per-attempt loop counters to 0
+	// at EVERY trigger site. The bug it fixes: the two tool-error escalation sites used to reset only
+	// consecutiveToolErrors, so the fresh model inherited a spent nMessagesSent budget.
+	const ALL_SITES: EscalationResetSite[] = ['iterCap', 'toolErrorCap'];
+
+	test('every trigger site resets both nMessagesSent and consecutiveToolErrors to 0 (uniform)', () => {
+		for (const site of ALL_SITES) {
+			assert.deepStrictEqual(
+				computePostEscalationCounters(site),
+				{ nMessagesSent: 0, consecutiveToolErrors: 0 },
+				`escalation from '${site}' must grant the fresh model a clean budget`,
+			);
+		}
+	});
+
+	test('the tool-error site is NOT special-cased to skip the nMessagesSent reset (regression guard)', () => {
+		// The original divergence was exactly this: toolErrorCap kept nMessagesSent. Pin that it does not.
+		assert.strictEqual(computePostEscalationCounters('toolErrorCap').nMessagesSent, 0);
+		assert.strictEqual(computePostEscalationCounters('iterCap').nMessagesSent, 0);
+	});
+
+	test('the two sites agree (no per-site divergence)', () => {
+		assert.deepStrictEqual(
+			computePostEscalationCounters('iterCap'),
+			computePostEscalationCounters('toolErrorCap'),
+		);
 	});
 });

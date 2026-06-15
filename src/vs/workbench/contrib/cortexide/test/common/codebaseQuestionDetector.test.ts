@@ -49,4 +49,21 @@ suite('codebaseQuestionDetector', () => {
 		assert.strictEqual(looksLikeCodebaseQuestion('WHAT IS THIS CODEBASE'), true);
 		assert.strictEqual(looksLikeCodebaseQuestion('What Is The Capital Of France'), false);
 	});
+
+	// Parity with the (now-removed) inline failover-routing regex in chatThreadService: every phrasing
+	// that regex matched must still be detected here, since both paths now use this one detector.
+	test('PARITY: the phrasings the old inline failover regex matched are still detected', () => {
+		for (const m of [
+			'tell me about the codebase',
+			'explain this code base',
+			'what does the repository do',
+			'summarize the repo',
+			'describe the project',
+			'the architecture of this project',
+			'this project structure and organization',
+			'the layout of the codebase',
+		]) {
+			assert.strictEqual(looksLikeCodebaseQuestion(m), true, `should detect: ${m}`);
+		}
+	});
 });

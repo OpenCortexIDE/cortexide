@@ -8,10 +8,10 @@
 
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, } from '../common/sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, MainOllamaEmbedParams, } from '../common/sendLLMMessageTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { IMetricsService } from '../common/metricsService.js';
-import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
+import { sendLLMMessageToProviderImplementation, sendOllamaEmbed } from './llmMessage/sendLLMMessage.impl.js';
 import { canDispatchToProvider } from '../common/egressPolicy.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
@@ -81,12 +81,25 @@ export class LLMMessageChannel implements IServerChannel {
 		else if (command === 'ollamaList') {
 			this._callOllamaList(params)
 		}
+		else if (command === 'ollamaEmbed') {
+			return this._callOllamaEmbed(params)
+		}
 		else if (command === 'openAICompatibleList') {
 			this._callOpenAICompatibleList(params)
 		}
 		else {
 			throw new Error(`CortexIDE sendLLM: command "${command}" not recognized.`)
 		}
+	}
+
+	// Request-response (not streamed): local Ollama embeddings for hybrid RAG. Egress-gated defense-in-depth
+	// (the renderer already gates) so a non-loopback Ollama endpoint is refused under local-only.
+	private _callOllamaEmbed = async (params: MainOllamaEmbedParams): Promise<number[][]> => {
+		const egress = canDispatchToProvider(params.localOnly === true, 'ollama', params.settingsOfProvider?.['ollama']?.endpoint)
+		if (!egress.allowed) {
+			throw new Error(egress.reason ?? 'Local-only privacy mode is on: embeddings skipped.')
+		}
+		return sendOllamaEmbed({ settingsOfProvider: params.settingsOfProvider, modelName: params.modelName, input: params.input })
 	}
 
 	private _cleanupRequest(requestId: string) {

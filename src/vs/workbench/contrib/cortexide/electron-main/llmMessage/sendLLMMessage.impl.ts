@@ -15,10 +15,13 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId } from '../../common/providerToolFormat.js';
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
+import { computeMaxTokensForLocalProvider } from '../../common/localProviderMaxTokens.js';
+import { isLoopbackEndpoint } from '../../common/loopbackEndpoint.js';
+import { extractEmbeddingVectors } from '../../common/ollamaEmbeddings.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -111,19 +114,8 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
 const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }): Promise<OpenAI> => {
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	// Only cache for local providers
@@ -181,22 +173,6 @@ const parseHeadersJSON = (s: string | undefined): Record<string, string | null |
  * - Ctrl+K / Apply: 150-250 tokens (small edits)
  * - Other/Cloud: 300 tokens (default)
  */
-const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName: FeatureName | undefined): number => {
-	if (!isLocalProvider) {
-		return 300 // Default for cloud providers
-	}
-
-	// Infer feature from featureName or default to safe value
-	if (featureName === 'Autocomplete') {
-		return 96 // Small value for fast autocomplete
-	} else if (featureName === 'Ctrl+K' || featureName === 'Apply') {
-		return 200 // Medium value for quick edits
-	}
-
-	// Default for local providers when featureName is unknown
-	return 300
-}
-
 const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
 	// Network optimizations: timeouts and connection reuse
 	// The OpenAI SDK handles HTTP keep-alive and connection pooling internally
@@ -204,21 +180,8 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 
 	// Detect local providers: explicit local providers + localhost endpoints
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	const timeoutMs = isLocalProvider ? 30_000 : 60_000 // 30s for local, 60s for remote
@@ -357,21 +320,8 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	// Detect if this is a local provider for streaming optimization
 	// Note: vLLM and lmStudio don't support FIM, so we only check for ollama here
 	const isExplicitLocalProvider = providerName === 'ollama'
-	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				// Use proper URL parsing to check hostname (not substring matching)
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				// Invalid URL - assume non-local (safe default)
-				isLocalhostEndpoint = false
-			}
-		}
-	}
+	const isLocalhostEndpoint = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 
 	// Check FIM support - only allow if model explicitly supports it OR if it's a provider that supports FIM
@@ -556,19 +506,8 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 
 	// Detect if this is a local provider for timeout optimization
 	const isExplicitLocalProviderChat = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	let isLocalhostEndpointChat = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				isLocalhostEndpointChat = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				isLocalhostEndpointChat = false
-			}
-		}
-	}
+	const isLocalhostEndpointChat = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
 	const isLocalChat = isExplicitLocalProviderChat || isLocalhostEndpointChat
 
 	// Helper function to process streaming response
@@ -703,20 +642,18 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 
 	// Helper function to process non-streaming response
 	const processNonStreamingResponse = async (response: any) => {
-		const choice = response.choices[0]
-		if (!choice) {
+		const extracted = extractToolCallFromNonStreamingChoice(response.choices[0])
+		if (extracted.empty) {
 			onError({ message: 'CortexIDE: Response from model was empty.', fullError: null })
 			return
 		}
 
-		const fullText = choice.message?.content ?? ''
-		const toolCalls = choice.message?.tool_calls ?? []
-
-		if (toolCalls.length > 0) {
-			const toolCall = toolCalls[0]
-			toolName = toolCall.function?.name ?? ''
-			toolParamsStr = toolCall.function?.arguments ?? ''
-			toolId = toolCall.id ?? ''
+		const fullText = extracted.fullText
+		// only overwrite the tool vars when THIS response has a tool call (same guard as before)
+		if (extracted.hasToolCall) {
+			toolName = extracted.toolName
+			toolParamsStr = extracted.toolParamsStr
+			toolId = extracted.toolId
 		}
 
 		// Call onText once with full text
@@ -944,8 +881,7 @@ const _openaiCompatibleList = async ({ onSuccess: onSuccess_, onError: onError_,
 // ------------ ANTHROPIC (HELPERS) ------------
 const toAnthropicTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	const paramsWithType = buildTypedToolProperties(params)
 	return {
 		name: name,
 		description: description,
@@ -1056,7 +992,10 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 				runOnText()
 			}
 			else if (e.content_block.type === 'tool_use') {
-				fullToolName += e.content_block.name ?? '' // anthropic gives us the tool name in the start block
+				// Keep only the FIRST tool_use block's name: the agent loop runs one tool per turn and
+				// finalMessage (below) uses tools[0], so `+=` concatenated parallel tool names into garbage
+				// like "read_filelist_dir" in the streamed toolCall.
+				if (!fullToolName) fullToolName = e.content_block.name ?? '' // anthropic gives us the tool name in the start block
 				runOnText()
 			}
 		}
@@ -1219,6 +1158,19 @@ const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, 
  * happens downstream in chatThreadService (the JSON-in-text parser). We stream content, split out
  * <think> reasoning the same way, and apply first-token + rolling-stall timeouts for local UX.
  */
+/**
+ * Local embedding vectors via Ollama (powers hybrid RAG). Runs in electron-main because the renderer
+ * cannot reach the Ollama endpoint. Ollama is loopback, so embeddings stay on-machine; the renderer
+ * gates this under the local-only egress policy before calling. Returns one vector per input string;
+ * extractEmbeddingVectors throws on a malformed/ragged response so retrieval never gets garbage.
+ */
+export const sendOllamaEmbed = async ({ settingsOfProvider, modelName, input }: { settingsOfProvider: SettingsOfProvider, modelName: string, input: string[] }): Promise<number[][]> => {
+	const thisConfig = settingsOfProvider.ollama
+	const ollama = getOllamaClient({ endpoint: thisConfig.endpoint })
+	const res = await ollama.embed({ model: modelName, input })
+	return extractEmbeddingVectors(res, input.length)
+}
+
 const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, overridesOfModel, chatMode, mcpTools }: SendChatParams_Internal) => {
 	const thisConfig = settingsOfProvider.ollama
 	const { modelName, contextWindow, reasoningCapabilities } = getModelCapabilities('ollama', modelName_, overridesOfModel)
@@ -1325,18 +1277,17 @@ const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, setti
 
 const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
+	// Same typed-properties core as the other providers, mapped to the Gemini SDK's Type.STRING at this boundary.
+	const properties = Object.entries(buildTypedToolProperties(params)).reduce((acc, [key, value]) => {
+		acc[key] = { type: Type.STRING, description: value.description };
+		return acc;
+	}, {} as Record<string, Schema>)
 	return {
 		name,
 		description,
 		parameters: {
 			type: Type.OBJECT,
-			properties: Object.entries(params).reduce((acc, [key, value]) => {
-				acc[key] = {
-					type: Type.STRING,
-					description: value.description
-				};
-				return acc;
-			}, {} as Record<string, Schema>)
+			properties,
 		}
 	} satisfies FunctionDeclaration
 }
@@ -1431,20 +1382,13 @@ const sendGeminiChat = async ({
 		.then(async (stream) => {
 			_setAborter(() => { stream.return(fullTextSoFar); });
 
-			// Process the stream
+			// Process the stream (pure per-chunk reducer: text appends, functionCall REPLACES -- last wins)
 			for await (const chunk of stream) {
-				// message
-				const newText = chunk.text ?? ''
-				fullTextSoFar += newText
-
-				// tool call
-				const functionCalls = chunk.functionCalls
-				if (functionCalls && functionCalls.length > 0) {
-					const functionCall = functionCalls[0] // Get the first function call
-					toolName = functionCall.name ?? ''
-					toolParamsStr = JSON.stringify(functionCall.args ?? {})
-					toolId = functionCall.id ?? ''
-				}
+				const next = reduceGeminiChunk({ fullTextSoFar, toolName, toolParamsStr, toolId }, chunk)
+				fullTextSoFar = next.fullTextSoFar
+				toolName = next.toolName
+				toolParamsStr = next.toolParamsStr
+				toolId = next.toolId
 
 				// (do not handle reasoning yet)
 
@@ -1460,7 +1404,7 @@ const sendGeminiChat = async ({
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 				onError({ message: 'CortexIDE: Response from model was empty.', fullError: null })
 			} else {
-				if (!toolId) toolId = generateUuid() // ids are empty, but other providers might expect an id
+				toolId = finalizeGeminiToolId(toolId, generateUuid) // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
 				const toolCallObj = toolCall ? { toolCall } : {}
 				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });

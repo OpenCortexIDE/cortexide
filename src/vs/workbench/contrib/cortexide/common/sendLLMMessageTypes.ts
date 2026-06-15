@@ -224,6 +224,9 @@ export type ServiceModelListParams<modelResponse> = {
 type BlockedMainModelListParams = 'onSuccess' | 'onError'
 export type MainModelListParams<modelResponse> = Omit<ModelListParams<modelResponse>, BlockedMainModelListParams> & { providerName: RefreshableProviderName, requestId: string, localOnly?: boolean }
 
+/** Request-response params for a local Ollama embedding call (renderer -> electron-main channel). */
+export type MainOllamaEmbedParams = { settingsOfProvider: SettingsOfProvider; modelName: string; input: string[]; localOnly?: boolean }
+
 export type EventModelListOnSuccessParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onSuccess']>[0] & { requestId: string }
 export type EventModelListOnErrorParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onError']>[0] & { requestId: string }
 

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { planSnapshot } from './snapshotBudget.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -77,10 +78,8 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 		}
 
 		const snapshotId = `snapshot-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-		const fileSnapshots: FileSnapshot[] = [];
-		let totalBytes = 0;
-		let skipped = false;
-
+		// Read each file's current content (dirty buffer first, else disk), then apply the byte budget.
+		const readFiles: FileSnapshot[] = [];
 		for (const filePath of files) {
 			const uri = URI.file(filePath);
 			try {
@@ -106,26 +105,26 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 					modelRef.dispose();
 				}
 
-				const fileBytes = new TextEncoder().encode(content).length;
-				if (totalBytes + fileBytes > this._maxSnapshotBytes) {
-					skipped = true;
-					this._logService.warn(`[RollbackSnapshot] Snapshot exceeded max size, skipping remaining files`);
-					break;
-				}
-
-				fileSnapshots.push({ path: filePath, content, mtime });
-				totalBytes += fileBytes;
+				readFiles.push({ path: filePath, content, mtime });
 			} catch (error) {
 				this._logService.warn(`[RollbackSnapshot] Failed to snapshot ${filePath}:`, error);
 				// Continue with other files
 			}
 		}
 
+		// Greedy byte budget (pure, tested -- common/snapshotBudget.ts): include files in order until one
+		// would exceed maxSnapshotBytes, then skip the rest. The included set + skipped flag are identical
+		// to the old streaming loop (only difference: a past-budget file may have been read before exclusion).
+		const plan = planSnapshot(readFiles, this._maxSnapshotBytes);
+		if (plan.skipped) {
+			this._logService.warn(`[RollbackSnapshot] Snapshot exceeded max size, skipping remaining files`);
+		}
+
 		const snapshot: Snapshot = {
 			id: snapshotId,
 			createdAt: Date.now(),
-			files: fileSnapshots,
-			skipped,
+			files: plan.included,
+			skipped: plan.skipped,
 		};
 
 		this._snapshots.set(snapshotId, snapshot);
@@ -136,12 +135,12 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 			await this._auditLogService.append({
 				ts: Date.now(),
 				action: 'snapshot:create',
-				files: fileSnapshots.map(f => f.path),
+				files: plan.included.map(f => f.path),
 				ok: true,
 				meta: {
 					snapshotId,
-					bytes: totalBytes,
-					skipped,
+					bytes: plan.totalBytes,
+					skipped: plan.skipped,
 				},
 			});
 		}

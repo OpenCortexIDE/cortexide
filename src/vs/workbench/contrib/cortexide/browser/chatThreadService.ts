@@ -14,14 +14,16 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames } from '../common/cortexideSettingsTypes.js';
+import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames, isAutoModelSelection } from '../common/cortexideSettingsTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ICortexideAgentsService, resolveAgentModelSelection } from '../common/cortexideAgentsService.js';
+import { ICortexideSkillsService, parseSkillInvocation, buildSkillInvocationMessage } from '../common/cortexideSkillsService.js';
 import { ICortexideHooksService } from './cortexideHooksService.js';
 import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { decideAutoApprove } from '../common/autoApprovePolicy.js';
 import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IToolsService } from './toolsService.js';
@@ -29,7 +31,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, computePostEscalationCounters, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
@@ -360,6 +362,11 @@ export interface IChatThreadService {
 	/** R7: start a top-level agent on a hidden thread that runs WITHOUT blocking the active chat.
 	 *  Tracked in IBackgroundAgentsService (the "Running agents" panel). Returns the hidden threadId. */
 	startBackgroundAgent(description: string, prompt: string): Promise<string>;
+	/** Phase 6 (Skills): if `input` is a `/<skill-name> [args]` invocation matching a discovered
+	 *  `.cortexide/skills/<name>/SKILL.md`, return the expanded chat message; otherwise null. */
+	getSkillExpansion(input: string): string | null;
+	/** Phase 6 (Skills): names of the currently-discovered skills (for slash-command discoverability). */
+	listSkillNames(): string[];
 	dismissStreamError(threadId: string): void;
 
 	// call to edit a message
@@ -460,6 +467,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ICortexideAgentsService private readonly _agentsService: ICortexideAgentsService,
+		@ICortexideSkillsService private readonly _skillsService: ICortexideSkillsService,
 		@ICortexideHooksService private readonly _hooksService: ICortexideHooksService,
 		@IBackgroundAgentsService private readonly _backgroundAgentsService: IBackgroundAgentsService,
 		@IWorkspaceTrustManagementService private readonly _workspaceTrustService: IWorkspaceTrustManagementService,
@@ -2426,121 +2434,104 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Check YOLO mode for NL shell commands
 				const isNLCommand = isBuiltInTool && toolName === 'run_nl_command';
 
-				// Check if auto-approve is explicitly enabled for this approval type
-				// Default to true for 'edits' if not explicitly set (backward compatible)
-				let shouldAutoApprove = this._settingsService.state.globalSettings.autoApprove[approvalType];
-				// If autoApprove is undefined for 'edits', default to true (basic operations should work by default)
-				if (approvalType === 'edits' && shouldAutoApprove === undefined) {
-					shouldAutoApprove = true;
-				}
+				// Compute the scalar inputs the pure auto-approve policy needs, in the original order
+				// (terminal command risk -> cwd containment -> YOLO NL heuristic -> edit risk scoring), then
+				// make ONE decision via the tested common/autoApprovePolicy.decideAutoApprove. Side effects
+				// (telemetry, the hard-block message, the auto-apply notification) stay here and are gated on
+				// the decision's per-rule flags, so they fire exactly as the old inline code did.
 
-				// Phase 1: terminal command risk gate. Previously _detectCommandDanger only fired a
-				// non-blocking notification, so with autoApprove.terminal=true a destructive command ran
-				// anyway. Now: a DANGEROUS command can never be auto-approved (force explicit approval,
-				// mirroring the HIGH-risk-edit override), and a CATASTROPHIC command is refused outright.
-				// Applies to run_command / run_persistent_command (run_nl_command is parsed later).
+				// (a) terminal command risk + cwd containment (run_command / run_persistent_command).
+				let commandRisk: ReturnType<typeof classifyCommandRisk> | undefined;
+				let cwdEscapes = false;
 				if (approvalType === 'terminal' && isBuiltInTool && (toolName === 'run_command' || toolName === 'run_persistent_command')) {
 					const command = (toolParams as BuiltinToolCallParams['run_command'] | BuiltinToolCallParams['run_persistent_command']).command;
 					if (typeof command === 'string' && command.trim()) {
-						const risk = classifyCommandRisk(command);
-						if (risk.hardBlock) {
-							this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: risk.categories.join(',') });
-							this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${risk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
-							return {};
-						}
-						if (risk.requiresApproval && shouldAutoApprove) {
-							// A dangerous command can never be auto-approved — force explicit user approval.
-							shouldAutoApprove = false;
-							this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: risk.categories.join(',') });
-						}
+						commandRisk = classifyCommandRisk(command);
 					}
-					// cwd containment: a command whose working directory escapes the workspace must not
-					// auto-run — force explicit approval (the model can't silently `cwd: '/etc'`).
 					const cwd = (toolParams as BuiltinToolCallParams['run_command']).cwd ?? null;
-					if (shouldAutoApprove && cwd) {
+					if (cwd) {
 						const workspaceFsPaths = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-						if (cwdEscapesWorkspace(cwd, workspaceFsPaths)) {
-							shouldAutoApprove = false;
-							this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
-						}
+						cwdEscapes = cwdEscapesWorkspace(cwd, workspaceFsPaths);
 					}
 				}
-				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
 
-				// If YOLO mode is enabled and this is an NL command, check if it's safe
+				// (b) YOLO natural-language-command safe heuristic.
+				let nlInput: string | undefined;
+				let nlCommandYoloSafe = false;
 				if (isNLCommand && this._settingsService.state.globalSettings.enableYOLOMode) {
 					try {
 						const nlParams = toolParams as BuiltinToolCallParams['run_nl_command'];
-						const nlInput = nlParams.nlInput.toLowerCase();
-
+						nlInput = nlParams.nlInput.toLowerCase();
 						// Simple heuristics for safe commands (read-only, informational)
 						const safePatterns = ['list', 'show', 'check', 'status', 'get', 'display', 'print', 'view', 'read', 'cat', 'ls', 'pwd', 'whoami', 'date', 'time'];
 						const dangerousPatterns = ['delete', 'remove', 'rm', 'kill', 'destroy', 'format', 'reset', 'clear', 'drop', 'truncate', 'sudo', 'chmod', 'chown'];
-
-						const isSafe = safePatterns.some(pattern => nlInput.includes(pattern)) &&
-							!dangerousPatterns.some(pattern => nlInput.includes(pattern));
-
-						if (isSafe) {
-							shouldAutoApprove = true;
-							// Track YOLO auto-approval metric
-							this._metricsService.capture('yolo_auto_approved', {
-								operation: toolName,
-								nlInput: nlInput.substring(0, 50), // Truncate for privacy
-							});
-						}
+						nlCommandYoloSafe = safePatterns.some(pattern => nlInput!.includes(pattern)) &&
+							!dangerousPatterns.some(pattern => nlInput!.includes(pattern));
 					} catch (error) {
 						// If check fails, fall back to normal approval flow
 						console.debug('[ChatThreadService] NL command safety check failed, using normal approval:', error);
 					}
 				}
 
-				// If this is an edit operation, score the risk (for both YOLO mode and to respect autoApprove safely)
+				// (c) edit risk scoring (always runs for edit ops; failure falls back to normal approval).
+				let riskScore: { riskScore: number; confidenceScore: number; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; riskFactors: string[]; confidenceFactors: string[] } | undefined;
+				let editContextForNotification: EditContext | undefined;
+				const yoloEnabled = this._settingsService.state.globalSettings.enableYOLOMode === true;
+				const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
+				const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
 				if (isEditOperation) {
 					try {
-						const editContext = await this._buildEditContext(toolName, toolParams, threadId);
-						riskScore = await this._editRiskScoringService.scoreEdit(editContext);
-
-						// If autoApprove is enabled, respect it for LOW and MEDIUM risk operations
-						// Only block HIGH risk operations even when autoApprove is true (safety)
-						if (shouldAutoApprove && riskScore.riskLevel === 'HIGH') {
-							// High-risk edits always require approval, even if autoApprove is true
-							shouldAutoApprove = false;
-							// Track high-risk blocked metric
-							this._metricsService.capture('high_risk_blocked_despite_autoapprove', {
-								riskScore: riskScore.riskScore,
-								confidenceScore: riskScore.confidenceScore,
-								operation: toolName,
-							});
-						}
-
-						// If YOLO mode is enabled, use risk thresholds for additional auto-approval
-						if (this._settingsService.state.globalSettings.enableYOLOMode) {
-							const yoloRiskThreshold = this._settingsService.state.globalSettings.yoloRiskThreshold ?? 0.2;
-							const yoloConfidenceThreshold = this._settingsService.state.globalSettings.yoloConfidenceThreshold ?? 0.7;
-
-							// Auto-approve if risk is low and confidence is high (even if autoApprove wasn't explicitly set)
-							if (riskScore.riskScore < yoloRiskThreshold && riskScore.confidenceScore > yoloConfidenceThreshold) {
-								shouldAutoApprove = true;
-								// Track YOLO auto-approval metric
-								this._metricsService.capture('yolo_auto_approved', {
-									riskScore: riskScore.riskScore,
-									confidenceScore: riskScore.confidenceScore,
-									riskLevel: riskScore.riskLevel,
-									operation: toolName,
-								});
-
-								// Show non-intrusive notification for medium-risk auto-applies (not very low risk)
-								// Very low risk (< 0.1) edits are silent to avoid notification fatigue
-								if (riskScore.riskScore >= 0.1) {
-									this._showAutoApplyNotification(editContext, riskScore, toolName);
-								}
-							}
-						}
+						editContextForNotification = await this._buildEditContext(toolName, toolParams, threadId);
+						riskScore = await this._editRiskScoringService.scoreEdit(editContextForNotification);
 					} catch (error) {
-						// If risk scoring fails, fall back to normal approval flow
-						// If autoApprove was already true, keep it true (don't block due to scoring failure)
+						// If risk scoring fails, fall back to normal approval flow (don't block on scoring failure).
 						console.debug('[ChatThreadService] Risk scoring failed, using normal approval:', error);
 					}
+				}
+
+				// (d) THE auto-approve decision (pure, tested -- common/autoApprovePolicy.ts).
+				const autoApproveDecision = decideAutoApprove({
+					approvalType,
+					autoApproveSetting: this._settingsService.state.globalSettings.autoApprove[approvalType],
+					isEditOperation,
+					commandRisk: commandRisk ? { hardBlock: commandRisk.hardBlock, requiresApproval: commandRisk.requiresApproval } : undefined,
+					cwdEscapes,
+					nlCommandYoloSafe,
+					editRisk: riskScore ? { riskLevel: riskScore.riskLevel, riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore } : undefined,
+					yolo: { enabled: yoloEnabled, riskThreshold: yoloRiskThreshold, confidenceThreshold: yoloConfidenceThreshold },
+				});
+
+				// (e) side effects, gated on the decision's per-rule flags (telemetry parity with the old code).
+				if (autoApproveDecision.outcome === 'hard-block' && commandRisk) {
+					this._metricsService.capture('dangerous_command_hard_blocked', { toolName, categories: commandRisk.categories.join(',') });
+					this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content: `Blocked: refusing to run a catastrophic command (${commandRisk.reason ?? 'irreversible system damage'}). If you genuinely intend this, run it yourself in a terminal.`, id: toolId, mcpServerName });
+					return {};
+				}
+				// The terminal-command telemetry was NOT inside a try/catch in the old code, so let it propagate.
+				if (autoApproveDecision.dangerousCommandForcedApproval && commandRisk) {
+					this._metricsService.capture('dangerous_command_requires_approval', { toolName, categories: commandRisk.categories.join(',') });
+				}
+				if (autoApproveDecision.cwdEscapeForcedApproval) {
+					this._metricsService.capture('terminal_cwd_outside_workspace_requires_approval', { toolName });
+				}
+				// The NL-command + edit telemetry/notification WERE inside the scoring try/catch in the old code
+				// (a throw was swallowed + logged, and the run continued); preserve that exact swallow semantics.
+				try {
+					if (autoApproveDecision.yoloNlAutoApproved) {
+						this._metricsService.capture('yolo_auto_approved', { operation: toolName, nlInput: (nlInput ?? '').substring(0, 50) });
+					}
+					if (autoApproveDecision.highRiskBlockedDespiteAutoApprove && riskScore) {
+						this._metricsService.capture('high_risk_blocked_despite_autoapprove', { riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore, operation: toolName });
+					}
+					if (autoApproveDecision.yoloEditAutoApproved && riskScore) {
+						this._metricsService.capture('yolo_auto_approved', { riskScore: riskScore.riskScore, confidenceScore: riskScore.confidenceScore, riskLevel: riskScore.riskLevel, operation: toolName });
+						// Very low risk (< 0.1) edits are silent to avoid notification fatigue.
+						if (riskScore.riskScore >= 0.1 && editContextForNotification) {
+							this._showAutoApplyNotification(editContextForNotification, riskScore, toolName);
+						}
+					}
+				} catch (error) {
+					console.debug('[ChatThreadService] auto-approve telemetry/notification failed (non-fatal):', error);
 				}
 
 				// add a tool_request because we use it for UI if a tool is loading (this should be improved in the future)
@@ -2559,7 +2550,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					mcpServerName
 				});
 
-				if (!shouldAutoApprove) {
+				if (autoApproveDecision.outcome === 'require-approval') {
 					return { awaitingUserApproval: true }
 				}
 			}
@@ -3135,9 +3126,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._backgroundAgentsService.setStatus(childId, 'error', { error: getErrorMessage(e), endTime: Date.now() })
 				this._notificationService.warn(`Background agent failed: ${description} — ${getErrorMessage(e)}`)
 			}
+		}).finally(() => {
+			// Drop the hidden thread now that the run has settled and its summary is captured in the agent
+			// record. The thread is in-memory only (never persisted / in openTabs) and the Running-agents
+			// panel renders the record's resultSummary, never the thread, so nothing inspects it after this.
+			// Without this, every background agent leaves a thread object in allThreads forever.
+			if (this.state.allThreads[childId]) {
+				const next = { ...this.state.allThreads }
+				delete next[childId]
+				this._setState({ allThreads: next })
+			}
 		})
 
 		return childId
+	}
+
+	/** Phase 6 (Skills): expand a `/<skill-name> [args]` invocation into the skill's instructions, or
+	 *  null when the input isn't a slash invocation or names no discovered skill. Pure lookup -- the
+	 *  caller (the chat input's slash-command handler) submits the returned string as a normal turn. */
+	getSkillExpansion(input: string): string | null {
+		const invocation = parseSkillInvocation(input)
+		if (!invocation) { return null }
+		const skill = this._skillsService.getSkill(invocation.name)
+		if (!skill) { return null }
+		return buildSkillInvocationMessage(skill, invocation.args)
+	}
+
+	listSkillNames(): string[] {
+		return this._skillsService.skills.map(s => s.name)
 	}
 
 	private async _runChatAgent({
@@ -3533,8 +3549,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					nAttempts: 0, CHAT_RETRIES,
 				})
 				if (escDec.shouldCallEscalate && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
-					nMessagesSent = 0
-					consecutiveToolErrors = 0
+					// Escalation gives the fresh model a clean budget (both loop counters reset). Centralized
+					// so every escalation site -- including the tool-error sites below -- resets uniformly.
+					const reset = computePostEscalationCounters('iterCap')
+					nMessagesSent = reset.nMessagesSent
+					consecutiveToolErrors = reset.consecutiveToolErrors
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 					continue
 				}
@@ -3882,9 +3901,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Store original routing decision for fallback chain (only in auto mode)
 			let originalRoutingDecision: RoutingDecision | null = null
 			// Track if we're in auto mode (user selected "auto")
-			const isAutoMode = !modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') ||
-				(this._settingsService.state.modelSelectionOfFeature['Chat']?.providerName === 'auto' &&
-					this._settingsService.state.modelSelectionOfFeature['Chat']?.modelName === 'auto')
+			const isAutoMode = !modelSelection || isAutoModelSelection(modelSelection) ||
+				isAutoModelSelection(this._settingsService.state.modelSelectionOfFeature['Chat'])
 
 			// If in auto mode and we have a model selection, try to get the routing decision for fallback chain
 			if (isAutoMode && modelSelection && modelSelection.providerName !== 'auto') {
@@ -4138,6 +4156,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatLatencyAudit.markNetworkEnd(finalRequestId)
 						// Mark stream as complete with 0 tokens on error
 						chatLatencyAudit.markStreamComplete(finalRequestId, 0)
+						// Release the context, else it (and the 60Hz render-monitor interval) leaks on every
+						// errored request. A retry/fallover re-arms a fresh context under the same finalRequestId
+						// before its next attempt, so this is safe even when the loop is about to retry.
+						chatLatencyAudit.releaseContext(finalRequestId)
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
 						this._setStreamState(threadId, { isRunning: undefined, error })
@@ -4163,6 +4185,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
+						// Abort is terminal for this request: release the context so the 60Hz render-monitor can stop.
+						chatLatencyAudit.releaseContext(finalRequestId)
 						resMessageIsDonePromise({ type: 'llmAborted' })
 						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, chatMode })
 					},
@@ -4215,9 +4239,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								const hasImages = originalUserMessage.images && originalUserMessage.images.length > 0
 								const hasPDFs = originalUserMessage.pdfs && originalUserMessage.pdfs.length > 0
 								const hasCode = this._detectCodeInMessage(originalUserMessage.content)
-								const lowerMessage = originalUserMessage.content.toLowerCase().trim()
-								const isCodebaseQuestion = /\b(codebase|code base|repository|repo|project)\b/.test(lowerMessage) ||
-									/\b(architecture|structure|organization|layout)\b.*\b(project|codebase|repo|code)\b/.test(lowerMessage)
+								// Use the SAME tested detector as the initial routing (line ~764) so failover routing
+								// agrees with it. The previous inline regex had drifted to a narrower subset of these patterns.
+								const isCodebaseQuestion = looksLikeCodebaseQuestion(originalUserMessage.content)
 								const requiresComplexReasoning = isCodebaseQuestion
 								const isLongMessage = originalUserMessage.content.length > 500
 
@@ -4355,11 +4379,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								// Type assertion is safe because nextModel is not "auto" (it came from fallback chain)
 								const nextProviderName = nextModel.providerName as Exclude<typeof nextModel.providerName, 'auto'>
 								resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[nextProviderName]?.[nextModel.modelName]
-								// Update request ID for new model
-								const newRequestId = generateUuid()
-								chatLatencyAudit.startRequest(newRequestId, nextModel.providerName, nextModel.modelName)
-								chatLatencyAudit.markRouterStart(newRequestId)
-								chatLatencyAudit.markRouterEnd(newRequestId)
+								// Re-arm the latency context for the next attempt. The retry loop keeps using
+								// finalRequestId (it is `const`, declared before the loop), so the context must be
+								// started under THAT id. The previous code started a throwaway newRequestId the retry
+								// never used, orphaning a context (and its 60Hz interval) that was never released.
+								chatLatencyAudit.startRequest(finalRequestId, nextModel.providerName, nextModel.modelName)
+								chatLatencyAudit.markRouterStart(finalRequestId)
+								chatLatencyAudit.markRouterEnd(finalRequestId)
 								// Reset attempt counter for new model (but keep triedModels to avoid retrying same model)
 								nAttempts = 0
 								shouldRetryLLM = true
@@ -4720,7 +4746,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					consecutiveToolErrors += 1
 					if (consecutiveToolErrors >= maxConsecutiveToolErrors) {
 						if (await tryEscalateModel(`the previous model emitted ${consecutiveToolErrors} unparseable tool calls in a row`)) {
-							consecutiveToolErrors = 0
+							// Match the iter-cap escalation: the fresh model gets a clean budget -- reset BOTH loop
+							// counters (previously only consecutiveToolErrors reset, so the new model inherited a spent
+							// iteration budget and could hit the iteration cap before finishing).
+							const reset = computePostEscalationCounters('toolErrorCap')
+							nMessagesSent = reset.nMessagesSent
+							consecutiveToolErrors = reset.consecutiveToolErrors
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}
@@ -4838,7 +4869,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// names, writes empty files, never converges). Escalate to a more capable model and let it
 						// recover the SAME task — it sees the failed attempts in history and corrects.
 						if (await tryEscalateModel(`the previous model failed ${consecutiveToolErrors} tool calls in a row`)) {
-							consecutiveToolErrors = 0
+							// Match the iter-cap escalation: the fresh model gets a clean budget -- reset BOTH loop
+							// counters (previously only consecutiveToolErrors reset, so the new model inherited a spent
+							// iteration budget and could hit the iteration cap before finishing).
+							const reset = computePostEscalationCounters('toolErrorCap')
+							nMessagesSent = reset.nMessagesSent
+							consecutiveToolErrors = reset.consecutiveToolErrors
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}
@@ -5581,7 +5617,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Check if user selected "Auto" mode
 		const userModelSelection = this._currentModelSelectionProps().modelSelection
-		const isAutoMode = userModelSelection?.providerName === 'auto' && userModelSelection?.modelName === 'auto'
+		const isAutoMode = isAutoModelSelection(userModelSelection)
 
 		// Auto-select model based on task context if in auto mode, otherwise use user's selection
 		// Generate requestId early for router tracking in auto mode, then reuse it in _runChatAgent

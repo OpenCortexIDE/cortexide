@@ -13,7 +13,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, removeMCPToolNamePrefix } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, removeMCPToolNamePrefix, mcpToolNamePrefix } from '../common/mcpServiceTypes.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { MCPUserStateOfName } from '../common/cortexideSettingsTypes.js';
@@ -209,7 +209,7 @@ export class MCPChannel implements IServerChannel {
 					await client.connect(transport);
 					console.log(`Connected via SSE to ${serverName}`);
 					const { tools } = await client.listTools()
-					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: toolsWithUniqueName,
@@ -226,7 +226,7 @@ export class MCPChannel implements IServerChannel {
 					await client.connect(transport);
 					console.log(`Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools()
-					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: toolsWithUniqueName,
@@ -243,7 +243,7 @@ export class MCPChannel implements IServerChannel {
 					await client.connect(transport);
 					console.log(`Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools()
-					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: toolsWithUniqueName,
@@ -254,7 +254,7 @@ export class MCPChannel implements IServerChannel {
 					transport = new SSEClientTransport(url);
 					await client.connect(transport);
 					const { tools } = await client.listTools()
-					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+					const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 					console.log(`Connected via SSE to ${serverName}`);
 					info = {
 						status: isOn ? 'success' : 'offline',
@@ -279,7 +279,7 @@ export class MCPChannel implements IServerChannel {
 
 			// Get the tools from the server
 			const { tools } = await client.listTools()
-			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 
 			// Create a full command string for display
 			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`
@@ -299,8 +299,11 @@ export class MCPChannel implements IServerChannel {
 		return { _client: client, mcpServerEntryJSON: server, mcpServer: info }
 	}
 
-	private _addUniquePrefix(base: string) {
-		return `${Math.random().toString(36).slice(2, 8)}_${base}`;
+	private _addUniquePrefix(serverName: string, base: string) {
+		// Deterministic per-server prefix (was Math.random, which gave every tool a different prefix that
+		// also changed on every reconnect). mcpToolNamePrefix is stable + '_'-free so removeMCPToolNamePrefix
+		// strips it cleanly, and routing uses the separate serverName, not the prefix.
+		return `${mcpToolNamePrefix(serverName)}_${base}`;
 	}
 
 	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {

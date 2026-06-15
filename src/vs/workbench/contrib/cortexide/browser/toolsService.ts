@@ -24,7 +24,8 @@ import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/com
 import { timeout } from '../../../../base/common/async.js'
 import { diffDiagnostics, VerificationDiagnostic } from '../common/applyVerification.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
-import { DIVIDER, FINAL, MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, ORIGINAL } from '../common/prompt/prompts.js'
+import { computeMultiEditResult } from '../common/multiEdit.js'
+import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
 import { INotificationService } from '../../../../platform/notification/common/notification.js'
@@ -757,9 +758,16 @@ export class ToolsService implements IToolsService {
 				if (!isRegex && searchInFolder === null) {
 					try {
 						const k = MAX_CHILDREN_URIs_PAGE * pageNumber
-						const results = await this.repoIndexerService.query(queryStr, k)
+						const results = await this.repoIndexerService.queryStructured(queryStr, k)
 						if (results && results.length) {
-							indexedUris = results.map(p => URI.file(p))
+							// Dedupe by file path -- a file can match via multiple chunks/symbols.
+							const seen = new Set<string>()
+							indexedUris = []
+							for (const r of results) {
+								if (seen.has(r.uri)) { continue }
+								seen.add(r.uri)
+								indexedUris.push(URI.file(r.uri))
+							}
 						}
 					} catch { /* ignore and fall back */ }
 				}
@@ -1767,36 +1775,26 @@ export class ToolsService implements IToolsService {
 					throw new Error(`Cannot edit file ${uri.fsPath}: another operation is currently streaming changes to this file.`);
 				}
 
-				// Pre-check: every old_string must appear at least once in the file content.
-				// This makes the operation atomic — if any block won't match, we don't apply ANY of them.
+				// Apply all edits SEQUENTIALLY (each sees the prior edits' results) as one atomic
+				// transaction. computeMultiEditResult validates + rewrites a local copy and only returns
+				// ok when EVERY edit applied, so a non-ok result throws BEFORE any write -- the file is
+				// never left partially edited. This is also what makes replace_all work: the old approach
+				// expanded it into N identical Search/Replace blocks, which the span engine rejected as
+				// 'Not unique'/'Has overlap', so replace_all was dead for the multi-occurrence case it exists for.
 				const content = model.getValue(EndOfLinePreference.LF);
-				for (let i = 0; i < edits.length; i++) {
-					if (!content.includes(edits[i].oldString)) {
-						const preview = edits[i].oldString.length > 80
-							? edits[i].oldString.slice(0, 80) + '…'
-							: edits[i].oldString;
-						throw new Error(`multi_edit: edits[${i}] old_string not found in ${uri.fsPath}. No edits applied. Search snippet: ${JSON.stringify(preview)}`);
-					}
+				const editResult = computeMultiEditResult(content, edits);
+				if (!editResult.ok) {
+					const failed = edits[editResult.editIndex].oldString;
+					const preview = failed.length > 80 ? failed.slice(0, 80) + '...' : failed;
+					const hint = editResult.reason === 'Not unique'
+						? `old_string is not unique in the file as it stands after the preceding edits -- add surrounding context to disambiguate, or set replace_all=true.`
+						: `old_string not found in the file as it stands after the preceding edits.`;
+					throw new Error(`multi_edit: edits[${editResult.editIndex}] ${editResult.reason}. ${hint} No edits applied. Search snippet: ${JSON.stringify(preview)}`);
 				}
-
-				// Build a single SEARCH/REPLACE-blocks string from all edits. For replaceAll=true edits,
-				// emit one block per occurrence so the existing apply engine handles each match.
-				const blocks: string[] = [];
-				for (const edit of edits) {
-					if (edit.replaceAll) {
-						const occurrences = content.split(edit.oldString).length - 1;
-						for (let n = 0; n < occurrences; n++) {
-							blocks.push(`${ORIGINAL}\n${edit.oldString}\n${DIVIDER}\n${edit.newString}\n${FINAL}`);
-						}
-					} else {
-						blocks.push(`${ORIGINAL}\n${edit.oldString}\n${DIVIDER}\n${edit.newString}\n${FINAL}`);
-					}
-				}
-				const searchReplaceBlocks = blocks.join('\n\n');
 
 				const beforeDiags = this._readVerificationDiagnostics(uri);
 				await editCodeService.callBeforeApplyOrEdit(uri);
-				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks });
+				editCodeService.instantlyRewriteFile({ uri, newContent: editResult.newContent });
 
 				const appliedCount = edits.length;
 				// Apply verification: surface ONLY the problems this edit introduced, after settle.

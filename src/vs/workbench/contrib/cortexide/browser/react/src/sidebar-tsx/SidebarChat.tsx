@@ -4176,7 +4176,7 @@ export const SidebarChat = () => {
 		const threadId = currentThread.id
 
 		// send message to LLM
-		const userMessage = _forceSubmit || textAreaRef.current?.value || ''
+		let userMessage = _forceSubmit || textAreaRef.current?.value || ''
 
 		// allow-any-unicode-next-line
 		// ── Slash commands ────────────────────────────────────────────────────────
@@ -4204,17 +4204,30 @@ export const SidebarChat = () => {
 					clearInput()
 					commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID)
 					return
-				case 'help':
+				case 'help': {
 					clearInput()
+					const skillNames = chatThreadsService.listSkillNames?.() ?? []
+					const skillsLine = skillNames.length > 0
+						? ` | skills: ${skillNames.map(n => '/' + n).join(', ')}`
+						: ''
 					notificationService.info(
 						// allow-any-unicode-next-line
-						'Slash commands: /clear — new thread | /settings — open settings | /model — change model | /help — this message'
+						'Slash commands: /clear — new thread | /settings — open settings | /model — change model | /help — this message' + skillsLine
 					)
 					return
-				default:
+				}
+				default: {
+					// Phase 6 (Skills): /<skill-name> [args] expands the matching .cortexide/skills SKILL.md
+					// into a normal chat turn. Built-in commands above take precedence over same-named skills.
+					const skillExpansion = chatThreadsService.getSkillExpansion(trimmed)
+					if (skillExpansion !== null) {
+						userMessage = skillExpansion
+						break
+					}
 					// allow-any-unicode-next-line
 					// Unknown command — let it fall through as normal text
 					break
+				}
 			}
 		}
 		// allow-any-unicode-next-line

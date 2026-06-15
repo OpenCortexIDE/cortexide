@@ -10,7 +10,7 @@ import { IMainProcessService } from '../../../../platform/ipc/common/mainProcess
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { MODEL_PACKS, type ModelPackKey } from './ollamaModelPacks.js';
 
-export { MODEL_PACKS, ModelPackKey };
+export { MODEL_PACKS, type ModelPackKey };
 
 export interface InstallOptions {
 	method: 'auto' | 'brew' | 'curl' | 'winget' | 'choco';

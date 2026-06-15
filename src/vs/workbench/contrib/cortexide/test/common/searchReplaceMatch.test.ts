@@ -195,3 +195,46 @@ suite('computeSearchReplaceResult - multi-edit transaction', () => {
 		if (!r.ok) { assert.strictEqual(r.reason, 'Has overlap'); }
 	});
 });
+
+suite('searchReplaceMatch - CRLF contract (callers always pass LF; this documents what happens if not)', () => {
+	// Callers feed getValue(LF), so CRLF should never reach the matcher. These pin the consequence if it did.
+	const crlf = 'a\r\nb\r\nc';
+
+	test('a single-line LF needle IS still found in CRLF source (no newline in the needle to mismatch)', () => {
+		const res = findTextInCode('b', crlf, false, { returnType: 'lines' });
+		assert.deepStrictEqual(res, [2, 2]);
+	});
+
+	test('a MULTI-line LF needle is NOT found by exact match against CRLF source (the CR breaks it)', () => {
+		assert.strictEqual(findTextInCode('b\nc', crlf, false, { returnType: 'lines' }), 'Not found');
+	});
+
+	test('the whitespace fallback recovers a multi-line needle by stripping CR', () => {
+		// with fallback enabled, CR is non-newline whitespace -> removed -> the needle matches on line span
+		const res = findTextInCode('b\nc', crlf, true, { returnType: 'lines' });
+		assert.deepStrictEqual(res, [2, 3]);
+	});
+});
+
+suite('searchReplaceMatch - sequential compose (apply A, then B on the output of A)', () => {
+	test('B that matches text A PRODUCED resolves against the new content', () => {
+		const a = computeSearchReplaceResult('a\nb\nc', [{ orig: 'b', final: 'X' }]);
+		assert.ok(a.ok);
+		if (a.ok) {
+			assert.strictEqual(a.newCode, 'a\nX\nc');
+			const b = computeSearchReplaceResult(a.newCode, [{ orig: 'X', final: 'Y' }]);
+			assert.ok(b.ok);
+			if (b.ok) { assert.strictEqual(b.newCode, 'a\nY\nc'); }
+		}
+	});
+
+	test('B whose ORIGINAL A CONSUMED returns Not found against the new content (no stale edit)', () => {
+		const a = computeSearchReplaceResult('a\nb\nc', [{ orig: 'b', final: 'X' }]);
+		assert.ok(a.ok);
+		if (a.ok) {
+			const b = computeSearchReplaceResult(a.newCode, [{ orig: 'b', final: 'Z' }]);
+			assert.strictEqual(b.ok, false);
+			if (!b.ok) { assert.strictEqual(b.reason, 'Not found'); }
+		}
+	});
+});

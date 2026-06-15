@@ -291,3 +291,18 @@ export interface MCPToolCallParams {
 export const removeMCPToolNamePrefix = (name: string) => {
 	return name.split('_').slice(1).join('_')
 }
+
+/**
+ * Deterministic 6-char [0-9a-z] prefix for an MCP server's tool names, derived from the server name
+ * (FNV-1a). Used to keep tool names unique across servers. Deterministic -- unlike the old Math.random
+ * prefix it is STABLE across reconnects/reloads (so the model sees the same tool name each session) and
+ * all tools from one server share one prefix. Contains no '_', so removeMCPToolNamePrefix strips it cleanly.
+ */
+export const mcpToolNamePrefix = (serverName: string): string => {
+	let h = 2166136261 // FNV-1a 32-bit offset basis
+	for (let i = 0; i < serverName.length; i++) {
+		h ^= serverName.charCodeAt(i)
+		h = Math.imul(h, 16777619)
+	}
+	return (h >>> 0).toString(36).padStart(6, '0').slice(0, 6)
+}

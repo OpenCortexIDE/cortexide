@@ -125,6 +125,8 @@ class MockAuditLogService implements IAuditLogService {
 	isEnabled(): boolean { return this.enabled; }
 	setEnabled(enabled: boolean): void { this.enabled = enabled; }
 	async append(event: any): Promise<void> { this.events.push(event); }
+	getLogPath(): any { return null; }
+	async readEvents(): Promise<{ events: any[]; skipped: number }> { return { events: this.events, skipped: 0 }; }
 	getEvents(): any[] { return this.events; }
 	clearEvents(): void { this.events = []; }
 }

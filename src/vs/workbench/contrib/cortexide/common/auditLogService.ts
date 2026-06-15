@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { serializeEvents, shouldRotate, rotatedLogPath, parseJsonl } from './auditLogFormat.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -34,6 +35,13 @@ export interface IAuditLogService {
 	readonly _serviceBrand: undefined;
 	append(event: AuditEvent): Promise<void>;
 	isEnabled(): boolean;
+	/** The current append-only log file, or null if auditing is off / no workspace. */
+	getLogPath(): URI | null;
+	/**
+	 * Read back the recorded events (flushing any buffered writes first). Tolerates a truncated/corrupt
+	 * trailing line via parseJsonl and reports how many lines were skipped.
+	 */
+	readEvents(): Promise<{ events: AuditEvent[]; skipped: number }>;
 }
 
 class AuditLogService extends Disposable implements IAuditLogService {
@@ -103,6 +111,29 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		this._writeScheduler.schedule();
 	}
 
+	getLogPath(): URI | null {
+		return this._logPath;
+	}
+
+	async readEvents(): Promise<{ events: AuditEvent[]; skipped: number }> {
+		if (!this._logPath) {
+			return { events: [], skipped: 0 };
+		}
+		// Flush buffered writes first so the read reflects everything recorded so far.
+		if (this._pendingWrites.length > 0) {
+			this._writeScheduler.cancel();
+			await this._flushWrites();
+		}
+		try {
+			const content = await this._fileService.readFile(this._logPath);
+			const { events, skipped } = parseJsonl(content.value.toString());
+			return { events: events as AuditEvent[], skipped };
+		} catch {
+			// File not created yet (no events recorded) -- nothing to show.
+			return { events: [], skipped: 0 };
+		}
+	}
+
 	private async _initializeLogFile(): Promise<void> {
 		if (!this._logPath) return;
 
@@ -129,12 +160,12 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		}
 
 		const events = this._pendingWrites.splice(0);
-		const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+		const lines = serializeEvents(events); // pure, tested -- common/auditLogFormat.ts
 		const buffer = VSBuffer.fromString(lines);
 		const sizeBytes = buffer.byteLength;
 
 		// Check if rotation needed
-		if (this._currentFileSize + sizeBytes > this._rotationSizeMB * 1024 * 1024) {
+		if (shouldRotate(this._currentFileSize, sizeBytes, this._rotationSizeMB)) {
 			await this._rotateLogFile();
 		}
 
@@ -181,8 +212,8 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			let rotationNum = 1;
 			let rotatedPath: URI;
 			do {
-				const extension = compressed.length < contentBuffer.byteLength ? '.gz' : '';
-				rotatedPath = this._logPath.with({ path: this._logPath.path.replace(/\.jsonl$/, `.${rotationNum}.jsonl${extension}`) });
+				const compressedSmaller = compressed.length < contentBuffer.byteLength;
+				rotatedPath = this._logPath.with({ path: rotatedLogPath(this._logPath.path, rotationNum, compressedSmaller) });
 				rotationNum++;
 			} while (await this._fileService.exists(rotatedPath));
 

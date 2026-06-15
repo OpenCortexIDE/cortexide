@@ -81,11 +81,22 @@ export const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]
  * type-less properties. This emits the typed properties. `as const` keeps the `type` literals so the
  * result is assignable to the SDK's ChatCompletionTool at the call site (kept out of this pure module).
  */
+/**
+ * Build the JSON-Schema `properties` map from an InternalToolInfo's params, giving EVERY param an explicit
+ * `type: 'string'`. Shared by all three provider tool-schema builders (OpenAI-compatible here, Anthropic +
+ * Gemini in electron-main) so the "every property is typed" contract -- the regression that shipped
+ * type-less OpenAI schemas (fixed in ff1718a708d) -- is pinned in ONE tested place. Pure; never mutates `params`.
+ */
+export const buildTypedToolProperties = (params: InternalToolInfo['params']): { [s: string]: { description: string; type: 'string' } } => {
+	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
+	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	return paramsWithType
+}
+
 export const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	const { name, description, params } = toolInfo
 
-	const paramsWithType: { [s: string]: { description: string; type: 'string' } } = {}
-	for (const key in params) { paramsWithType[key] = { ...params[key], type: 'string' } }
+	const paramsWithType = buildTypedToolProperties(params)
 
 	return {
 		type: 'function' as const,
@@ -190,3 +201,71 @@ export const accumulateOpenAIChatDelta = (
 
 	return { fullText, fullReasoning, toolName, toolParamsStr, toolId }
 }
+
+
+/**
+ * Pull the text + first tool call out of an OpenAI-compatible NON-streaming response choice. Pure;
+ * mirrors processNonStreamingResponse's extraction byte-for-byte: `empty` when the choice is missing,
+ * and `hasToolCall` (only the FIRST tool call is captured) so the caller updates its tool vars under the
+ * SAME `if (toolCalls.length > 0)` guard the inline code used (leaving an earlier streaming attempt's
+ * values untouched when this response has none).
+ */
+export interface NonStreamingExtract {
+	readonly empty: boolean;
+	readonly hasToolCall: boolean;
+	readonly fullText: string;
+	readonly toolName: string;
+	readonly toolParamsStr: string;
+	readonly toolId: string;
+}
+export const extractToolCallFromNonStreamingChoice = (choice: any): NonStreamingExtract => {
+	if (!choice) {
+		return { empty: true, hasToolCall: false, fullText: '', toolName: '', toolParamsStr: '', toolId: '' }
+	}
+	const fullText = choice.message?.content ?? ''
+	const toolCalls = choice.message?.tool_calls ?? []
+	if (toolCalls.length > 0) {
+		const toolCall = toolCalls[0]
+		return {
+			empty: false,
+			hasToolCall: true,
+			fullText,
+			toolName: toolCall.function?.name ?? '',
+			toolParamsStr: toolCall.function?.arguments ?? '',
+			toolId: toolCall.id ?? '',
+		}
+	}
+	return { empty: false, hasToolCall: false, fullText, toolName: '', toolParamsStr: '', toolId: '' }
+}
+
+
+/**
+ * The running Gemini tool-capture state. Unlike OpenAI's CONCATENATING deltas, each Gemini chunk's
+ * functionCall REPLACES the captured tool (last chunk wins) -- pure reducer, mirrors the inline loop.
+ */
+export interface GeminiToolState {
+	readonly fullTextSoFar: string;
+	readonly toolName: string;
+	readonly toolParamsStr: string;
+	readonly toolId: string;
+}
+export const reduceGeminiChunk = (
+	state: GeminiToolState,
+	chunk: { text?: string; functionCalls?: Array<{ name?: string; args?: unknown; id?: string }> }
+): GeminiToolState => {
+	const fullTextSoFar = state.fullTextSoFar + (chunk.text ?? '')
+	const functionCalls = chunk.functionCalls
+	if (functionCalls && functionCalls.length > 0) {
+		const functionCall = functionCalls[0] // Get the first function call
+		return {
+			fullTextSoFar,
+			toolName: functionCall.name ?? '',
+			toolParamsStr: JSON.stringify(functionCall.args ?? {}),
+			toolId: functionCall.id ?? '',
+		}
+	}
+	return { fullTextSoFar, toolName: state.toolName, toolParamsStr: state.toolParamsStr, toolId: state.toolId }
+}
+
+/** Gemini ids can be empty; other providers expect one, so fall back to a generated id at finalization. */
+export const finalizeGeminiToolId = (toolId: string, uuidGen: () => string): string => toolId ? toolId : uuidGen()
