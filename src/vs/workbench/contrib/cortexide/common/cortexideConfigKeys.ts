@@ -130,6 +130,14 @@ export const CORTEXIDE_CONFIG_KEYS: readonly CortexideConfigKeyDef[] = [
 		experimental: true,
 		description: 'URL of the external vector store. Only used when "cortexide.rag.vectorStore" is not "none". Defaults to the standard local Qdrant/Chroma port when left empty.',
 	},
+	{
+		key: 'cortexide.rag.embeddingModel',
+		type: 'string',
+		default: '',
+		scope: 'window',
+		experimental: true,
+		description: 'Local Ollama embedding model for semantic (hybrid BM25 + vector) retrieval, e.g. "nomic-embed-text". When set AND the model is pulled in your local Ollama, code chunks are embedded ON-MACHINE (Ollama runs on loopback, so this stays local and is allowed under local-only privacy mode). Leave empty for BM25-only retrieval.',
+	},
 
 	// ---- Audit log ---------------------------------------------------------------------
 	{

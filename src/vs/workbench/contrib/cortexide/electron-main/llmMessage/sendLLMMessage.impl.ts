@@ -21,6 +21,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { computeMaxTokensForLocalProvider } from '../../common/localProviderMaxTokens.js';
 import { isLoopbackEndpoint } from '../../common/loopbackEndpoint.js';
+import { extractEmbeddingVectors } from '../../common/ollamaEmbeddings.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
@@ -1157,6 +1158,19 @@ const sendOllamaFIM = ({ messages, onFinalMessage, onError, settingsOfProvider, 
  * happens downstream in chatThreadService (the JSON-in-text parser). We stream content, split out
  * <think> reasoning the same way, and apply first-token + rolling-stall timeouts for local UX.
  */
+/**
+ * Local embedding vectors via Ollama (powers hybrid RAG). Runs in electron-main because the renderer
+ * cannot reach the Ollama endpoint. Ollama is loopback, so embeddings stay on-machine; the renderer
+ * gates this under the local-only egress policy before calling. Returns one vector per input string;
+ * extractEmbeddingVectors throws on a malformed/ragged response so retrieval never gets garbage.
+ */
+export const sendOllamaEmbed = async ({ settingsOfProvider, modelName, input }: { settingsOfProvider: SettingsOfProvider, modelName: string, input: string[] }): Promise<number[][]> => {
+	const thisConfig = settingsOfProvider.ollama
+	const ollama = getOllamaClient({ endpoint: thisConfig.endpoint })
+	const res = await ollama.embed({ model: modelName, input })
+	return extractEmbeddingVectors(res, input.length)
+}
+
 const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, overridesOfModel, chatMode, mcpTools }: SendChatParams_Internal) => {
 	const thisConfig = settingsOfProvider.ollama
 	const { modelName, contextWindow, reasoningCapabilities } = getModelCapabilities('ollama', modelName_, overridesOfModel)

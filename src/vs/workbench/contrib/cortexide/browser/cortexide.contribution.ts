@@ -38,6 +38,8 @@ import './cortexideUpdateActions.js'
 import './cortexidePrivacyReportActions.js'
 // audit log (Phase 8): "Show Audit Log" view of the tamper-evident dangerous-action record
 import './auditLogViewActions.js'
+// RAG (Phase 4): register a local Ollama embedding provider when configured (hybrid BM25 + vector retrieval)
+import './ollamaEmbeddingProviderService.js'
 
 import './convertToLLMMessageWorkbenchContrib.js'
 
