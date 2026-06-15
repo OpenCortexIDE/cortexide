@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { availableTools, COMPACT_LOCAL_TOOLSET, builtinToolNames, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { availableTools, COMPACT_LOCAL_TOOLSET, CAPABLE_LOCAL_TOOLSET, localToolsetFor, builtinToolNames, InternalToolInfo } from '../../common/prompt/prompts.js';
 
 const fakeMcp: InternalToolInfo[] = [{ name: 'some_mcp_tool', description: 'demo mcp tool', params: {} } as InternalToolInfo];
 const setStr = COMPACT_LOCAL_TOOLSET as unknown as Set<string>;
@@ -38,6 +38,29 @@ suite('COMPACT_LOCAL_TOOLSET / availableTools(isLocal)', () => {
 		}
 		assert.ok(!names.includes('some_mcp_tool'), 'MCP tools must be dropped for local models');
 		assert.ok(!names.includes('run_persistent_command'), 'persistent-terminal tools must be dropped for local models');
+	});
+
+	test('CAPABLE local coder (>=7B) ALSO gets the web tools (so "check online" works locally)', () => {
+		// localToolsetFor(true) = COMPACT + web tools.
+		assert.ok((CAPABLE_LOCAL_TOOLSET as unknown as Set<string>).has('web_search'));
+		assert.ok((CAPABLE_LOCAL_TOOLSET as unknown as Set<string>).has('browse_url'));
+		for (const t of COMPACT_LOCAL_TOOLSET) {
+			assert.ok((CAPABLE_LOCAL_TOOLSET as unknown as Set<string>).has(t), `capable set must still include "${t}"`);
+		}
+		assert.strictEqual(localToolsetFor(true), CAPABLE_LOCAL_TOOLSET);
+		assert.strictEqual(localToolsetFor(false), COMPACT_LOCAL_TOOLSET);
+		assert.strictEqual(localToolsetFor(undefined), COMPACT_LOCAL_TOOLSET);
+
+		const capable = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalCoder: true }) ?? []).map(t => t.name);
+		assert.ok(capable.includes('web_search'), 'capable local coder should be offered web_search');
+		assert.ok(capable.includes('browse_url'), 'capable local coder should be offered browse_url');
+		assert.ok(capable.includes('read_file') && capable.includes('edit_file'), 'capable local coder keeps the core tools');
+		assert.ok(!capable.includes('some_mcp_tool'), 'still no MCP for local models');
+		assert.ok(!capable.includes('run_persistent_command'), 'still no persistent terminals for local models');
+
+		// A SMALL local model (isCapableLocalCoder false) still gets NO web tools.
+		const small = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalCoder: false }) ?? []).map(t => t.name);
+		assert.ok(!small.includes('web_search') && !small.includes('browse_url'), 'small local model must not get web tools');
 	});
 
 	test('non-local agent mode keeps the FULL set + MCP', () => {

@@ -26,7 +26,7 @@ const ACTION_WORDS = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'mo
 /** Terms that signal a question that needs reading the codebase to answer (4509). */
 const CODEBASE_QUERY_WORDS = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about'];
 /** Phrases that signal a web/online lookup (4510). */
-const WEB_QUERY_WORDS = ['search the web', 'search online', 'check the web', 'check the internet', 'check internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url'];
+const WEB_QUERY_WORDS = ['search the web', 'search online', 'check online', 'check the web', 'check the internet', 'check internet', 'go online', 'look online', 'search the internet', 'on the internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url'];
 
 export interface ToolSynthesisInputs {
 	/** the active chat mode; synthesis only applies in 'agent' or 'plan' */
