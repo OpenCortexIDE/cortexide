@@ -5,7 +5,7 @@
 
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
-import { serializeEvents, shouldRotate, rotatedLogPath, parseJsonl } from '../../common/auditLogFormat.js';
+import { serializeEvents, shouldRotate, rotatedLogPath, parseJsonl, formatAuditEvents, AuditEventLike } from '../../common/auditLogFormat.js';
 
 /**
  * Real tests for the audit-log on-disk format + rotation policy that AuditLogService delegates to (was a
@@ -101,5 +101,60 @@ suite('auditLogFormat.rotatedLogPath', () => {
 
 	test('only the trailing .jsonl is rewritten; dots earlier in the path are preserved', () => {
 		assert.strictEqual(rotatedLogPath('/a.b/c.d/audit.jsonl', 2, false), '/a.b/c.d/audit.2.jsonl');
+	});
+});
+
+suite('auditLogFormat.formatAuditEvents', () => {
+
+	test('empty log renders a clear "nothing recorded" report', () => {
+		const out = formatAuditEvents([], 0);
+		assert.ok(out.startsWith('CortexIDE Audit Log -- 0 events'));
+		assert.ok(out.includes('No audit events recorded yet.'));
+	});
+
+	test('an event renders an ISO timestamp, status, action, and present fields only', () => {
+		const ev: AuditEventLike = {
+			ts: Date.parse('2026-06-15T10:00:00.000Z'),
+			action: 'apply',
+			ok: true,
+			model: 'qwen2.5-coder:7b',
+			files: ['a.ts', 'b.ts'],
+			diffStats: { linesAdded: 5, linesRemoved: 2, hunks: 1 },
+			latencyMs: 120,
+		};
+		const out = formatAuditEvents([ev], 0);
+		assert.ok(out.includes('2026-06-15T10:00:00.000Z  OK   apply'));
+		assert.ok(out.includes('model=qwen2.5-coder:7b'));
+		assert.ok(out.includes('files=a.ts,b.ts'));
+		assert.ok(out.includes('+5/-2 (1 hunk)'));
+		assert.ok(out.includes('120ms'));
+	});
+
+	test('a failed event is marked ERR; absent optional fields are omitted', () => {
+		const ev: AuditEventLike = { ts: Date.parse('2026-06-15T11:00:00.000Z'), action: 'rollback', ok: false };
+		const out = formatAuditEvents([ev], 0);
+		assert.ok(out.includes('ERR  rollback'));
+		assert.ok(!out.includes('model='));
+		assert.ok(!out.includes('files='));
+		assert.ok(!out.includes('ms'));
+	});
+
+	test('skipped (corrupt/truncated) lines are surfaced in the header', () => {
+		const out = formatAuditEvents([{ ts: 0, action: 'prompt', ok: true }], 2);
+		assert.ok(out.includes('CortexIDE Audit Log -- 1 event'));
+		assert.ok(out.includes('(2 corrupt/truncated lines skipped)'));
+	});
+
+	test('round-trips: serializeEvents -> parseJsonl -> formatAuditEvents covers every event', () => {
+		const events: AuditEventLike[] = [
+			{ ts: Date.parse('2026-06-15T09:00:00.000Z'), action: 'prompt', ok: true },
+			{ ts: Date.parse('2026-06-15T09:00:01.000Z'), action: 'apply', ok: true, files: ['x.ts'] },
+		];
+		const parsed = parseJsonl(serializeEvents(events));
+		const out = formatAuditEvents(parsed.events as AuditEventLike[], parsed.skipped);
+		assert.ok(out.includes('CortexIDE Audit Log -- 2 events'));
+		assert.ok(out.includes('prompt'));
+		assert.ok(out.includes('apply'));
+		assert.ok(out.includes('files=x.ts'));
 	});
 });

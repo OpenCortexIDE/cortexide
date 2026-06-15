@@ -36,6 +36,8 @@ import './cortexideUpdateActions.js'
 
 // privacy report (Phase 8): "what can leave my machine" command
 import './cortexidePrivacyReportActions.js'
+// audit log (Phase 8): "Show Audit Log" view of the tamper-evident dangerous-action record
+import './auditLogViewActions.js'
 
 import './convertToLLMMessageWorkbenchContrib.js'
 

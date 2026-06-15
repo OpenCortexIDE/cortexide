@@ -58,3 +58,45 @@ export function parseJsonl(content: string): ParsedJsonl {
 	}
 	return { events, skipped };
 }
+
+/** The structural subset of an audit event the human-readable view renders (matches AuditEvent). */
+export interface AuditEventLike {
+	readonly ts: number;
+	readonly action: string;
+	readonly ok: boolean;
+	readonly user?: string;
+	readonly files?: readonly string[];
+	readonly model?: string;
+	readonly latencyMs?: number;
+	readonly diffStats?: { readonly linesAdded: number; readonly linesRemoved: number; readonly hunks: number };
+}
+
+/**
+ * Render the audit events as a readable, copy-able text report (for the "Show Audit Log" view). Pure +
+ * node-testable: timestamps are formatted from the event's epoch-ms `ts` (ISO-8601, deterministic), one
+ * aligned line per event oldest-first, with a header that surfaces any skipped (corrupt/truncated) lines.
+ */
+export function formatAuditEvents(events: readonly AuditEventLike[], skipped: number): string {
+	const lines: string[] = [];
+	lines.push(`CortexIDE Audit Log -- ${events.length} event${events.length === 1 ? '' : 's'}`);
+	if (skipped > 0) {
+		lines.push(`(${skipped} corrupt/truncated line${skipped === 1 ? '' : 's'} skipped)`);
+	}
+	lines.push('');
+	if (events.length === 0) {
+		lines.push('No audit events recorded yet.');
+		return lines.join('\n') + '\n';
+	}
+	for (const e of events) {
+		const when = new Date(e.ts).toISOString();
+		const status = e.ok ? 'OK ' : 'ERR';
+		const parts: string[] = [`${when}  ${status}  ${e.action}`];
+		if (e.model) { parts.push(`model=${e.model}`); }
+		if (e.files && e.files.length > 0) { parts.push(`files=${e.files.join(',')}`); }
+		if (e.diffStats) { parts.push(`+${e.diffStats.linesAdded}/-${e.diffStats.linesRemoved} (${e.diffStats.hunks} hunk${e.diffStats.hunks === 1 ? '' : 's'})`); }
+		if (typeof e.latencyMs === 'number') { parts.push(`${e.latencyMs}ms`); }
+		if (e.user) { parts.push(`user=${e.user}`); }
+		lines.push(parts.join('  '));
+	}
+	return lines.join('\n') + '\n';
+}
