@@ -8,7 +8,9 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { languageIdFromPath } from '../common/treeSitterLanguageMap.js';
+import { languageIdFromPath, treeSitterGrammarId } from '../common/treeSitterLanguageMap.js';
+import { ITreeSitterLibraryService } from '../../../../editor/common/services/treeSitter/treeSitterLibraryService.js';
+import type { Parser, Tree } from '@vscode/tree-sitter-wasm';
 
 export interface ASTSymbol {
 	name: string;
@@ -41,13 +43,14 @@ class TreeSitterService implements ITreeSitterService {
 	declare readonly _serviceBrand: undefined;
 
 	private _enabled = false;
-	private _parserCache: Map<string, any> = new Map(); // language -> parser instance
-	private _wasmModule: any = null;
-	private _loadFailed = false; // Track if module loading has failed to prevent repeated warnings
+	// grammar id -> a ready Parser (setLanguage already applied), or null once we know the grammar can't
+	// load (so a missing grammar is not retried per file). undefined = not yet attempted.
+	private _parserCache: Map<string, Parser | null> = new Map();
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ILogService private readonly _logService: ILogService,
+		@ITreeSitterLibraryService private readonly _treeSitterLibraryService: ITreeSitterLibraryService,
 	) {
 		this._updateConfiguration();
 		this._configurationService.onDidChangeConfiguration(e => {
@@ -65,36 +68,43 @@ class TreeSitterService implements ITreeSitterService {
 		return this._enabled;
 	}
 
-	private async _getWasmModule(): Promise<any> {
-		if (this._wasmModule) {
-			return this._wasmModule;
+	/**
+	 * A Parser with the grammar for `grammarId` loaded, or null if no grammar ships for it (or it fails to
+	 * load). Uses the editor's ITreeSitterLibraryService, which owns Parser.init() + Language.load() and the
+	 * wasm-path resolution -- so we don't hand-roll WASM loading. Parsers are cached + reused per grammar.
+	 */
+	private async _getParserForGrammar(grammarId: string): Promise<Parser | null> {
+		const cached = this._parserCache.get(grammarId);
+		if (cached !== undefined) {
+			return cached;
 		}
 
-		// If we've already failed to load, don't try again
-		if (this._loadFailed) {
-			return null;
-		}
-
+		let parser: Parser | null = null;
 		try {
-			// Dynamic import of tree-sitter-wasm
-			// Note: This may fail in browser contexts if the module isn't properly bundled
-			// In that case, TreeSitter features will be disabled gracefully
-			const treeSitterWasm = await import('@vscode/tree-sitter-wasm');
-			this._wasmModule = treeSitterWasm;
-			return this._wasmModule;
-		} catch (error) {
-			// Only log the warning once to prevent spam
-			if (!this._loadFailed) {
-				this._logService.warn('[TreeSitter] Failed to load tree-sitter-wasm. AST indexing will be disabled. Error:', error);
-				this._loadFailed = true;
+			const [ParserCtor, language] = await Promise.all([
+				this._treeSitterLibraryService.getParserClass(),
+				this._treeSitterLibraryService.getLanguagePromise(grammarId),
+			]);
+			if (language) {
+				parser = new ParserCtor();
+				parser.setLanguage(language);
+			} else {
+				this._logService.debug(`[TreeSitter] no grammar loaded for '${grammarId}'; AST extraction skipped (falling back to BM25/LSP).`);
 			}
-			return null;
+		} catch (error) {
+			this._logService.debug(`[TreeSitter] grammar '${grammarId}' failed to load; AST extraction skipped:`, error);
+			parser = null;
 		}
+
+		// Cache the result (including null) so a missing/failed grammar is not retried for every file.
+		this._parserCache.set(grammarId, parser);
+		return parser;
 	}
 
-	private _getLanguageFromUri(uri: URI): string | null {
-		// The extension -> grammar map lives in the pure, node-tested common/treeSitterLanguageMap.ts.
-		return languageIdFromPath(uri.path);
+	/** The tree-sitter grammar id for a file, or null when no AST grammar is available for it. */
+	private _grammarIdForUri(uri: URI): string | null {
+		// extension -> language id (pure, node-tested) -> grammar id (only languages whose grammar ships).
+		return treeSitterGrammarId(languageIdFromPath(uri.path));
 	}
 
 	async extractSymbols(uri: URI, content: string): Promise<ASTSymbol[]> {
@@ -102,32 +112,20 @@ class TreeSitterService implements ITreeSitterService {
 			return [];
 		}
 
-		const language = this._getLanguageFromUri(uri);
-		if (!language) {
+		const grammarId = this._grammarIdForUri(uri);
+		if (!grammarId) {
 			return [];
 		}
 
+		const parser = await this._getParserForGrammar(grammarId);
+		if (!parser) {
+			return [];
+		}
+
+		let tree: Tree | null = null;
 		try {
-			const wasmModule = await this._getWasmModule();
-			if (!wasmModule) {
-				return [];
-			}
-
-			// Get or create parser for this language
-			let parser = this._parserCache.get(language);
-			if (!parser) {
-				parser = await wasmModule.createParser(language);
-				if (parser) {
-					this._parserCache.set(language, parser);
-				}
-			}
-
-			if (!parser) {
-				return [];
-			}
-
 			// Parse the content
-			const tree = parser.parse(content);
+			tree = parser.parse(content);
 			if (!tree) {
 				return [];
 			}
@@ -140,6 +138,10 @@ class TreeSitterService implements ITreeSitterService {
 		} catch (error) {
 			this._logService.debug('[TreeSitter] Failed to extract symbols:', error);
 			return [];
+		} finally {
+			// tree-sitter Tree objects hold WASM memory; the extracted ASTSymbol[] is plain data, so the
+			// tree is safe to release here.
+			tree?.delete();
 		}
 	}
 
@@ -246,30 +248,19 @@ class TreeSitterService implements ITreeSitterService {
 			return [];
 		}
 
+		const grammarId = this._grammarIdForUri(uri);
+		if (!grammarId) {
+			return [];
+		}
+
+		const parser = await this._getParserForGrammar(grammarId);
+		if (!parser) {
+			return [];
+		}
+
+		let tree: Tree | null = null;
 		try {
-			const wasmModule = await this._getWasmModule();
-			if (!wasmModule) {
-				return [];
-			}
-
-			const language = this._getLanguageFromUri(uri);
-			if (!language) {
-				return [];
-			}
-
-			let parser = this._parserCache.get(language);
-			if (!parser) {
-				parser = await wasmModule.createParser(language);
-				if (parser) {
-					this._parserCache.set(language, parser);
-				}
-			}
-
-			if (!parser) {
-				return [];
-			}
-
-			const tree = parser.parse(content);
+			tree = parser.parse(content);
 			if (!tree) {
 				return [];
 			}
@@ -302,6 +293,8 @@ class TreeSitterService implements ITreeSitterService {
 		} catch (error) {
 			this._logService.debug('[TreeSitter] Failed to create AST chunks:', error);
 			return [];
+		} finally {
+			tree?.delete();
 		}
 	}
 

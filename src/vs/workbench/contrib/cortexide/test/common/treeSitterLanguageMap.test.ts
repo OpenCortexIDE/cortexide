@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { languageIdFromPath, TREE_SITTER_LANGUAGE_BY_EXTENSION } from '../../common/treeSitterLanguageMap.js';
+import { languageIdFromPath, treeSitterGrammarId, TREE_SITTER_LANGUAGE_BY_EXTENSION } from '../../common/treeSitterLanguageMap.js';
 
 /**
  * Pins the extension -> tree-sitter grammar routing (extracted from TreeSitterService._getLanguageFromUri).
@@ -62,5 +62,42 @@ suite('treeSitterLanguageMap.languageIdFromPath', () => {
 	test('a dotfile with no real extension routes to null (matches the original)', () => {
 		// '/.gitignore'.split('.').pop() === 'gitignore' -> not in the map -> null
 		assert.strictEqual(languageIdFromPath('/.gitignore'), null);
+	});
+});
+
+suite('treeSitterLanguageMap.treeSitterGrammarId', () => {
+
+	test('languages with a shipped @vscode/tree-sitter-wasm grammar map to their grammar id', () => {
+		// identity for most; csharp -> the on-disk grammar name "c-sharp"
+		assert.strictEqual(treeSitterGrammarId('typescript'), 'typescript');
+		assert.strictEqual(treeSitterGrammarId('tsx'), 'tsx');
+		assert.strictEqual(treeSitterGrammarId('javascript'), 'javascript');
+		assert.strictEqual(treeSitterGrammarId('python'), 'python');
+		assert.strictEqual(treeSitterGrammarId('java'), 'java');
+		assert.strictEqual(treeSitterGrammarId('go'), 'go');
+		assert.strictEqual(treeSitterGrammarId('rust'), 'rust');
+		assert.strictEqual(treeSitterGrammarId('cpp'), 'cpp');
+		assert.strictEqual(treeSitterGrammarId('php'), 'php');
+		assert.strictEqual(treeSitterGrammarId('ruby'), 'ruby');
+		assert.strictEqual(treeSitterGrammarId('csharp'), 'c-sharp');
+	});
+
+	test('languages with no shipped grammar (c, swift, kotlin) return null -> caller falls back to BM25/LSP', () => {
+		assert.strictEqual(treeSitterGrammarId('c'), null);
+		assert.strictEqual(treeSitterGrammarId('swift'), null);
+		assert.strictEqual(treeSitterGrammarId('kotlin'), null);
+	});
+
+	test('null / unknown language ids return null', () => {
+		assert.strictEqual(treeSitterGrammarId(null), null);
+		assert.strictEqual(treeSitterGrammarId('cobol'), null);
+	});
+
+	test('every grammar id maps to a real extension in the language map (no orphan grammars)', () => {
+		// Each language that has a grammar must be reachable from some file extension.
+		const reachable = new Set(Object.values(TREE_SITTER_LANGUAGE_BY_EXTENSION));
+		for (const lang of ['typescript', 'tsx', 'javascript', 'python', 'java', 'go', 'rust', 'cpp', 'php', 'ruby', 'csharp']) {
+			assert.ok(reachable.has(lang), `${lang} must be produced by some extension`);
+		}
 	});
 });
