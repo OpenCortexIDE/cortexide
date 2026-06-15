@@ -15,7 +15,7 @@ export const IEditRiskScoringService = createDecorator<IEditRiskScoringService>(
 // Re-exported so existing consumers keep importing these from editRiskScoringService.js. The shapes and
 // the pure scoring live in ./editRiskScore.ts (node-testable); this service only supplies factor #6 (the
 // pre-existing-error count, which needs the live model/markers) and delegates the rest.
-export { EditContext, EditRiskScore };
+export type { EditContext, EditRiskScore };
 
 export interface IEditRiskScoringService {
 	readonly _serviceBrand: undefined;
