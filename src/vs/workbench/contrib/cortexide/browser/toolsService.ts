@@ -35,6 +35,7 @@ import { LRUCache } from '../../../../base/common/map.js'
 import { OfflineGate } from '../common/offlineGate.js'
 import { classifyDestination } from '../common/egressPolicy.js'
 import { wrapUntrustedContent } from '../common/untrustedContent.js'
+import { parseDuckDuckGoMarkdown } from '../common/webSearchParse.js'
 import { classifyCommandRisk } from '../common/commandRisk.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
@@ -1407,7 +1408,10 @@ export class ToolsService implements IToolsService {
 							}
 						}
 					},
-					// Method 2: DuckDuckGo HTML search via webContentExtractorService (reliable, bypasses CORS)
+					// Method 2: DuckDuckGo HTML search via webContentExtractorService (main-process
+					// fetch -> accessibility-tree markdown; bypasses the renderer CORS that blocks a
+					// direct fetch of html.duckduckgo.com). We parse DDG's very regular result structure
+					// out of that markdown (see parser below).
 					{
 						name: 'DuckDuckGo HTML via webContentExtractorService',
 						method: async () => {
@@ -1421,168 +1425,16 @@ export class ToolsService implements IToolsService {
 								}
 
 								const content = extracted[0].result;
-								const results: Array<{ title: string, snippet: string, url: string }> = [];
 
-								// Helper function to extract real URL from DuckDuckGo redirect
-								const extractRealUrl = (url: string): string | null => {
-									if (!url || !url.startsWith('http')) return null;
-
-									// Check if it's a DuckDuckGo redirect URL
-									if (url.includes('duckduckgo.com/l/')) {
-										try {
-											const urlObj = new URL(url);
-											const uddgParam = urlObj.searchParams.get('uddg');
-											if (uddgParam) {
-												return decodeURIComponent(uddgParam);
-											}
-										} catch (e) {
-											// If URL parsing fails, try regex extraction
-											const uddgMatch = url.match(/uddg=([^&]+)/);
-											if (uddgMatch) {
-												try {
-													return decodeURIComponent(uddgMatch[1]);
-												} catch (e2) {
-													// Ignore decode errors
-												}
-											}
-										}
-									}
-
-									// Not a redirect, return as-is
-									return url;
-								};
-
-								// Strategy 1: Parse markdown links [text](url) - most reliable
-								const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-								const markdownLinks: Array<{ url: string, title: string, index: number }> = [];
-								let match;
-								markdownLinkRegex.lastIndex = 0;
-
-								while ((match = markdownLinkRegex.exec(content)) !== null && markdownLinks.length < maxResults * 2) {
-									const rawUrl = match[2].trim();
-									const title = match[1].trim();
-
-									// Skip empty titles or URLs
-									if (!title || !rawUrl) continue;
-
-									// Extract real URL (handles DuckDuckGo redirects)
-									const realUrl = extractRealUrl(rawUrl);
-									if (!realUrl) continue;
-
-									// Filter out DuckDuckGo internal links and invalid URLs
-									if (realUrl.startsWith('http://') || realUrl.startsWith('https://')) {
-										if (!realUrl.includes('duckduckgo.com') &&
-											!realUrl.includes('duck.com') &&
-											!realUrl.startsWith('#') &&
-											realUrl.length < 500) {
-											markdownLinks.push({ url: realUrl, title, index: match.index });
-											if (markdownLinks.length >= maxResults) {
-												break;
-											}
-										}
-									}
-								}
-
-								// Sort by position in content
-								markdownLinks.sort((a, b) => a.index - b.index);
-
-								for (let i = 0; i < Math.min(markdownLinks.length, maxResults); i++) {
-									const link = markdownLinks[i];
-
-									// Try to extract snippet from content around the link
-									let snippet = '';
-									const linkPattern = `[${link.title}](${link.url})`;
-									const linkIndex = content.indexOf(linkPattern, link.index);
-									if (linkIndex >= 0) {
-										const start = Math.max(0, linkIndex - 100);
-										const end = Math.min(content.length, linkIndex + linkPattern.length + 200);
-										const context = content.substring(start, end)
-											.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-											.replace(/<[^>]*>/g, ' ')
-											.replace(/\s+/g, ' ')
-											.trim();
-										snippet = context.substring(0, 200);
-									}
-
-									results.push({
-										title: link.title,
-										snippet: snippet || 'No snippet available',
-										url: link.url,
-									});
-								}
-
-								// Strategy 2: Fallback - extract URLs directly if we don't have enough results
-								if (results.length < maxResults) {
-									const existingUrls = new Set(results.map(r => r.url));
-									const urlRegex = /https?:\/\/[^\s<>"'\n\r\)]+/gi;
-									const urlMatches: Array<{ url: string, index: number }> = [];
-
-									urlRegex.lastIndex = 0;
-									const needed = maxResults - results.length;
-									while ((match = urlRegex.exec(content)) !== null && urlMatches.length < needed * 2) {
-										const rawUrl = match[0].replace(/[.,;:!?]+$/, '');
-
-										// Extract real URL from DuckDuckGo redirect if needed
-										const realUrl = extractRealUrl(rawUrl);
-										if (!realUrl) continue;
-
-										if (realUrl.length > 10 && realUrl.length < 500 &&
-											!realUrl.includes('duckduckgo.com') &&
-											!realUrl.includes('duck.com') &&
-											!existingUrls.has(realUrl)) {
-											urlMatches.push({ url: realUrl, index: match.index });
-											if (urlMatches.length >= needed) {
-												break;
-											}
-										}
-									}
-
-									urlMatches.sort((a, b) => a.index - b.index);
-
-									for (let i = 0; i < Math.min(urlMatches.length, needed); i++) {
-										const { url, index } = urlMatches[i];
-
-										// Extract context around URL for title/snippet
-										const start = Math.max(0, index - 100);
-										const end = Math.min(content.length, index + url.length + 200);
-										const context = content.substring(start, end)
-											.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-											.replace(/<[^>]*>/g, ' ')
-											.replace(/\s+/g, ' ')
-											.trim();
-
-										// Extract title from before URL
-										const beforeUrl = content.substring(start, index).trim();
-										const words = beforeUrl.split(/\s+/).filter(w => w.length > 2);
-										const title = words.length > 0
-											? words.slice(-5).join(' ').substring(0, 100)
-											: url;
-
-										// Extract snippet from after URL
-										const afterUrl = content.substring(index + url.length, end).trim();
-										const snippet = afterUrl.substring(0, 200) || context.substring(0, 200) || 'No snippet available';
-
-										results.push({
-											title: title || url,
-											snippet: snippet,
-											url: url,
-										});
-									}
-								}
+								// Parse DDG's accessibility-tree markdown into clean {title, snippet, url} results.
+								// The (regex-heavy) parser lives in common/webSearchParse.ts so it can be unit tested
+								// in node -- see that file for the markdown structure and why naive parsing produced
+								// "No snippet available" / URL-encoded garbage that the model then hallucinated around.
+								const results = parseDuckDuckGoMarkdown(content, maxResults);
 
 								if (results.length === 0) {
-									// Provide diagnostic info
-									const contentPreview = content.substring(0, 1000).replace(/\s+/g, ' ');
-									const hasUrls = /https?:\/\//i.test(content);
-									const hasMarkdownLinks = /\[.*?\]\(.*?\)/.test(content);
-
-									throw new Error(
-										`No results found in DuckDuckGo search. ` +
-										`Content length: ${content.length}, ` +
-										`Has URLs: ${hasUrls}, ` +
-										`Has markdown links: ${hasMarkdownLinks}, ` +
-										`Preview: ${contentPreview.substring(0, 300)}...`
-									);
+									const contentPreview = content.substring(0, 300).replace(/\s+/g, ' ');
+									throw new Error(`No results parsed from DuckDuckGo markdown (length ${content.length}): ${contentPreview}...`);
 								}
 
 								return results;
