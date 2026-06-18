@@ -51,15 +51,15 @@ suite('COMPACT_LOCAL_TOOLSET / availableTools(isLocal)', () => {
 		assert.strictEqual(localToolsetFor(false), COMPACT_LOCAL_TOOLSET);
 		assert.strictEqual(localToolsetFor(undefined), COMPACT_LOCAL_TOOLSET);
 
-		const capable = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalCoder: true }) ?? []).map(t => t.name);
-		assert.ok(capable.includes('web_search'), 'capable local coder should be offered web_search');
-		assert.ok(capable.includes('browse_url'), 'capable local coder should be offered browse_url');
-		assert.ok(capable.includes('read_file') && capable.includes('edit_file'), 'capable local coder keeps the core tools');
+		const capable = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalModel: true }) ?? []).map(t => t.name);
+		assert.ok(capable.includes('web_search'), 'capable local model should be offered web_search');
+		assert.ok(capable.includes('browse_url'), 'capable local model should be offered browse_url');
+		assert.ok(capable.includes('read_file') && capable.includes('edit_file'), 'capable local model keeps the core tools');
 		assert.ok(!capable.includes('some_mcp_tool'), 'still no MCP for local models');
 		assert.ok(!capable.includes('run_persistent_command'), 'still no persistent terminals for local models');
 
-		// A SMALL local model (isCapableLocalCoder false) still gets NO web tools.
-		const small = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalCoder: false }) ?? []).map(t => t.name);
+		// A SMALL local model (isCapableLocalModel false) still gets NO web tools.
+		const small = (availableTools('agent', fakeMcp, { isLocal: true, isCapableLocalModel: false }) ?? []).map(t => t.name);
 		assert.ok(!small.includes('web_search') && !small.includes('browse_url'), 'small local model must not get web tools');
 	});
 

@@ -55,7 +55,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
 import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local } from '../common/prompt/prompts.js';
-import { isCapableLocalCoder } from '../common/routing/codingModelScore.js';
+import { isCapableLocalModel } from '../common/routing/codingModelScore.js';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { ICortexideSettingsService } from '../common/cortexideSettingsService.js';
 import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/cortexideSettingsTypes.js';
@@ -1541,13 +1541,15 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// For local models, use minimal system message template instead of truncating
 		const isLocal = isLocalProvider(validProviderName, this.cortexideSettingsService.state.settingsOfProvider)
-		// A capable local coder (>=7B) additionally gets the web tools (so "check online" actually works);
-		// small local models stay on the compact set. Param size comes from the provider's reported model
-		// details (ollama details.parameter_size), same source the router uses.
+		// A capable local model (>=7B -- coder OR general) additionally gets the web tools (so "check online"
+		// actually works); small local models stay on the compact set. Param size comes from the provider's
+		// reported model details (ollama details.parameter_size), same source the router uses.
 		const realParamSizeLocal: string | undefined = isLocal
 			? this.cortexideSettingsService.state.settingsOfProvider[validProviderName]?.models?.find((m: { modelName: string; parameterSize?: string }) => m.modelName === modelName)?.parameterSize
 			: undefined
-		const isCapableLocalCoderModel = isLocal && isCapableLocalCoder(modelName.toLowerCase(), realParamSizeLocal)
+		// Web tools are gated on model CAPABILITY (>=7B), not coder-ness -- a capable general model
+		// (e.g. llama3:8b, which Auto may resolve to) should also get web_search, not just coders.
+		const isCapableLocalModelFlag = isLocal && isCapableLocalModel(modelName.toLowerCase(), realParamSizeLocal)
 
 		let systemMessage: string
 		if (disableSystemMessage) {
@@ -1600,7 +1602,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 			const activeFileURILocal = this.editorService.activeEditor?.resource;
 			const projectRulesLocal = this._getCombinedAIInstructions(activeFileURILocal) || undefined;
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal, subagentSystemPrompt, allowedToolNames, isCapableLocalCoder: isCapableLocalCoderModel })
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, projectRules: projectRulesLocal, subagentSystemPrompt, allowedToolNames, isCapableLocalModel: isCapableLocalModelFlag })
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, subagentSystemPrompt, allowedToolNames)

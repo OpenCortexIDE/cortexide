@@ -12,7 +12,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, localToolsetFor, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
-import { isCapableLocalCoder } from '../common/routing/codingModelScore.js';
+import { isCapableLocalModel } from '../common/routing/codingModelScore.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames, isAutoModelSelection } from '../common/cortexideSettingsTypes.js';
@@ -2344,7 +2344,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
 		isLocal: boolean = false,
 		chatMode: ChatMode = 'agent',
-		isCapableLocalCoder: boolean = false,
+		isCapableLocalModel: boolean = false,
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2633,7 +2633,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
 				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
 				// weak model can't get distracted by tools it shouldn't use.
-				const localSet = localToolsetFor(isCapableLocalCoder)
+				const localSet = localToolsetFor(isCapableLocalModel)
 				if (isLocal && !(localSet as Set<string>).has(toolName)) {
 					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...localSet].join(', ')}.`)
 				}
@@ -2680,7 +2680,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// instead of the misleading raw "MCP tool X not found".
 					// List the tools the model was actually OFFERED (curated for local models), so this
 					// error doesn't re-introduce the tools curation deliberately hid from a weak model.
-					const offered = isLocal ? [...localToolsetFor(isCapableLocalCoder)] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
+					const offered = isLocal ? [...localToolsetFor(isCapableLocalModel)] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
 					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${offered.join(', ')}`)
 				}
 
@@ -3265,7 +3265,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// with cloud caps and the local tool-curation gate disabled — findings #5/#6.)
 		let chatMode: ChatMode = userChatMode
 		let isLocalModel = false
-		let isCapableLocalCoderModel = false
+		let isCapableLocalModelFlag = false
 		let maxAgentIterations = MAX_AGENT_LOOP_ITERATIONS
 		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
 		const recomputeModelState = (m: ModelSelection | null) => {
@@ -3278,10 +3278,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				maxLocalConsecutiveToolErrors: MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS,
 			})
 			isLocalModel = caps.isLocalModel
-			// A capable local coder (>=7B) also gets the web tools (web_search/browse_url) at both the prompt
-			// catalog and the execution chokepoint, so "check online" works locally instead of hallucinating.
-			isCapableLocalCoderModel = caps.isLocalModel && !!m && m.providerName !== 'auto'
-				&& isCapableLocalCoder(m.modelName.toLowerCase(), this._settingsService.state.settingsOfProvider[m.providerName]?.models?.find((mm: { modelName: string; parameterSize?: string }) => mm.modelName === m.modelName)?.parameterSize)
+			// A capable local model (>=7B -- coder OR general, e.g. llama3:8b that Auto may resolve to) also
+			// gets the web tools (web_search/browse_url) at both the prompt catalog and the execution
+			// chokepoint, so "check online" works locally instead of hallucinating. Web search is a general
+			// capability, gated on SIZE not coder-ness (isCapableLocalModel).
+			isCapableLocalModelFlag = caps.isLocalModel && !!m && m.providerName !== 'auto'
+				&& isCapableLocalModel(m.modelName.toLowerCase(), this._settingsService.state.settingsOfProvider[m.providerName]?.models?.find((mm: { modelName: string; parameterSize?: string }) => mm.modelName === m.modelName)?.parameterSize)
 			maxAgentIterations = caps.maxAgentIterations
 			maxConsecutiveToolErrors = caps.maxConsecutiveToolErrors
 		}
@@ -4626,7 +4628,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									{ preapproved: false, unvalidatedToolParams: toolParams },
 									isLocalModel, // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
 									chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
-									isCapableLocalCoderModel, // a capable local coder (>=7B) is allowed the web tools at the chokepoint too
+									isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 								)
 
 								if (interrupted) {
@@ -4711,7 +4713,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								{ preapproved: false, unvalidatedToolParams: toolParams },
 								isLocalModel, // keep local-model curation consistent across all tool-dispatch paths
 								chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
-								isCapableLocalCoderModel, // a capable local coder (>=7B) is allowed the web tools at the chokepoint too
+								isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 							)
 
 							if (interrupted) {
@@ -4835,7 +4837,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode, isCapableLocalCoderModel)
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode, isCapableLocalModelFlag)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {

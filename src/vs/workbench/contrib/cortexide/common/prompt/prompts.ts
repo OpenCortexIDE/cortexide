@@ -556,15 +556,17 @@ export const COMPACT_LOCAL_TOOLSET = new Set<BuiltinToolName>([
 	'todo_write', 'attempt_completion', 'run_command',
 ])
 
-// A CAPABLE local coder (>=7B, e.g. qwen2.5-coder:7b) additionally gets the web tools, so an explicit
-// "check online" request actually goes online instead of falling back to a codebase search and then
-// hallucinating. Small local models stay on COMPACT_LOCAL_TOOLSET (they tend to misuse web tools). The
-// >=7B gate is isCapableLocalCoder (common/routing/codingModelScore.ts).
+// A CAPABLE local model (>=7B, e.g. qwen2.5-coder:7b OR a general model like llama3:8b) additionally
+// gets the web tools, so an explicit "check online" request actually goes online instead of falling
+// back to a codebase search / stale training knowledge and then hallucinating. Web search is a general
+// capability, NOT coder-specific -- the gate is SIZE (isCapableLocalModel), so Auto resolving to a
+// capable general model still gets web access. Small local models (<=3B) stay on COMPACT_LOCAL_TOOLSET
+// (they tend to misuse web tools). Gate: isCapableLocalModel (common/routing/codingModelScore.ts).
 export const CAPABLE_LOCAL_TOOLSET = new Set<BuiltinToolName>([...COMPACT_LOCAL_TOOLSET, 'web_search', 'browse_url'])
 
-/** The local-model toolset for a given capability: capable coders also get web tools. */
-export const localToolsetFor = (isCapableLocalCoder: boolean | undefined): Set<BuiltinToolName> =>
-	isCapableLocalCoder ? CAPABLE_LOCAL_TOOLSET : COMPACT_LOCAL_TOOLSET
+/** The local-model toolset for a given capability: capable (>=7B) models also get the web tools. */
+export const localToolsetFor = (isCapableLocalModel: boolean | undefined): Set<BuiltinToolName> =>
+	isCapableLocalModel ? CAPABLE_LOCAL_TOOLSET : COMPACT_LOCAL_TOOLSET
 
 // Read-only builtin tools a PARALLEL sub-agent is restricted to (run_parallel_subagents). No edits,
 // no run_command, no terminals — so N can run concurrently with zero file-system collision risk.
@@ -575,7 +577,7 @@ export const READ_ONLY_SUBAGENT_TOOLS: string[] = [
 	'go_to_definition', 'find_references', 'search_symbols', 'attempt_completion',
 ]
 
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean, isCapableLocalCoder?: boolean, allowedToolNames?: string[] }) => {
+export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, opts?: { isLocal?: boolean, isCapableLocalModel?: boolean, allowedToolNames?: string[] }) => {
 
 	let builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName =>
@@ -587,7 +589,7 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 	// Weak/local models get a curated subset (and no MCP) so they can't hallucinate/misuse the
 	// long tail of tools (persistent terminals, web, refactors). See COMPACT_LOCAL_TOOLSET.
 	if (opts?.isLocal && builtinToolNames) {
-		const localSet = localToolsetFor(opts.isCapableLocalCoder)
+		const localSet = localToolsetFor(opts.isCapableLocalModel)
 		builtinToolNames = builtinToolNames.filter(toolName => localSet.has(toolName))
 	}
 
@@ -637,8 +639,8 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
-const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean, allowedToolNames?: string[], isCapableLocalCoder?: boolean) => {
-	const tools = availableTools(chatMode, mcpTools, { isLocal, isCapableLocalCoder, allowedToolNames })
+const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, isLocal?: boolean, allowedToolNames?: string[], isCapableLocalModel?: boolean) => {
+	const tools = availableTools(chatMode, mcpTools, { isLocal, isCapableLocalModel, allowedToolNames })
 	if (!tools || tools.length === 0) return null
 
 	const toolXMLDefinitions = (`\
@@ -840,7 +842,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt, allowedToolNames, isCapableLocalCoder }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, allowedToolNames?: string[], isCapableLocalCoder?: boolean }) => {
+export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, projectRules, subagentSystemPrompt, allowedToolNames, isCapableLocalModel }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, relevantMemories?: string, projectRules?: string, subagentSystemPrompt?: string, allowedToolNames?: string[], isCapableLocalModel?: boolean }) => {
 	const header = (mode === 'agent' || mode === 'plan')
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -850,13 +852,13 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 	const sysInfo = `System: ${os} | Today: ${new Date().toDateString()}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`
 
 	// Local/weak model -> curated tool subset; capable coders (>=7B) also get the web tools.
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true, allowedToolNames, isCapableLocalCoder) : null
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, true, allowedToolNames, isCapableLocalModel) : null
 
 	const details: string[] = []
 	if (mode === 'agent' || mode === 'plan') {
-		// Only claim web access when the web tools are actually offered (capable coders); otherwise a small
-		// model is told it can browse but has no tool, and it fabricates an answer.
-		details.push(isCapableLocalCoder
+		// Only claim web access when the web tools are actually offered (capable >=7B models); otherwise a
+		// small model is told it can browse but has no tool, and it fabricates an answer.
+		details.push(isCapableLocalModel
 			? 'Use tools to read/edit files, run commands, or fetch current/web info (web_search/browse_url). Answer general-knowledge or conceptual questions directly, without tools.'
 			: 'Use tools to read/edit files and run commands. You do NOT have web access; if asked to check online or look up current info, say you cannot (suggest switching to a cloud model). Answer general-knowledge or conceptual questions directly, without tools.')
 		// Anti-hallucination guard: never invent facts to fill a gap.

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName, isCapableLocalCoder, parseParamSizeBillions } from '../../common/routing/codingModelScore.js';
+import { codingModelScoreBonus, localModelSizeBonus, smallLocalModelCodePenalty, pickBestCoderModelName, isCapableLocalCoder, isCapableLocalModel, parseParamSizeBillions } from '../../common/routing/codingModelScore.js';
 
 suite('codingModelScoreBonus', () => {
 
@@ -124,6 +124,35 @@ suite('isCapableLocalCoder', () => {
 		assert.strictEqual(isCapableLocalCoder('deepseek-coder:latest'), true); // name alone: assume flagship
 		assert.strictEqual(isCapableLocalCoder('deepseek-coder:latest', '1.3B'), false); // real size: it's tiny
 		assert.strictEqual(isCapableLocalCoder('qwen2.5-coder:latest', '7.6B'), true);
+	});
+});
+
+suite('isCapableLocalModel (web-tool gate -- size only, NOT coder-specific)', () => {
+	test('true for a capable GENERAL (non-coder) model -- this is the Auto/llama3 fix', () => {
+		// llama3:latest is 8B but not a coder -> isCapableLocalCoder was false (denied web tools);
+		// isCapableLocalModel is TRUE so Auto resolving to llama3 still gets web_search.
+		assert.strictEqual(isCapableLocalModel('llama3:latest', '8.0B'), true);
+		assert.strictEqual(isCapableLocalModel('llama3:latest'), true); // name alone -> assume capable
+		assert.strictEqual(isCapableLocalModel('llama3.1:70b'), true);
+		assert.strictEqual(isCapableLocalModel('mistral:7b'), true);
+		assert.strictEqual(isCapableLocalModel('gemma2:9b'), true);
+	});
+
+	test('true for a capable coder too (superset of isCapableLocalCoder by size)', () => {
+		assert.strictEqual(isCapableLocalModel('qwen2.5-coder:7b'), true);
+		assert.strictEqual(isCapableLocalModel('qwen2.5-coder:latest', '7.6B'), true);
+		assert.strictEqual(isCapableLocalModel('codestral:22b'), true);
+	});
+
+	test('false for small (<=3B) models -- they stay on the COMPACT toolset (no web)', () => {
+		assert.strictEqual(isCapableLocalModel('llama3.2:3b'), false);
+		assert.strictEqual(isCapableLocalModel('qwen2.5-coder:1.5b'), false);
+		assert.strictEqual(isCapableLocalModel('phi3:3.8b'), false); // 3.8 < 7
+	});
+
+	test('real size overrides an optimistic ":latest" tag', () => {
+		assert.strictEqual(isCapableLocalModel('tinyllama:latest', '1.1B'), false);
+		assert.strictEqual(isCapableLocalModel('llama3:latest', '8.0B'), true);
 	});
 });
 
