@@ -1344,13 +1344,17 @@ export class ToolsService implements IToolsService {
 				// Check offline/privacy mode (centralized gate)
 				this._offlineGate.ensureOnline('Web search');
 
-				const cacheKey = `search:${query}:${k}`;
+				// Enforce a floor of 5 results (cap 10). Weak models sometimes ask for k=1, then the single
+				// result's snippet may not contain the answer and the model FABRICATES one (observed:
+				// "SpaceX IPO date" k=1 returned a price/valuation snippet with no date -> model invented
+				// "May 15, 2026"). More results = the answer-bearing snippet is far more likely present.
+				const maxResults = Math.min(Math.max(Number(k) || 5, 5), 10);
+
+				const cacheKey = `search:${query}:${maxResults}`;
 				const cached = this._webSearchCache.get(cacheKey);
 				if (!refresh && cached && Date.now() - cached.timestamp < this._cacheTTL) {
 					return { result: { results: cached.results } };
 				}
-
-				const maxResults = k ?? 5;
 				let lastError: Error | null = null;
 				const errors: string[] = [];
 

@@ -65,6 +65,7 @@ import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/sim
 import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
 import { decideToolSynthesis, decideHowManySearch } from '../common/toolSynthesisDecision.js';
+import { extractWebSearchQuery } from '../common/webSearchQuery.js';
 import { pickNextFailoverModel, toModelSelection } from '../common/routing/modelFailover.js';
 import { resolveModelRuntimeCaps, buildFailoverCandidates, type FailoverProviderEntry } from '../common/modelSelectionEngine.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -2005,19 +2006,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			(lowerRequest.includes('search for') && lowerRequest.includes('on the internet')) ||
 			(lowerRequest.includes('what is') || lowerRequest.includes('what are') || lowerRequest.includes('who is') || lowerRequest.includes('when did')) &&
 			(lowerRequest.includes('latest') || lowerRequest.includes('current') || lowerRequest.includes('recent') || lowerRequest.includes('2024') || lowerRequest.includes('2025'))) {
-			const keywords = extractKeywords(originalRequest)
-			// For "tell me what you know about X", extract X
-			let query = originalRequest
-			if (lowerRequest.includes('tell me what you know about') || lowerRequest.includes('what do you know about')) {
-				const aboutMatch = originalRequest.match(/about\s+(.+)/i) || originalRequest.match(/know about\s+(.+)/i)
-				if (aboutMatch) {
-					query = aboutMatch[1].trim()
-				} else {
-					query = keywords.length > 0 ? keywords.join(' ') : originalRequest
-				}
-			} else {
-				query = keywords.length > 0 ? keywords.join(' ') : originalRequest
-			}
+			// Build the query from the request SUBJECT, not the command framing. The old approach
+			// (first 5 words after a tiny stop-word list) turned "check online and tell me when SpaceX
+			// IPO'd" into "check online and tell when" -> DuckDuckGo returned "check online" (DVLA)
+			// results and the agent honestly reported it found nothing, with "SpaceX IPO" dropped.
+			// extractWebSearchQuery strips the web-intent triggers + framing and keeps the subject.
+			const query = extractWebSearchQuery(originalRequest)
 			return {
 				toolName: 'web_search',
 				toolParams: {
