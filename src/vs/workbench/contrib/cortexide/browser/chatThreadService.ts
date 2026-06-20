@@ -11,7 +11,8 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, COMPACT_LOCAL_TOOLSET, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, localToolsetFor, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
+import { isCapableLocalModel } from '../common/routing/codingModelScore.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName, localProviderNames, isAutoModelSelection } from '../common/cortexideSettingsTypes.js';
@@ -64,6 +65,7 @@ import { isTriviaQuestion, looksLikeSimpleQuestion } from '../common/routing/sim
 import { canonicalizeToolName, canonicalizeToolParams } from '../common/parseJsonToolCall.js';
 import { recognizeTextToolCall } from '../common/toolCallRecognition.js';
 import { decideToolSynthesis, decideHowManySearch } from '../common/toolSynthesisDecision.js';
+import { extractWebSearchQuery } from '../common/webSearchQuery.js';
 import { pickNextFailoverModel, toModelSelection } from '../common/routing/modelFailover.js';
 import { resolveModelRuntimeCaps, buildFailoverCandidates, type FailoverProviderEntry } from '../common/modelSelectionEngine.js';
 import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
@@ -984,7 +986,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 
 		// Web search tasks - only if very explicit
-		const explicitWebSearchKeywords = ['search the web', 'search online', 'look up online', 'google', 'duckduckgo', 'web search', 'search internet']
+		const explicitWebSearchKeywords = ['search the web', 'search online', 'check online', 'look up online', 'go online', 'look online', 'google', 'duckduckgo', 'web search', 'search internet', 'search the internet']
 		if (explicitWebSearchKeywords.some(keyword => lowerMessage.includes(keyword))) {
 			return 'web_search'
 		}
@@ -1995,6 +1997,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		// Handle web search queries - expanded patterns
 		if (lowerRequest.includes('search the web') || lowerRequest.includes('search online') || lowerRequest.includes('look up') ||
+			lowerRequest.includes('check online') || lowerRequest.includes('go online') || lowerRequest.includes('look online') || lowerRequest.includes('search the internet') || lowerRequest.includes('on the internet') ||
 			lowerRequest.includes('check the web') || lowerRequest.includes('check the internet') || lowerRequest.includes('check internet') ||
 			lowerRequest.includes('look it up') || lowerRequest.includes('find information') ||
 			lowerRequest.includes('tell me what you know about') || lowerRequest.includes('what do you know about') ||
@@ -2003,19 +2006,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			(lowerRequest.includes('search for') && lowerRequest.includes('on the internet')) ||
 			(lowerRequest.includes('what is') || lowerRequest.includes('what are') || lowerRequest.includes('who is') || lowerRequest.includes('when did')) &&
 			(lowerRequest.includes('latest') || lowerRequest.includes('current') || lowerRequest.includes('recent') || lowerRequest.includes('2024') || lowerRequest.includes('2025'))) {
-			const keywords = extractKeywords(originalRequest)
-			// For "tell me what you know about X", extract X
-			let query = originalRequest
-			if (lowerRequest.includes('tell me what you know about') || lowerRequest.includes('what do you know about')) {
-				const aboutMatch = originalRequest.match(/about\s+(.+)/i) || originalRequest.match(/know about\s+(.+)/i)
-				if (aboutMatch) {
-					query = aboutMatch[1].trim()
-				} else {
-					query = keywords.length > 0 ? keywords.join(' ') : originalRequest
-				}
-			} else {
-				query = keywords.length > 0 ? keywords.join(' ') : originalRequest
-			}
+			// Build the query from the request SUBJECT, not the command framing. The old approach
+			// (first 5 words after a tiny stop-word list) turned "check online and tell me when SpaceX
+			// IPO'd" into "check online and tell when" -> DuckDuckGo returned "check online" (DVLA)
+			// results and the agent honestly reported it found nothing, with "SpaceX IPO" dropped.
+			// extractWebSearchQuery strips the web-intent triggers + framing and keeps the subject.
+			const query = extractWebSearchQuery(originalRequest)
 			return {
 				toolName: 'web_search',
 				toolParams: {
@@ -2348,6 +2344,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		opts: { preapproved: true, unvalidatedToolParams: RawToolParamsObj, validatedParams: ToolCallParams<ToolName> } | { preapproved: false, unvalidatedToolParams: RawToolParamsObj },
 		isLocal: boolean = false,
 		chatMode: ChatMode = 'agent',
+		isCapableLocalModel: boolean = false,
 	): Promise<{ awaitingUserApproval?: boolean, interrupted?: boolean, completionSignaled?: boolean }> => {
 
 		// compute these below
@@ -2636,8 +2633,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Hard curation for local/weak models: even if a non-curated tool (web_search, terminals, ...)
 				// slipped past the catalog and was parsed, do NOT execute it — return a recoverable result so a
 				// weak model can't get distracted by tools it shouldn't use.
-				if (isLocal && !(COMPACT_LOCAL_TOOLSET as Set<string>).has(toolName)) {
-					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...COMPACT_LOCAL_TOOLSET].join(', ')}.`)
+				const localSet = localToolsetFor(isCapableLocalModel)
+				if (isLocal && !(localSet as Set<string>).has(toolName)) {
+					throw new Error(`The ${toolName} tool isn't available for this model. Use one of: ${[...localSet].join(', ')}.`)
 				}
 				if (toolName === 'run_subagent') {
 					// Sub-agents are executed here (they need the chat service to spawn a child agent
@@ -2682,7 +2680,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// instead of the misleading raw "MCP tool X not found".
 					// List the tools the model was actually OFFERED (curated for local models), so this
 					// error doesn't re-introduce the tools curation deliberately hid from a weak model.
-					const offered = isLocal ? [...COMPACT_LOCAL_TOOLSET] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
+					const offered = isLocal ? [...localToolsetFor(isCapableLocalModel)] : [...builtinToolNames, ...(mcpTools?.map(t => t.name) ?? [])]
 					throw new Error(`No tool named "${toolName}". Use one of the available tools: ${offered.join(', ')}`)
 				}
 
@@ -3267,6 +3265,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// with cloud caps and the local tool-curation gate disabled — findings #5/#6.)
 		let chatMode: ChatMode = userChatMode
 		let isLocalModel = false
+		let isCapableLocalModelFlag = false
 		let maxAgentIterations = MAX_AGENT_LOOP_ITERATIONS
 		let maxConsecutiveToolErrors = MAX_CONSECUTIVE_TOOL_ERRORS
 		const recomputeModelState = (m: ModelSelection | null) => {
@@ -3279,6 +3278,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				maxLocalConsecutiveToolErrors: MAX_LOCAL_CONSECUTIVE_TOOL_ERRORS,
 			})
 			isLocalModel = caps.isLocalModel
+			// A capable local model (>=7B -- coder OR general, e.g. llama3:8b that Auto may resolve to) also
+			// gets the web tools (web_search/browse_url) at both the prompt catalog and the execution
+			// chokepoint, so "check online" works locally instead of hallucinating. Web search is a general
+			// capability, gated on SIZE not coder-ness (isCapableLocalModel).
+			isCapableLocalModelFlag = caps.isLocalModel && !!m && m.providerName !== 'auto'
+				&& isCapableLocalModel(m.modelName.toLowerCase(), this._settingsService.state.settingsOfProvider[m.providerName]?.models?.find((mm: { modelName: string; parameterSize?: string }) => mm.modelName === m.modelName)?.parameterSize)
 			maxAgentIterations = caps.maxAgentIterations
 			maxConsecutiveToolErrors = caps.maxConsecutiveToolErrors
 		}
@@ -3449,7 +3454,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._linkToolCallToStepInternal(threadId, callThisToolFirst.id, activePlanTracking.currentStep)
 			}
 
-			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params }, false, chatMode)
+			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params }, false, chatMode, false)
 			if (interrupted) {
 				this._setStreamState(threadId, undefined)
 				this._addUserCheckpoint({ threadId })
@@ -4623,6 +4628,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									{ preapproved: false, unvalidatedToolParams: toolParams },
 									isLocalModel, // enforce local-model tool curation on synthesized calls too (else a local model can run a non-curated tool it can't recover from)
 									chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
+									isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 								)
 
 								if (interrupted) {
@@ -4707,6 +4713,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								{ preapproved: false, unvalidatedToolParams: toolParams },
 								isLocalModel, // keep local-model curation consistent across all tool-dispatch paths
 								chatMode, // dispatch-level mode enforcement (read-only modes block writes/terminal even for synthesized calls)
+								isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 							)
 
 							if (interrupted) {
@@ -4830,7 +4837,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTools = this._mcpService.getMCPTools()
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
-					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode)
+					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode, isCapableLocalModelFlag)
 					if (interrupted) {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {

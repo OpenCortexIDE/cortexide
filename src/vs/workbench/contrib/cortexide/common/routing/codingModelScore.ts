@@ -112,6 +112,22 @@ export function isCapableLocalCoder(modelNameLower: string, realParamSize?: stri
 }
 
 /**
+ * Is this LOCAL model capable enough (by SIZE alone) to be offered the WEB tools (web_search,
+ * browse_url)? Unlike isCapableLocalCoder this does NOT require a coder -- web search is a general
+ * capability, so any sufficiently large local model (>= 7B, or an unnumbered/flagship ":latest" tag
+ * whose real size we don't have -> assume capable) qualifies. Small/weak models (<= ~3B) still get
+ * only the COMPACT toolset (no web) because they fumble the agentic loop.
+ *
+ * Fixes Auto resolving to a capable GENERAL model (e.g. llama3:8b) which was then denied web_search
+ * by the coder-only gate and answered "SpaceX has not gone public" from stale training knowledge.
+ */
+export function isCapableLocalModel(modelNameLower: string, realParamSize?: string): boolean {
+	const params = parseParamSizeBillions(realParamSize) ?? parseParamSizeBillions(modelNameLower);
+	if (params == null) { return true; } // unnumbered/flagship (":latest") -> assume capable
+	return params >= 7;
+}
+
+/**
  * Pick the most capable coder from a list of model NAMES (tags) for a LOCAL provider, reusing the
  * same coder + size signal the router uses. Prefers a code-tuned name, breaks ties by larger param
  * count; falls back to the largest model when none are coders, and to the sole entry for a one-item
