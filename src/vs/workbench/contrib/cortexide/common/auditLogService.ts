@@ -20,7 +20,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 export interface AuditEvent {
 	ts: number;
 	user?: string;
-	action: 'prompt' | 'reply' | 'diff_preview' | 'apply' | 'undo' | 'rollback' | 'snapshot:create' | 'snapshot:restore' | 'snapshot:discard' | 'git:stash' | 'git:stash:restore';
+	action: 'prompt' | 'reply' | 'diff_preview' | 'apply' | 'undo' | 'rollback' | 'snapshot:create' | 'snapshot:restore' | 'snapshot:discard' | 'git:stash' | 'git:stash:restore' | 'egress';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;

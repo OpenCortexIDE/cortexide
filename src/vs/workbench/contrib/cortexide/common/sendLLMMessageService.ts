@@ -13,7 +13,9 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ICortexideSettingsService } from './cortexideSettingsService.js';
-import { canDispatchToProvider } from './egressPolicy.js';
+import { canDispatchToProvider, classifyProviderDestination } from './egressPolicy.js';
+import { buildEgressAuditEvent } from './egressAudit.js';
+import { IAuditLogService } from './auditLogService.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
 import { redactChatMessages, redactFimMessage, summarizeRedaction } from './outboundRedaction.js';
@@ -77,6 +79,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@ILogService private readonly logService: ILogService,
 		@IFreeTierQuotaService private readonly freeTierQuotaService: IFreeTierQuotaService,
+		@IAuditLogService private readonly auditLogService: IAuditLogService,
 	) {
 		super()
 
@@ -164,12 +167,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// only chatMessages text parts were scanned, so autocomplete and terminal-tool output
 		// shipped raw to cloud providers -- contradicting the "never leaks a secret" guarantee.
 		// The message-walking logic lives in the pure, unit-tested common/outboundRedaction.ts.
+		let redactionApplied = false; // recorded in the egress audit ledger below
 		const config = this.secretDetectionService.getConfig();
 		if (config.enabled) {
 			const detect = (text: string) => this.secretDetectionService.detectSecrets(text);
 
 			if (params.messagesType === 'chatMessages' && params.messages) {
 				const summary = redactChatMessages(params.messages, detect);
+				redactionApplied = summary.hasSecrets;
 				this.logService.trace('[SecretDetection] Chat messages scanned.', summary.hasSecrets ? `Redacted: ${summarizeRedaction(summary)}` : 'No secrets detected (paths in system message are not redacted).');
 
 				if (summary.hasSecrets && config.mode === 'block') {
@@ -191,6 +196,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				// secret in the surrounding code can't ship to a cloud model, without
 				// breaking completions or spamming the user on every keystroke.
 				const summary = redactFimMessage(params.messages, detect);
+				redactionApplied = summary.hasSecrets;
 				if (summary.hasSecrets) {
 					this.logService.trace('[SecretDetection] FIM payload redacted.', summarizeRedaction(summary));
 				}
@@ -203,6 +209,27 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// resolved model), so the electron-main dispatch can refuse any cloud egress as a second
 		// line of defense behind the router.
 		const localOnly = this.cortexideSettingsService.state.globalSettings.routingPolicy === 'local-only'
+
+		// Egress ledger: record EVERY outbound LLM decision (allowed AND blocked) -- provider,
+		// destination (loopback/remote), whether it leaves the machine, and whether a secret was
+		// redacted from it -- using the SAME classification the egress gate enforces. Gated behind
+		// the (opt-in) audit log; fire-and-forget so it never blocks or fails a request.
+		const egressProvider = modelSelection.providerName // 'auto' is resolved upstream; narrow it out
+		if (this.auditLogService.isEnabled() && egressProvider !== 'auto') {
+			const endpoint = settingsOfProvider[egressProvider]?.endpoint
+			const destinationKind = classifyProviderDestination(egressProvider, endpoint)
+			const decision = canDispatchToProvider(localOnly, egressProvider, endpoint)
+			this.auditLogService.append(buildEgressAuditEvent({
+				ts: Date.now(),
+				providerName: egressProvider,
+				modelName: modelSelection.modelName,
+				destinationKind,
+				allowed: decision.allowed,
+				reason: decision.reason,
+				redactionApplied,
+				modality: params.messagesType === 'FIMMessage' ? 'autocomplete' : 'cloud-llm',
+			})).catch(err => this.logService.warn('[AuditLog] egress append failed', err))
+		}
 
 		const mcpTools = this.mcpService.getMCPTools()
 
