@@ -24,6 +24,7 @@ import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { formatTodoReminder } from '../common/todoReminder.js';
 import { decideAutoApprove } from '../common/autoApprovePolicy.js';
 import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -3726,7 +3727,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatMode,
 						repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 						subagentSystemPrompt: runCtx?.systemPromptOverride,
-						allowedToolNames: runCtx?.allowedToolNames
+						allowedToolNames: runCtx?.allowedToolNames,
+						todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 					});
 				} catch (prepErr) {
 					// The first prompt assembly can throw (and has no prior messages to fall back to);
@@ -3818,7 +3820,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							chatMode,
 							repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 							subagentSystemPrompt: runCtx?.systemPromptOverride,
-							allowedToolNames: runCtx?.allowedToolNames
+							allowedToolNames: runCtx?.allowedToolNames,
+							todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 						})
 						if (prep2.messages && prep2.messages.length > 0) {
 							messages = prep2.messages
@@ -3950,7 +3953,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									chatMode,
 									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 									subagentSystemPrompt: runCtx?.systemPromptOverride,
-									allowedToolNames: runCtx?.allowedToolNames
+									allowedToolNames: runCtx?.allowedToolNames,
+									todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;

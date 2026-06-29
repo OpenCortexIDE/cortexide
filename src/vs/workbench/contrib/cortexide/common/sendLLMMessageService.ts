@@ -16,6 +16,7 @@ import { ICortexideSettingsService } from './cortexideSettingsService.js';
 import { canDispatchToProvider } from './egressPolicy.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
+import { redactChatMessages, redactFimMessage, summarizeRedaction } from './outboundRedaction.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { isWeb } from '../../../../base/common/platform.js';
@@ -156,72 +157,25 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			return null
 		}
 
-		// Detect and redact secrets before sending
+		// Detect and redact secrets at the SINGLE outbound dispatch boundary, before the
+		// payload crosses the IPC channel to electron-main. This covers EVERY payload that
+		// can leave the machine: chat messages (string content, text parts, AND tool_result
+		// content such as `cat .env` output) plus FIM/autocomplete prefix/suffix. Previously
+		// only chatMessages text parts were scanned, so autocomplete and terminal-tool output
+		// shipped raw to cloud providers -- contradicting the "never leaks a secret" guarantee.
+		// The message-walking logic lives in the pure, unit-tested common/outboundRedaction.ts.
 		const config = this.secretDetectionService.getConfig();
-		if (config.enabled && params.messagesType === 'chatMessages' && params.messages) {
-			let totalMatches: any[] = [];
-			let hasAnySecrets = false;
+		if (config.enabled) {
+			const detect = (text: string) => this.secretDetectionService.detectSecrets(text);
 
-			// Scan all messages for secrets
-			for (const msg of params.messages) {
-				// Handle different message types
-				if ('content' in msg) {
-					// AnthropicLLMChatMessage or OpenAILLMChatMessage
-					if (typeof msg.content === 'string') {
-						const detection = this.secretDetectionService.detectSecrets(msg.content);
-						if (detection.hasSecrets) {
-							hasAnySecrets = true;
-							totalMatches.push(...detection.matches);
-							// Redact the message content
-							(msg as any).content = detection.redactedText;
-						}
-					} else if (Array.isArray(msg.content)) {
-						// Handle array content (e.g., OpenAI format with images)
-						for (const part of msg.content) {
-							if ('type' in part && part.type === 'text' && 'text' in part && typeof part.text === 'string') {
-								const detection = this.secretDetectionService.detectSecrets(part.text);
-								if (detection.hasSecrets) {
-									hasAnySecrets = true;
-									totalMatches.push(...detection.matches);
-									(part as any).text = detection.redactedText;
-								}
-							}
-						}
-					}
-				} else if ('parts' in msg) {
-					// GeminiLLMChatMessage - uses 'parts' instead of 'content'
-					for (const part of msg.parts) {
-						if ('text' in part && typeof part.text === 'string') {
-							const detection = this.secretDetectionService.detectSecrets(part.text);
-							if (detection.hasSecrets) {
-								hasAnySecrets = true;
-								totalMatches.push(...detection.matches);
-								(part as any).text = detection.redactedText;
-							}
-						}
-					}
-				}
-			}
+			if (params.messagesType === 'chatMessages' && params.messages) {
+				const summary = redactChatMessages(params.messages, detect);
+				this.logService.trace('[SecretDetection] Chat messages scanned.', summary.hasSecrets ? `Redacted: ${summarizeRedaction(summary)}` : 'No secrets detected (paths in system message are not redacted).');
 
-			// Log secret detection result (trace) for verification that paths are not falsely redacted as AWS Secret Key
-			const countByType = new Map<string, number>();
-			for (const match of totalMatches) {
-				const name = match.pattern.name;
-				countByType.set(name, (countByType.get(name) || 0) + 1);
-			}
-			const typesList = Array.from(countByType.entries())
-				.map(([name, count]) => `${name}=${count}`)
-				.join(', ');
-			this.logService.trace('[SecretDetection] Chat messages scanned.', hasAnySecrets ? `Redacted: ${typesList}` : 'No secrets detected (paths in system message are not redacted).');
-
-			// Show warning if secrets detected
-			if (hasAnySecrets) {
-				const typesListForUser = Array.from(countByType.entries())
-					.map(([name, count]) => `${name} (${count})`)
-					.join(', ');
-
-				if (config.mode === 'block') {
-					// Always show block notifications (they're important)
+				if (summary.hasSecrets && config.mode === 'block') {
+					const typesListForUser = Array.from(summary.countByType.entries())
+						.map(([name, count]) => `${name} (${count})`)
+						.join(', ');
 					this.notificationService.warn(
 						`Secret detected: ${typesListForUser}. Message blocked from sending. Use environment variables or secure vaults instead of pasting keys into chat.`
 					);
@@ -230,9 +184,15 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 						fullError: null,
 					});
 					return null;
-				} else {
-					// Redact mode - silently redact without notification
-					// (Notification removed per user request)
+				}
+				// Redact mode: secrets already redacted in place; send silently.
+			} else if (params.messagesType === 'FIMMessage' && params.messages) {
+				// Autocomplete must redact-and-continue (never block / never notify) so a
+				// secret in the surrounding code can't ship to a cloud model, without
+				// breaking completions or spamming the user on every keystroke.
+				const summary = redactFimMessage(params.messages, detect);
+				if (summary.hasSecrets) {
+					this.logService.trace('[SecretDetection] FIM payload redacted.', summarizeRedaction(summary));
 				}
 			}
 		}
