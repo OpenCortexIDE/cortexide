@@ -343,12 +343,17 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		if (!ollamaEgress.allowed) {
 			throw new Error(ollamaEgress.reason ?? 'Local-only privacy mode is on: embeddings skipped.')
 		}
-		return this.channel.call('ollamaEmbed', {
-			settingsOfProvider,
-			modelName: params.modelName,
-			input: params.input,
-			localOnly,
-		} satisfies MainOllamaEmbedParams)
+		const OLLAMA_EMBED_TIMEOUT_MS = 30_000;
+		return Promise.race<number[][]>([
+			this.channel.call('ollamaEmbed', {
+				settingsOfProvider,
+				modelName: params.modelName,
+				input: params.input,
+				localOnly,
+			} satisfies MainOllamaEmbedParams) as Promise<number[][]>,
+			new Promise<number[][]>((_, reject) =>
+				setTimeout(() => reject(new Error('Ollama embed timed out')), OLLAMA_EMBED_TIMEOUT_MS)),
+		]);
 	}
 
 

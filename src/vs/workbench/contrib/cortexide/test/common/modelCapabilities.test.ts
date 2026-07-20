@@ -149,3 +149,11 @@ suite('extensiveModelOptionsFallback - llama ordering', () => {
 		assert.strictEqual(recLlama('llama2-uncensored'), 'llama4-scout'); // unversioned/other -> newest default
 	});
 });
+
+suite('extensiveModelOptionsFallback - v0 multimodal', () => {
+	test('v0 models use openai-style tool/image format (issue #1)', () => {
+		const r = caps('openAICompatible', 'v0-1.5-md');
+		assert.strictEqual(r.specialToolFormat, 'openai-style');
+		assert.strictEqual(r.recognizedModelName, 'v0');
+	});
+});

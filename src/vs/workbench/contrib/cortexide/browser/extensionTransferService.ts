@@ -11,6 +11,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { TransferEditorType, TransferFilesInfo } from './extensionTransferTypes.js';
+import { CORTEXIDE_APP_DATA_DIR, CORTEXIDE_DATA_FOLDER } from '../common/extensionTransferPaths.js';
 
 
 export interface IExtensionTransferService {
@@ -37,10 +38,11 @@ const extensionBlacklist = [
 	'codeium.codeium',
 	'saoudrizwan.claude-dev', // cline
 	'rooveterinaryinc.roo-cline', // roo
-	'supermaven.supermaven' // supermaven
+	'supermaven.supermaven', // supermaven
+	'void.void',
+	'void.voidai',
 	// 'github.copilot',
 ];
-
 
 const isBlacklisted = (fsPath: string | undefined) => {
 	return extensionBlacklist.find(bItem => fsPath?.includes(bItem))
@@ -195,37 +197,37 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 		if (fromEditor === 'VS Code') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Code', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vscode', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.cursor', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Windsurf', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Windsurf', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.windsurf', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		}
@@ -238,37 +240,37 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 		if (fromEditor === 'VS Code') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Code', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Code', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vscode', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Cursor', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Cursor', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.cursor', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Windsurf', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Windsurf', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.windsurf', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		}
@@ -283,37 +285,37 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 		if (fromEditor === 'VS Code') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Code', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Code', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.vscode', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Cursor', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Cursor', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.cursor', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Windsurf', 'User', 'settings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'settings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'settings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Windsurf', 'User', 'keybindings.json'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Void', 'User', 'keybindings.json'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), appdata, CORTEXIDE_APP_DATA_DIR, 'User', 'keybindings.json'),
 			}, {
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.windsurf', 'extensions'),
-				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.void-editor', 'extensions'),
+				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, CORTEXIDE_DATA_FOLDER, 'extensions'),
 				isExtensions: true,
 			}]
 		}

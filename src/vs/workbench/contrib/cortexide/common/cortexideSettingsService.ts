@@ -12,7 +12,8 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IMetricsService } from './metricsService.js';
-import { defaultProviderSettings, getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
+import { getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
+import { isProviderSettingsComplete } from './providerSettingsValidation.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, localProviderNames, ModelSelection, modelSelectionsEqual, featureNames, CortexideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './cortexideSettingsTypes.js';
 import { pickBestCoderModelName } from './routing/codingModelScore.js';
@@ -198,7 +199,7 @@ const _validatedModelState = (state: Omit<CortexideSettingsState, '_modelOptions
 	for (const providerName of providerNames) {
 		const settingsAtProvider = newSettingsOfProvider[providerName]
 
-		const didFillInProviderSettings = Object.keys(defaultProviderSettings[providerName]).every(key => !!settingsAtProvider[key as keyof typeof settingsAtProvider])
+		const didFillInProviderSettings = isProviderSettingsComplete(providerName, settingsAtProvider)
 
 		if (didFillInProviderSettings === settingsAtProvider._didFillInProviderSettings) continue
 

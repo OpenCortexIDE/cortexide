@@ -137,14 +137,14 @@
 }
 
 .monaco-editor .error-detection-glyph-error::before {
-	// allow-any-unicode-next-line
+	/* allow-any-unicode-next-line */
 	content: '❌';
 	font-size: 14px;
 	color: var(--vscode-errorForeground);
 }
 
 .monaco-editor .error-detection-glyph-warning::before {
-	// allow-any-unicode-next-line
+	/* allow-any-unicode-next-line */
 	content: '⚠️';
 	font-size: 14px;
 	color: var(--vscode-warningForeground);
