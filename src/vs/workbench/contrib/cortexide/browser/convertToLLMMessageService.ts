@@ -54,6 +54,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 	}
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
+import { effectiveSpecialToolFormat } from '../common/providerToolFormat.js';
 import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local } from '../common/prompt/prompts.js';
 import { isCapableLocalModel } from '../common/routing/codingModelScore.js';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
@@ -1488,7 +1489,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			systemMessage: enrichedSystemMessage,
 			aiInstructions,
 			supportsSystemMessage,
-			specialToolFormat,
+			specialToolFormat: effectiveSpecialToolFormat(specialToolFormat, isLocal),
 			supportsAnthropicReasoning: providerName === 'anthropic',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
@@ -1795,7 +1796,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// Local providers don't actually return native tool_calls (the calls arrive as XML/JSON text),
 			// so encode prior tool turns with the XML/text format to stay consistent with the system prompt
 			// + parser — otherwise turn 2+ of the agent loop loses all prior tool context (finding #8).
-			specialToolFormat: isLocalProviderForContext ? undefined : specialToolFormat,
+			specialToolFormat: effectiveSpecialToolFormat(specialToolFormat, isLocalProviderForContext),
 			supportsAnthropicReasoning: validProviderName === 'anthropic',
 			contextWindow,
 			reservedOutputTokenSpace,

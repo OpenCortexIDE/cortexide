@@ -179,11 +179,17 @@ body.monaco-workbench,
 	box-shadow: var(--cortex-shadow-hairline);
 }
 
-/* Disable backdrop-filter on Windows title bar - causes stacking context bugs
- * that prevent menubar dropdowns from rendering above the title bar. */
-.monaco-workbench.windows .part.titlebar {
+/* backdrop-filter on the title bar creates a stacking context that clips menubar
+ * dropdowns on every platform (issues #8, #68). Keep blur on the status bar only. */
+.monaco-workbench .part.titlebar {
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
+}
+
+/* Ensure menubar / context menus render above the custom title bar chrome. */
+.monaco-workbench .monaco-menu-container,
+.monaco-workbench .context-view.monaco-menu-container {
+	z-index: 2500;
 }
 
 .monaco-workbench .part.sidebar > .content .pane-header,

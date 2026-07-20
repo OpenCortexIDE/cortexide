@@ -4,7 +4,9 @@
  *--------------------------------------------------------------------------------------*/
 
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
-
+import { URI } from '../../../../base/common/uri.js';
+import { Schemas } from '../../../../base/common/network.js';
+import { Codicon } from '../../../../base/common/codicons.js';
 
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
@@ -14,15 +16,22 @@ import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextke
 
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { IRange } from '../../../../editor/common/core/range.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { CORTEXIDE_VIEW_CONTAINER_ID, CORTEXIDE_VIEW_ID } from './sidebarPane.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { CORTEXIDE_TOGGLE_SETTINGS_ACTION_ID } from './cortexideSettingsPane.js';
-import { CORTEXIDE_CTRL_L_ACTION_ID } from './actionIDs.js';
+import { CORTEXIDE_ATTACH_FILE_TO_CHAT_ACTION_ID, CORTEXIDE_CTRL_L_ACTION_ID } from './actionIDs.js';
 import { localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { ResourceContextKey } from '../../../common/contextkeys.js';
+import { ExplorerFolderContext } from '../../files/common/files.js';
+import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { EditorResourceAccessor, SideBySideEditor } from '../../../common/editor.js';
+import { collectAttachableUris } from '../common/attachFileToChat.js';
 
 // ---------- Register commands and keybindings ----------
 
@@ -345,6 +354,88 @@ registerAction2(class extends Action2 {
 			userMessage: `Browse URL: ${url}`,
 			threadId,
 		})
+	}
+})
+
+const getAttachableUrisFromArgs = (accessor: ServicesAccessor, ...args: unknown[]): URI[] => {
+	const editorService = accessor.get(IEditorService)
+	const activeUri = EditorResourceAccessor.getCanonicalUri(editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY })
+	return collectAttachableUris(args, activeUri)
+}
+
+// Explorer / editor context menu: attach a file to the CortexIDE chat input (issue #54).
+// Upstream "Add File to Chat" targets the hidden built-in VS Code chat; this wires the same menus
+// to CortexIDE's staging selections instead.
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: CORTEXIDE_ATTACH_FILE_TO_CHAT_ACTION_ID,
+			title: localize2('cortexideAttachFileToChat', 'Add File to Chat'),
+			icon: Codicon.attach,
+			f1: true,
+			menu: [{
+				id: MenuId.ExplorerContext,
+				group: '5_chat',
+				order: 1,
+				when: ContextKeyExpr.and(
+					ExplorerFolderContext.negate(),
+					ContextKeyExpr.or(
+						ResourceContextKey.Scheme.isEqualTo(Schemas.file),
+						ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeRemote),
+					),
+				),
+			}, {
+				id: MenuId.EditorTitleContext,
+				group: '2_chat',
+				order: 1,
+				when: ContextKeyExpr.or(
+					ResourceContextKey.Scheme.isEqualTo(Schemas.file),
+					ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeRemote),
+				),
+			}, {
+				id: MenuId.EditorContext,
+				group: '1_chat',
+				order: 2,
+				when: ContextKeyExpr.and(
+					EditorContextKeys.hasNonEmptySelection.negate(),
+					ContextKeyExpr.or(
+						ResourceContextKey.Scheme.isEqualTo(Schemas.file),
+						ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeRemote),
+						ResourceContextKey.Scheme.isEqualTo(Schemas.untitled),
+						ResourceContextKey.Scheme.isEqualTo(Schemas.vscodeUserData),
+					),
+				),
+			}],
+		})
+	}
+	async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
+		const commandService = accessor.get(ICommandService)
+		const viewsService = accessor.get(IViewsService)
+		const chatThreadService = accessor.get(IChatThreadService)
+		const languageService = accessor.get(ILanguageService)
+		const metricsService = accessor.get(IMetricsService)
+
+		const files = getAttachableUrisFromArgs(accessor, ...args)
+		if (!files.length) {
+			return
+		}
+
+		metricsService.capture('Attach File to Chat', { count: files.length })
+
+		if (!viewsService.isViewContainerVisible(CORTEXIDE_VIEW_CONTAINER_ID)) {
+			await commandService.executeCommand(CORTEXIDE_OPEN_SIDEBAR_ACTION_ID)
+		}
+
+		for (const uri of files) {
+			chatThreadService.addNewStagingSelection({
+				type: 'File',
+				uri,
+				language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) ?? 'plaintext',
+				state: { wasAddedAsCurrentFile: false },
+			})
+		}
+
+		await chatThreadService.focusCurrentChat()
 	}
 })
 

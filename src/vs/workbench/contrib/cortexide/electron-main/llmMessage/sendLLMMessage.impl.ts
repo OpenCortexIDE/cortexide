@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId, effectiveSpecialToolFormat } from '../../common/providerToolFormat.js';
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
@@ -452,6 +452,13 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		additionalOpenAIPayload,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel)
 
+	// Detect local inference early — local models use XML/JSON tool text, not native tool APIs.
+	const isExplicitLocalProviderChat = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
+	const isLocalhostEndpointChat = (providerName === 'openAICompatible' || providerName === 'liteLLM')
+		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
+	const isLocalChat = isExplicitLocalProviderChat || isLocalhostEndpointChat
+	const toolFormat = effectiveSpecialToolFormat(specialToolFormat, isLocalChat)
+
 	// APIs like Vertex/Pollinations require non-empty content except for the optional final assistant message
 	const messagesToSend = sanitizeOpenAIMessagesForEmptyContent(messages)
 
@@ -468,7 +475,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 
 	// tools
 	const potentialTools = openAITools(chatMode, mcpTools)
-	const nativeToolsObj = potentialTools && specialToolFormat === 'openai-style' ?
+	const nativeToolsObj = potentialTools && toolFormat === 'openai-style' ?
 		{ tools: potentialTools } as const
 		: {}
 
@@ -489,7 +496,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	}
 
 	// manually parse out tool results if XML
-	if (!specialToolFormat) {
+	if (!toolFormat) {
 		const { newOnText, newOnFinalMessage } = extractXMLToolsWrapper(onText, onFinalMessage, chatMode, mcpTools)
 		onText = newOnText
 		onFinalMessage = newOnFinalMessage
@@ -504,11 +511,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	let isRetrying = false // Flag to prevent processing streaming chunks during retry
 	let timeoutDeliveredPartial = false // Set when stall timeout fires with partial; outer catch skips onError
 
-	// Detect if this is a local provider for timeout optimization
-	const isExplicitLocalProviderChat = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	const isLocalhostEndpointChat = (providerName === 'openAICompatible' || providerName === 'liteLLM')
-		&& isLoopbackEndpoint(settingsOfProvider[providerName]?.endpoint)
-	const isLocalChat = isExplicitLocalProviderChat || isLocalhostEndpointChat
+	// isLocalChat computed above for tool-format routing; reused for timeout tuning below.
 
 	// Helper function to process streaming response
 	const processStreamingResponse = async (response: any) => {
