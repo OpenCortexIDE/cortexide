@@ -1,4 +1,4 @@
-import { IconWarning } from '../sidebar-tsx/SidebarChat.js';
+import { IconWarning } from '../sidebar-tsx/shared/icons.js';
 
 
 export const WarningBox = ({ text, onClick, className }: { text: string; onClick?: () => void; className?: string }) => {
