@@ -17,7 +17,7 @@ import { asCssVariable } from '../../../../../../../platform/theme/common/colorU
 import { inputBackground, inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
 import { useFloating, autoUpdate, offset, flip, shift, size, autoPlacement } from '@floating-ui/react';
 import { URI } from '../../../../../../../base/common/uri.js';
-import { getBasename, getFolderName } from '../sidebar-tsx/SidebarChat.js';
+import { getBasename, getFolderName } from '../sidebar-tsx/shared/pathUtils.js';
 import { ChevronRight, File, Folder, FolderClosed, LucideProps } from 'lucide-react';
 import { StagingSelectionItem } from '../../../../common/chatThreadServiceTypes.js';
 import { DiffEditorWidget } from '../../../../../../../editor/browser/widget/diffEditor/diffEditorWidget.js';

@@ -7,7 +7,6 @@ import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, K
 
 
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState } from '../util/services.js';
-import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
@@ -46,170 +45,14 @@ import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
 import { ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { ImageMessageRenderer } from '../util/ImageMessageRenderer.js';
 import { PDFMessageRenderer } from '../util/PDFMessageRenderer.js';
+import { IconX, IconArrowUp, IconSquare, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
+import { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
+import { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
 
-
-
-export const IconX = ({ size, className = '', ...props }: { size: number, className?: string } & React.SVGProps<SVGSVGElement>) => {
-	return (
-		<svg
-			xmlns='http://www.w3.org/2000/svg'
-			width={size}
-			height={size}
-			viewBox='0 0 24 24'
-			fill='none'
-			stroke='currentColor'
-			className={className}
-			{...props}
-		>
-			<path
-				strokeLinecap='round'
-				strokeLinejoin='round'
-				d='M6 18 18 6M6 6l12 12'
-			/>
-		</svg>
-	);
-};
-
-const IconArrowUp = ({ size, className = '' }: { size: number, className?: string }) => {
-	return (
-		<svg
-			width={size}
-			height={size}
-			className={className}
-			viewBox="0 0 20 20"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			<path
-				fill="black"
-				fillRule="evenodd"
-				clipRule="evenodd"
-				d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z"
-			></path>
-		</svg>
-	);
-};
-
-
-const IconSquare = ({ size, className = '' }: { size: number, className?: string }) => {
-	return (
-		<svg
-			className={className}
-			stroke="black"
-			fill="black"
-			strokeWidth="0"
-			viewBox="0 0 24 24"
-			width={size}
-			height={size}
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			<rect x="2" y="2" width="20" height="20" rx="4" ry="4" />
-		</svg>
-	);
-};
-
-
-export const IconWarning = ({ size, className = '' }: { size: number, className?: string }) => {
-	return (
-		<svg
-			className={className}
-			stroke="currentColor"
-			fill="currentColor"
-			strokeWidth="0"
-			viewBox="0 0 16 16"
-			width={size}
-			height={size}
-			xmlns="http://www.w3.org/2000/svg"
-		>
-			<path
-				fillRule="evenodd"
-				clipRule="evenodd"
-				d="M7.56 1h.88l6.54 12.26-.44.74H1.44L1 13.26 7.56 1zM8 2.28L2.28 13H13.7L8 2.28zM8.625 12v-1h-1.25v1h1.25zm-1.25-2V6h1.25v4h-1.25z"
-			/>
-		</svg>
-	);
-};
-
-
-type LoadingState = 'thinking' | 'typing' | 'processing' | 'default';
-
-// Format token count with k/m suffixes for better readability
-const formatTokenCount = (count: number): string => {
-	if (count >= 1000000) {
-		return `${(count / 1000000).toFixed(1)}M`;
-	} else if (count >= 1000) {
-		return `${(count / 1000).toFixed(1)}k`;
-	}
-	return count.toString();
-}
-
-export const IconLoading = ({
-	className = '',
-	showTokenCount,
-	state = 'default',
-	inline = false
-}: {
-	className?: string,
-	showTokenCount?: number,
-	state?: LoadingState,
-	inline?: boolean
-}) => {
-	// Use CSS animations instead of JavaScript for better performance
-	const [prevTokenCount, setPrevTokenCount] = useState<number | undefined>(undefined);
-	const [shouldPulse, setShouldPulse] = useState(false);
-
-	useEffect(() => {
-		if (showTokenCount !== undefined && showTokenCount !== prevTokenCount) {
-			setShouldPulse(true);
-			setPrevTokenCount(showTokenCount);
-			const timer = setTimeout(() => setShouldPulse(false), 300);
-			return () => clearTimeout(timer);
-		}
-	}, [showTokenCount, prevTokenCount]);
-
-	const tokenText = showTokenCount !== undefined
-		? ` (${formatTokenCount(showTokenCount)} tokens)`
-		: '';
-
-	// Different animation speeds for different states
-	const animationSpeed = state === 'thinking' ? '1.6s' : state === 'processing' ? '1.2s' : '1.4s';
-
-	const dots = (
-		<span
-			className={`inline-flex items-center gap-0.5 ${inline ? 'ml-1' : ''}`}
-			style={{ animationDuration: animationSpeed }}
-			aria-label={state === 'thinking' ? 'Thinking' : state === 'typing' ? 'Typing' : state === 'processing' ? 'Processing' : 'Loading'}
-			role="status"
-		>
-			<span className="loading-dot" />
-			<span className="loading-dot" />
-			<span className="loading-dot" />
-		</span>
-	);
-
-	return (
-		<div className={`inline-flex items-center gap-1 ${className}`}>
-			{dots}
-			{tokenText && (
-				<span className={`text-xs opacity-70 ${shouldPulse ? 'token-count-update' : ''}`}>
-					{tokenText}
-				</span>
-			)}
-		</div>
-	);
-}
-
-// Typing cursor component for inline use at end of streaming content
-export const TypingCursor = ({ className = '' }: { className?: string }) => {
-	return (
-		<span
-			className={`typing-cursor ${className}`}
-			aria-hidden="true"
-		/>
-	);
-}
-
-
+// Re-export shared modules for existing consumers (will migrate imports over time).
+export { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
+export { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
+export { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
 
 // SLIDER ONLY:
 const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) => {
@@ -799,86 +642,6 @@ const ScrollToBottomContainer = ({ children, className, style, scrollContainerRe
 		</div>
 	);
 };
-
-export const getRelative = (uri: URI, accessor: ReturnType<typeof useAccessor>) => {
-	const workspaceContextService = accessor.get('IWorkspaceContextService')
-	let path: string
-	const isInside = workspaceContextService.isInsideWorkspace(uri)
-	if (isInside) {
-		const f = workspaceContextService.getWorkspace().folders.find(f => uri.fsPath?.startsWith(f.uri.fsPath))
-		if (f) { path = uri.fsPath.replace(f.uri.fsPath, '') }
-		else { path = uri.fsPath }
-	}
-	else {
-		path = uri.fsPath
-	}
-	return path || undefined
-}
-
-export const getFolderName = (pathStr: string) => {
-	// 'unixify' path
-	pathStr = pathStr.replace(/[/\\]+/g, '/') // replace any / or \ or \\ with /
-	const parts = pathStr.split('/') // split on /
-	// Filter out empty parts (the last element will be empty if path ends with /)
-	const nonEmptyParts = parts.filter(part => part.length > 0)
-	if (nonEmptyParts.length === 0) return '/' // Root directory
-	if (nonEmptyParts.length === 1) return nonEmptyParts[0] + '/' // Only one folder
-	// Get the last two parts
-	const lastTwo = nonEmptyParts.slice(-2)
-	return lastTwo.join('/') + '/'
-}
-
-export const getBasename = (pathStr: string, parts: number = 1) => {
-	// 'unixify' path
-	pathStr = pathStr.replace(/[/\\]+/g, '/') // replace any / or \ or \\ with /
-	const allParts = pathStr.split('/') // split on /
-	if (allParts.length === 0) return pathStr
-	return allParts.slice(-parts).join('/')
-}
-
-
-
-// Open file utility function
-export const voidOpenFileFn = (
-	uri: URI,
-	accessor: ReturnType<typeof useAccessor>,
-	range?: [number, number]
-) => {
-	const commandService = accessor.get('ICommandService')
-	const editorService = accessor.get('ICodeEditorService')
-
-	// Get editor selection from CodeSelection range
-	let editorSelection = undefined;
-
-	// If we have a selection, create an editor selection from the range
-	if (range) {
-		editorSelection = {
-			startLineNumber: range[0],
-			startColumn: 1,
-			endLineNumber: range[1],
-			endColumn: Number.MAX_SAFE_INTEGER,
-		};
-	}
-
-	// open the file
-	commandService.executeCommand('vscode.open', uri).then(() => {
-
-		// select the text
-		setTimeout(() => {
-			if (!editorSelection) return;
-
-			const editor = editorService.getActiveCodeEditor()
-			if (!editor) return;
-
-			editor.setSelection(editorSelection)
-			editor.revealRange(editorSelection, ScrollType.Immediate)
-
-		}, 50) // needed when document was just opened and needs to initialize
-
-	})
-
-};
-
 
 export const SelectedFiles = (
 	{ type, selections, setSelections, showProspectiveSelections, messageIdx, }:
@@ -2016,37 +1779,6 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		{approvalToggle}
 	</div>
 }
-
-export const ToolChildrenWrapper = ({ children, className }: { children: React.ReactNode, className?: string }) => {
-	return <div className={`${className ? className : ''} cursor-default select-none`}>
-		<div className='px-2 min-w-full overflow-hidden'>
-			{children}
-		</div>
-	</div>
-}
-export const CodeChildren = ({ children, className }: { children: React.ReactNode, className?: string }) => {
-	return <div className={`${className ?? ''} p-1 rounded-sm overflow-auto text-sm`}>
-		<div className='!select-text cursor-auto'>
-			{children}
-		</div>
-	</div>
-}
-
-export const ListableToolItem = ({ name, onClick, isSmall, className, showDot }: { name: React.ReactNode, onClick?: () => void, isSmall?: boolean, className?: string, showDot?: boolean }) => {
-	return <div
-		className={`
-			${onClick ? 'hover:brightness-125 hover:cursor-pointer transition-all duration-200 ' : ''}
-			flex items-center flex-nowrap whitespace-nowrap
-			${className ? className : ''}
-			`}
-		onClick={onClick}
-	>
-		{showDot === false ? null : <div className="flex-shrink-0"><svg className="w-1 h-1 opacity-60 mr-1.5 fill-current" viewBox="0 0 100 40"><rect x="0" y="15" width="100" height="10" /></svg></div>}
-		<div className={`${isSmall ? 'italic text-void-fg-4 flex items-center' : ''}`}>{name}</div>
-	</div>
-}
-
-
 
 const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined, code: string, type: 'diff' | 'rewrite' }) => {
 
