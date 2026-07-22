@@ -18,10 +18,11 @@ import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { FileAccess } from '../../../../../../../base/common/network.js';
 import { LocalSetupWizard } from './LocalSetupWizard.js';
 import { ExpressOnboardingFlow } from './ExpressOnboardingFlow.js';
+import { applyLlamaServerPreset, tryAutoAssignAutocompleteModel, tryAutoAssignChatModel } from '../../../../common/onboardingHelpers.js';
 
 const OVERRIDE_VALUE = false
 
-const getHeroLogoUri = () => FileAccess.asBrowserUri('vs/workbench/browser/media/cortexide-main.png').toString(true)
+const getHeroLogoUri = () => FileAccess.asBrowserUri('vs/workbench/browser/media/code-icon.svg').toString(true)
 
 const welcomeHighlights = [
 	'Chat + Quick Edit',
@@ -72,14 +73,14 @@ export const VoidOnboarding = () => {
 		<div className={`@@void-scope ${isDark ? 'dark' : ''}`}>
 			<div
 				className={`
-					fixed inset-0 z-[99999] flex items-start justify-center px-6 py-12
-					bg-[#050507]
+					cortex-onboarding-root fixed inset-0 z-[99999] flex items-start justify-center px-6 py-12
 					backdrop-blur-[28px]
 					overflow-y-auto
 					transition-all duration-700 ease-in-out
 					${isOnboardingComplete ? 'opacity-0 translate-y-4 pointer-events-none' : 'opacity-100 pointer-events-auto'}
 				`}
 				style={{
+					backgroundColor: 'var(--vscode-editor-background, #050507)',
 					backgroundImage: 'radial-gradient(circle at 18% -15%, rgba(255,255,255,0.06), transparent 55%), radial-gradient(circle at 82% 0%, rgba(0,0,0,0.55), transparent 50%)',
 				}}
 			>
@@ -167,10 +168,12 @@ const cloudProviders: ProviderName[] = ['googleVertex', 'liteLLM', 'microsoftAzu
 
 const freeProviders: ProviderName[] = ['gemini', 'openRouter', 'pollinations', 'moonshot'];
 
+const localTabProviders: ProviderName[] = [...localProviderNames, 'openAICompatible'];
+
 // Data structures for provider tabs
 const providerNamesOfTab: Record<TabName, ProviderName[]> = {
 	Free: freeProviders,
-	Local: localProviderNames,
+	Local: localTabProviders,
 	Paid: providerNames.filter(pn => !([...freeProviders, ...localProviderNames, ...cloudProviders] as string[]).includes(pn)) as ProviderName[],
 	'Cloud/Other': cloudProviders,
 };
@@ -194,6 +197,8 @@ const featureNameMap: { display: string, featureName: FeatureName }[] = [
 const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setPageIndex: (index: number) => void }) => {
 	const [currentTab, setCurrentTab] = useState<TabName>('Free');
 	const settingsState = useSettingsState();
+	const accessor = useAccessor();
+	const settingsService = accessor.get('ICortexideSettingsService');
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [showLocalWizard, setShowLocalWizard] = useState(false);
 
@@ -290,6 +295,19 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 								<ChevronRight size={16} className="text-void-fg-3 flex-shrink-0 ml-4" />
 							</button>
 						)}
+						{currentTab === 'Local' && !showLocalWizard && (
+							<button
+								type="button"
+								className="w-full flex items-center justify-between px-5 py-4 rounded-xl border border-void-border-3 bg-void-bg-3/60 hover:bg-void-bg-2/80 transition-colors text-left"
+								onClick={() => { void applyLlamaServerPreset(settingsService); }}
+							>
+								<div>
+									<div className="font-semibold text-sm text-void-fg-0">Use llama-server (llama.cpp)</div>
+									<div className="text-xs text-void-fg-3 mt-0.5">Prefill OpenAI-Compatible endpoint http://127.0.0.1:8080/v1 — then add your .gguf model name below</div>
+								</div>
+								<ChevronRight size={16} className="text-void-fg-3 flex-shrink-0 ml-4" />
+							</button>
+						)}
 						{currentTab === 'Local' && showLocalWizard && (
 							<ErrorBoundary>
 								<LocalSetupWizard
@@ -344,7 +362,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 							{currentTab === 'Local' && (
 								<div className="text-sm text-void-fg-3 mb-4">Local models auto-detect when possible. Add custom entries to fine tune routing.</div>
 							)}
-							{currentTab === 'Local' && <ModelDump filteredProviders={localProviderNames} />}
+							{currentTab === 'Local' && <ModelDump filteredProviders={localTabProviders} />}
 							{currentTab === 'Cloud/Other' && <ModelDump filteredProviders={cloudProviders} />}
 						</div>
 					)}
@@ -358,8 +376,11 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 						<div className="flex items-center gap-2">
 							<PreviousButton onClick={() => setPageIndex(pageIndex - 1)} />
 							<NextButton
-								onClick={() => {
-									const isDisabled = isFeatureNameDisabled('Chat', settingsState)
+								onClick={async () => {
+									let state = settingsState;
+									state = await tryAutoAssignChatModel(settingsService, state);
+									await tryAutoAssignAutocompleteModel(settingsService, state);
+									const isDisabled = isFeatureNameDisabled('Chat', settingsService.state);
 									if (!isDisabled) {
 										setPageIndex(pageIndex + 1);
 										setErrorMessage(null);
@@ -596,8 +617,8 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 		<button
 			type='button'
 			className={`
-				inline-flex items-center justify-center gap-2 rounded-[18px] font-semibold tracking-tight
-				text-white border border-white/10
+				inline-flex items-center justify-center gap-2 rounded-[18px] font-semibold tracking-tight leading-normal
+				text-white border border-white/10 min-h-[44px]
 				bg-gradient-to-r from-[#3a3d47] via-[#23252c] to-[#111216]
 				shadow-[0_35px_80px_rgba(0,0,0,0.6)]
 				hover:shadow-[0_45px_100px_rgba(0,0,0,0.7)] hover:translate-y-[-1px]
@@ -609,7 +630,7 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 			`}
 			{...props}
 		>
-			{children}
+			<span className="inline-flex items-center gap-2">{children}</span>
 			<ChevronRight
 				className="transition-transform duration-300 ease-in-out group-hover:translate-x-1 group-active:translate-x-1"
 			/>

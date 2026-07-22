@@ -111,6 +111,19 @@ export const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	}
 }
 
+export type SpecialToolFormat = 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined
+
+/**
+ * Local inference (Ollama, vLLM, LM Studio, loopback openAICompatible) parses tool calls from
+ * XML/JSON text in the message body — never via native provider tool APIs. When both XML tool
+ * definitions (system prompt) and a native `tools[]` array are sent, servers like llama.cpp reject
+ * the request (issue #45). Force XML/text mode by clearing specialToolFormat for local providers.
+ */
+export const effectiveSpecialToolFormat = (
+	specialToolFormat: SpecialToolFormat,
+	isLocalInference: boolean,
+): SpecialToolFormat => isLocalInference ? undefined : specialToolFormat
+
 /**
  * The running accumulator for an OpenAI-compatible streaming chat response: text, reasoning, and the
  * single tool call (name / args-JSON-string / id) assembled across deltas. The OpenAI streaming

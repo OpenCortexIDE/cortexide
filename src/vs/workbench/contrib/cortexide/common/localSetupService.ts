@@ -28,6 +28,7 @@ import {
 } from './localSetupServiceTypes.js';
 import { IOllamaInstallerService } from './ollamaInstallerService.js';
 import { getModelPackById } from './modelPacks.js';
+import { ICortexideSettingsService } from './cortexideSettingsService.js';
 
 // allow-any-unicode-next-line
 // ─── public interface ─────────────────────────────────────────────────────────
@@ -44,6 +45,9 @@ export interface ILocalSetupService {
 
 	/** Step 1: detect Ollama installation, disk space, VRAM, and recommended pack. */
 	checkSystem(): Promise<SystemCheckResult>;
+
+	/** Reset wizard state before starting the guided local setup flow. */
+	startWizard(): void;
 
 	/** Step 2: install Ollama if not already installed. */
 	installOllama(): Promise<void>;
@@ -82,6 +86,7 @@ class LocalSetupService extends Disposable implements ILocalSetupService {
 
 	constructor(
 		@IOllamaInstallerService private readonly _ollamaInstaller: IOllamaInstallerService,
+		@ICortexideSettingsService private readonly _settingsService: ICortexideSettingsService,
 	) {
 		super();
 
@@ -104,6 +109,15 @@ class LocalSetupService extends Disposable implements ILocalSetupService {
 	private _setState(next: LocalSetupState) {
 		this._state = next;
 		this._onDidChangeState.fire(next);
+	}
+
+	// allow-any-unicode-next-line
+	// ── wizard entry ────────────────────────────────────────────────────────────
+
+	startWizard(): void {
+		this._cancelled = false;
+		this._currentStep = 0;
+		this._setState({ type: 'idle' });
 	}
 
 	// allow-any-unicode-next-line
@@ -242,9 +256,21 @@ class LocalSetupService extends Disposable implements ILocalSetupService {
 	// allow-any-unicode-next-line
 	// ── Step 5: set defaults ────────────────────────────────────────────────────
 
-	async setDefaults(_packId: ModelPackType): Promise<void> {
+	async setDefaults(packId: ModelPackType): Promise<void> {
 		if (this._cancelled) return;
 		this._currentStep = 5;
+
+		const pack = getModelPackById(packId);
+		if (pack?.ollamaTag) {
+			this._settingsService.addModel('ollama', pack.ollamaTag);
+			await this._settingsService.setModelSelectionOfFeature('Chat', { providerName: 'ollama', modelName: pack.ollamaTag });
+			// FIM-capable coder for autocomplete (issue #27)
+			const fimTag = pack.ollamaTag.includes('coder') ? pack.ollamaTag : 'qwen2.5-coder:7b';
+			this._settingsService.addModel('ollama', fimTag);
+			await this._settingsService.setModelSelectionOfFeature('Autocomplete', { providerName: 'ollama', modelName: fimTag });
+		}
+
+		this._settingsService.setGlobalSetting('isOnboardingComplete', true);
 		this._setState({ type: 'complete' });
 	}
 

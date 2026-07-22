@@ -7,8 +7,9 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-
 import { URI } from '../../../../base/common/uri.js';
+
+import { parseChatThreadsFromStorage } from '../common/chatThreadStorageReviver.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { chat_userMessageContent, isABuiltinToolName, builtinToolNames, localToolsetFor, READ_ONLY_SUBAGENT_TOOLS } from '../common/prompt/prompts.js';
@@ -24,6 +25,7 @@ import { IBackgroundAgentsService } from './backgroundAgentsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { checkToolAllowedInMode } from '../common/toolPermissions.js';
 import { classifyCommandRisk, cwdEscapesWorkspace } from '../common/commandRisk.js';
+import { formatTodoReminder } from '../common/todoReminder.js';
 import { decideAutoApprove } from '../common/autoApprovePolicy.js';
 import { AgentFileOpRecord, AgentFileOpType, FileOpIO, undoFileOpsAfterCheckpoint } from '../common/agentFileOps.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -558,40 +560,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// !!! this is important for properly restoring URIs and images from storage
 	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
 	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
-		return JSON.parse(threadsStr, (key, value) => {
-			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
-				return URI.from(value); // TODO URI.revive instead of this?
-			}
-			// Restore Uint8Array from base64 string for image data
-			// Only process 'data' keys that are directly under image attachment objects
-			// Check key === 'data' to match image attachment structure
-			if (key === 'data') {
-				if (typeof value === 'string' && value.startsWith('__base64__:')) {
-					// Handle base64 string format (the normal case)
-					try {
-						const base64 = value.substring(11); // Remove '__base64__:' prefix
-						const binaryString = atob(base64);
-						const bytes = new Uint8Array(binaryString.length);
-						for (let i = 0; i < binaryString.length; i++) {
-							bytes[i] = binaryString.charCodeAt(i);
-						}
-						return bytes;
-					} catch (e) {
-						console.error('Failed to decode base64 image data in storage reviver', e);
-						return value; // Return original value on error
-					}
-				} else if (Array.isArray(value)) {
-					// Handle case where it's already an array but not Uint8Array
-					// Only convert if it looks like byte data (all numbers 0-255)
-					if (value.length > 0 && value.every((v: any) => typeof v === 'number' && v >= 0 && v <= 255)) {
-						return new Uint8Array(value as number[]);
-					}
-				}
-				// For objects, don't try to convert here - let it be handled later if needed
-				// This prevents infinite recursion and unexpected conversions
-			}
-			return value;
-		});
+		return parseChatThreadsFromStorage<ChatThreads>(threadsStr);
 	}
 
 	private _readAllThreads(): ChatThreads | null {
@@ -3726,7 +3695,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatMode,
 						repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 						subagentSystemPrompt: runCtx?.systemPromptOverride,
-						allowedToolNames: runCtx?.allowedToolNames
+						allowedToolNames: runCtx?.allowedToolNames,
+						todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 					});
 				} catch (prepErr) {
 					// The first prompt assembly can throw (and has no prior messages to fall back to);
@@ -3818,7 +3788,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							chatMode,
 							repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 							subagentSystemPrompt: runCtx?.systemPromptOverride,
-							allowedToolNames: runCtx?.allowedToolNames
+							allowedToolNames: runCtx?.allowedToolNames,
+							todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 						})
 						if (prep2.messages && prep2.messages.length > 0) {
 							messages = prep2.messages
@@ -3950,7 +3921,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									chatMode,
 									repoIndexerPromise: repoIndexerResults ? Promise.resolve(repoIndexerResults) : repoIndexerPromise,
 									subagentSystemPrompt: runCtx?.systemPromptOverride,
-									allowedToolNames: runCtx?.allowedToolNames
+									allowedToolNames: runCtx?.allowedToolNames,
+									todoReminder: formatTodoReminder(this._toolsService.getLatestTodos())
 								});
 								messages = prepResult.messages;
 								separateSystemMessage = prepResult.separateSystemMessage;

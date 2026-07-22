@@ -17,7 +17,8 @@
 	color: var(--void-fg-3);
 }
 
-* {
+/* Suppress default outlines inside CortexIDE React UI, but preserve keyboard focus rings. */
+.void-scope *:not(:focus-visible) {
 	outline: none !important;
 }
 
@@ -40,7 +41,7 @@
 
 /* generic focus ring for keyboard users */
 .void-focus-ring:focus-visible {
-	outline: 1px solid var(--void-ring-color);
+	outline: 1px solid var(--void-ring-color) !important;
 	outline-offset: 1px;
 }
 
@@ -136,12 +137,14 @@
 }
 
 .monaco-editor .error-detection-glyph-error::before {
+	/* allow-any-unicode-next-line */
 	content: '❌';
 	font-size: 14px;
 	color: var(--vscode-errorForeground);
 }
 
 .monaco-editor .error-detection-glyph-warning::before {
+	/* allow-any-unicode-next-line */
 	content: '⚠️';
 	font-size: 14px;
 	color: var(--vscode-warningForeground);

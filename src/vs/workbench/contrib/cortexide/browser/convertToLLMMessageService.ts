@@ -54,6 +54,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 	}
 }
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
+import { effectiveSpecialToolFormat } from '../common/providerToolFormat.js';
 import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local } from '../common/prompt/prompts.js';
 import { isCapableLocalModel } from '../common/routing/codingModelScore.js';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
@@ -1240,7 +1241,7 @@ const prepareMessages = (params: {
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>, subagentSystemPrompt?: string, allowedToolNames?: string[] }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>, subagentSystemPrompt?: string, allowedToolNames?: string[], todoReminder?: string }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
 	prepareFIMMessage(opts: { messages: LLMFIMMessage, modelSelection: ModelSelection | null, featureName: FeatureName, languageId?: string }): { prefix: string, suffix: string, stopTokens: string[] }
 	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[], metrics: any } | null>
 }
@@ -1488,7 +1489,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			systemMessage: enrichedSystemMessage,
 			aiInstructions,
 			supportsSystemMessage,
-			specialToolFormat,
+			specialToolFormat: effectiveSpecialToolFormat(specialToolFormat, isLocal),
 			supportsAnthropicReasoning: providerName === 'anthropic',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
@@ -1519,7 +1520,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, subagentSystemPrompt, allowedToolNames }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise, subagentSystemPrompt, allowedToolNames, todoReminder }) => {
 		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
 
 		const { overridesOfModel } = this.cortexideSettingsService.state
@@ -1683,7 +1684,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const modelSelectionOptions = this.cortexideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName]
 
 		// Get combined AI instructions
-		const aiInstructions = this._getCombinedAIInstructions();
+		let aiInstructions = this._getCombinedAIInstructions();
+		// Re-inject the agent's current todo list as fresh working memory each turn. Folded into the
+		// per-turn instructions (like rules) rather than the CACHED system message, so it stays current
+		// as steps complete. Empty -> caller passes undefined -> zero impact (e.g. normal/plan turns).
+		if (todoReminder) {
+			aiInstructions = aiInstructions ? `${aiInstructions}\n\n${todoReminder}` : todoReminder;
+		}
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
 		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
@@ -1789,7 +1796,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// Local providers don't actually return native tool_calls (the calls arrive as XML/JSON text),
 			// so encode prior tool turns with the XML/text format to stay consistent with the system prompt
 			// + parser — otherwise turn 2+ of the agent loop loses all prior tool context (finding #8).
-			specialToolFormat: isLocalProviderForContext ? undefined : specialToolFormat,
+			specialToolFormat: effectiveSpecialToolFormat(specialToolFormat, isLocalProviderForContext),
 			supportsAnthropicReasoning: validProviderName === 'anthropic',
 			contextWindow,
 			reservedOutputTokenSpace,

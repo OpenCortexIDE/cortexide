@@ -5,13 +5,27 @@
 
 import * as assert from 'assert';
 import { suite, test } from 'mocha';
-import { buildRawToolCallObj, rawToolCallObjOfParamsStr, sanitizeOpenAIMessagesForEmptyContent as _sanitize, EMPTY_CONTENT_PLACEHOLDER, toOpenAICompatibleTool, accumulateOpenAIChatDelta, OpenAIChatAccumulator, OpenAIStreamDelta } from '../../common/providerToolFormat.js';
+import { buildRawToolCallObj, rawToolCallObjOfParamsStr, sanitizeOpenAIMessagesForEmptyContent as _sanitize, EMPTY_CONTENT_PLACEHOLDER, toOpenAICompatibleTool, accumulateOpenAIChatDelta, OpenAIChatAccumulator, OpenAIStreamDelta, effectiveSpecialToolFormat } from '../../common/providerToolFormat.js';
 import { LLMChatMessage } from '../../common/sendLLMMessageTypes.js';
 import type { InternalToolInfo } from '../../common/prompt/prompts.js';
 
 const m = (o: unknown): LLMChatMessage => o as LLMChatMessage;
 // LLMChatMessage is a union (the Gemini variant has `parts`, not `content`); return any[] so tests can read `.content`.
 const sanitizeOpenAIMessagesForEmptyContent = (msgs: LLMChatMessage[]): any[] => _sanitize(msgs);
+
+suite('effectiveSpecialToolFormat', () => {
+	test('local inference clears native tool format (XML/text mode only)', () => {
+		assert.strictEqual(effectiveSpecialToolFormat('openai-style', true), undefined);
+		assert.strictEqual(effectiveSpecialToolFormat('anthropic-style', true), undefined);
+	});
+	test('cloud inference keeps native tool format', () => {
+		assert.strictEqual(effectiveSpecialToolFormat('openai-style', false), 'openai-style');
+		assert.strictEqual(effectiveSpecialToolFormat(undefined, false), undefined);
+	});
+	test('loopback local inference always uses XML/text tool mode', () => {
+		assert.strictEqual(effectiveSpecialToolFormat('openai-style', true), undefined);
+	});
+});
 
 suite('buildRawToolCallObj', () => {
 	test('object args -> RawToolCallObj with id/name/rawParams/doneParams/isDone', () => {

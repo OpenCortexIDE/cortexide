@@ -149,6 +149,9 @@ export const ExpressOnboardingFlow = ({ onCustomize, onDismiss }: ExpressOnboard
 			// non-empty default.)
 			settingsService.addModel('ollama', pack.tag);
 			await settingsService.setModelSelectionOfFeature('Chat', { providerName: 'ollama', modelName: pack.tag });
+			const fimTag = pack.tag.includes('coder') ? pack.tag : 'qwen2.5-coder:7b';
+			settingsService.addModel('ollama', fimTag);
+			await settingsService.setModelSelectionOfFeature('Autocomplete', { providerName: 'ollama', modelName: fimTag });
 			settingsService.setGlobalSetting('isOnboardingComplete', true);
 			setPhase('ready');
 		} catch (e) {

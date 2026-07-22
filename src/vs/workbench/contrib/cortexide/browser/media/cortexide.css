@@ -15,7 +15,9 @@
  * or via a theme extension. All values below are defaults only.
  * =========================================================================== */
 
-:root {
+.void-scope,
+.cortex-onboarding-root,
+.monaco-workbench .part.auxiliarybar > .content {
 	/* -- Core surfaces (dark theme - light overrides below) ----------------- */
 	/* Stepped from near-black to visible dark grey so depth reads clearly.    */
 	--cortex-surface-0:     #0a0a0d;   /* deepest background (onboarding overlay) */
@@ -179,11 +181,17 @@ body.monaco-workbench,
 	box-shadow: var(--cortex-shadow-hairline);
 }
 
-/* Disable backdrop-filter on Windows title bar - causes stacking context bugs
- * that prevent menubar dropdowns from rendering above the title bar. */
-.monaco-workbench.windows .part.titlebar {
+/* backdrop-filter on the title bar creates a stacking context that clips menubar
+ * dropdowns on every platform (issues #8, #68). Keep blur on the status bar only. */
+.monaco-workbench .part.titlebar {
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
+}
+
+/* Ensure menubar / context menus render above the custom title bar chrome. */
+.monaco-workbench .monaco-menu-container,
+.monaco-workbench .context-view.monaco-menu-container {
+	z-index: 2500;
 }
 
 .monaco-workbench .part.sidebar > .content .pane-header,
@@ -424,11 +432,11 @@ body.monaco-workbench,
  * Rounded, blurred, elevated above the editor surface.
  * =========================================================================== */
 .monaco-workbench .quick-input-widget {
-	background: color-mix(in srgb, var(--cortex-surface-2) 94%, #000008 6%) !important;
-	color: var(--cortex-text-base) !important;
+	background: var(--vscode-quickInput-background, var(--vscode-editorWidget-background)) !important;
+	color: var(--vscode-quickInput-foreground, var(--vscode-foreground)) !important;
 	border-radius: 20px !important;
-	border: 1px solid var(--cortex-border-base) !important;
-	box-shadow: var(--cortex-shadow-soft), inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-input-border)) !important;
+	box-shadow: var(--vscode-widget-shadow, 0 8px 32px rgba(0, 0, 0, 0.35)) !important;
 	backdrop-filter: blur(24px);
 	-webkit-backdrop-filter: blur(24px);
 	transform: none !important;
@@ -443,20 +451,20 @@ body.monaco-workbench,
 
 .monaco-workbench .quick-input-widget .quick-input-header .monaco-inputbox,
 .monaco-workbench .quick-input-widget .monaco-inputbox {
-	background: color-mix(in srgb, var(--cortex-surface-1) 92%, #000005 8%) !important;
-	border: 1px solid var(--cortex-border-weak) !important;
+	background: var(--vscode-input-background) !important;
+	border: 1px solid var(--vscode-input-border) !important;
 	border-radius: 12px !important;
 	transition: border-color var(--cortex-transition-fast) !important;
 }
 .monaco-workbench .quick-input-widget .quick-input-header .monaco-inputbox:focus-within,
 .monaco-workbench .quick-input-widget .monaco-inputbox:focus-within {
-	border-color: var(--cortex-brand) !important;
-	box-shadow: 0 0 0 1px var(--cortex-brand-soft) !important;
+	border-color: var(--vscode-focusBorder) !important;
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder) !important;
 }
 
 .monaco-workbench .quick-input-widget .monaco-inputbox input {
 	background: transparent !important;
-	color: var(--cortex-text-base) !important;
+	color: var(--vscode-input-foreground) !important;
 }
 
 .monaco-workbench .quick-input-widget .quick-input-list {
@@ -584,9 +592,13 @@ body.monaco-workbench,
  * correctly on a light background. All other CSS rules stay the same.
  * =========================================================================== */
 
-body.vscode-light :root,
+body.vscode-light .void-scope,
+body.vscode-light .cortex-onboarding-root,
+body.vscode-light .monaco-workbench .part.auxiliarybar > .content,
 body.vscode-light,
-.vscode-light :root,
+.vscode-light .void-scope,
+.vscode-light .cortex-onboarding-root,
+.vscode-light .monaco-workbench .part.auxiliarybar > .content,
 .vscode-light {
 	--cortex-surface-0:     #ffffff;
 	--cortex-surface-1:     #f7f7fa;
@@ -636,9 +648,13 @@ body.vscode-light,
 }
 
 /* High-contrast light theme */
-body.vscode-high-contrast-light :root,
+body.vscode-high-contrast-light .void-scope,
+body.vscode-high-contrast-light .cortex-onboarding-root,
+body.vscode-high-contrast-light .monaco-workbench .part.auxiliarybar > .content,
 body.vscode-high-contrast-light,
-.vscode-high-contrast-light :root,
+.vscode-high-contrast-light .void-scope,
+.vscode-high-contrast-light .cortex-onboarding-root,
+.vscode-high-contrast-light .monaco-workbench .part.auxiliarybar > .content,
 .vscode-high-contrast-light {
 	--cortex-surface-0:     #ffffff;
 	--cortex-surface-1:     #f0f0f0;
@@ -667,9 +683,13 @@ body.vscode-high-contrast-light,
 }
 
 /* High-contrast dark theme */
-body.vscode-high-contrast :root,
+body.vscode-high-contrast .void-scope,
+body.vscode-high-contrast .cortex-onboarding-root,
+body.vscode-high-contrast .monaco-workbench .part.auxiliarybar > .content,
 body.vscode-high-contrast,
-.vscode-high-contrast :root,
+.vscode-high-contrast .void-scope,
+.vscode-high-contrast .cortex-onboarding-root,
+.vscode-high-contrast .monaco-workbench .part.auxiliarybar > .content,
 .vscode-high-contrast {
 	--cortex-border-weak:   #444444;
 	--cortex-border-base:   #666666;

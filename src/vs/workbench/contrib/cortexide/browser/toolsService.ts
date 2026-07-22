@@ -246,6 +246,8 @@ export interface IToolsService {
 	validateParams: ValidateBuiltinParams;
 	callTool: CallBuiltinTool;
 	stringOfResult: BuiltinToolResultToString;
+	/** The agent's latest todo_write list, re-injected as working memory each turn. */
+	getLatestTodos(): ReadonlyArray<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>;
 }
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
@@ -1270,7 +1272,15 @@ export class ToolsService implements IToolsService {
 					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
 				}
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId })
-				return { result: resPromise, interruptTool: interrupt }
+				// Mask secrets in command output (e.g. `cat .env`) before it is fed back to
+				// the model. Mirrors run_nl_command; defense-in-depth alongside the outbound
+				// dispatch redaction, so the masked text is also what shows in the UI tool
+				// card and local thread history.
+				const maskedResPromise = resPromise.then((res) => {
+					const secretResult = this.secretDetectionService.detectSecrets(res.result);
+					return secretResult.hasSecrets ? { ...res, result: secretResult.redactedText } : res;
+				});
+				return { result: maskedResPromise, interruptTool: interrupt }
 			},
 			run_nl_command: async ({ nlInput, cwd, terminalId }) => {
 				// Parse natural language to shell command
@@ -1326,7 +1336,13 @@ export class ToolsService implements IToolsService {
 					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
 				}
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId })
-				return { result: resPromise, interruptTool: interrupt }
+				// Mask secrets in persistent-terminal output before it is fed back to the
+				// model. Mirrors run_command / run_nl_command (defense-in-depth).
+				const maskedResPromise = resPromise.then((res) => {
+					const secretResult = this.secretDetectionService.detectSecrets(res.result);
+					return secretResult.hasSecrets ? { ...res, result: secretResult.redactedText } : res;
+				});
+				return { result: maskedResPromise, interruptTool: interrupt }
 			},
 			open_persistent_terminal: async ({ cwd }) => {
 				const persistentTerminalId = await this.terminalToolService.createPersistentTerminal({ cwd })

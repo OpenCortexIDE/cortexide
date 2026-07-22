@@ -1024,7 +1024,7 @@ export const SelectedFiles = (
 							}
 
 							{selection.type === 'File' && selection.state.wasAddedAsCurrentFile && messageIdx === undefined && currentURI?.fsPath === selection.uri.fsPath ?
-								<span className={`text-[8px] 'void-opacity-60 text-void-fg-4`}>
+								<span className="text-[8px] void-opacity-60 text-void-fg-4">
 									{`(Current File)`}
 								</span>
 								: null

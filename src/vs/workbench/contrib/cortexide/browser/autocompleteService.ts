@@ -269,7 +269,9 @@ const filterNonCodeContent = (text: string, languageId?: string): string => {
 		filteredLines.push(line);
 	}
 
-	return filteredLines.join('\n');
+	const result = filteredLines.join('\n');
+	// If filtering removed everything, keep the raw model output (issue #27).
+	return result || text;
 };
 
 // postprocesses the result
