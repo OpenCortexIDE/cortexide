@@ -215,36 +215,36 @@ export const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhos
 		onMouseEnter={() => setIsHovered(true)}
 		onMouseLeave={() => setIsHovered(false)}
 	>
-		<div
-			// style chatbubble according to role
-			className={`
-            text-left rounded-lg max-w-full
-            ${mode === 'edit' ? ''
-					: mode === 'display' ? 'p-2 flex flex-col bg-void-bg-1 text-void-fg-1 overflow-x-auto cursor-pointer' : ''
-				}
-        `}
-			onClick={() => { if (mode === 'display') { onOpenEdit() } }}
-		>
-			{chatbubbleContents}
-		</div>
+		{mode === 'display' ? (
+			<button
+				type="button"
+				className="text-left rounded-lg max-w-full p-2 flex flex-col bg-void-bg-1 text-void-fg-1 overflow-x-auto cursor-pointer void-focus-ring"
+				onClick={onOpenEdit}
+				aria-label="Edit message"
+			>
+				{chatbubbleContents}
+			</button>
+		) : (
+			<div className="text-left rounded-lg max-w-full">
+				{chatbubbleContents}
+			</div>
+		)}
 
 
 
 		<div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1"
-		// data-tooltip-id='cortex-tooltip'
-		// data-tooltip-content='Edit message'
-		// data-tooltip-place='left'
 		>
-			<EditSymbol
-				size={18}
+			<button
+				type="button"
 				className={`
                     cursor-pointer
                     p-[2px]
-                    bg-void-bg-1 border border-void-border-1 rounded-md
+                    bg-void-bg-1 border border-void-border-1 rounded-md void-focus-ring
                     transition-opacity duration-200 ease-in-out
                     ${isHovered || (isFocused && mode === 'edit') ? 'opacity-100' : 'opacity-0'}
                 `}
+				aria-label={mode === 'display' ? 'Edit message' : 'Close edit'}
 				onClick={() => {
 					if (mode === 'display') {
 						onOpenEdit()
@@ -252,7 +252,9 @@ export const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhos
 						onCloseEdit()
 					}
 				}}
-			/>
+			>
+				<EditSymbol size={18} aria-hidden="true" />
+			</button>
 		</div>
 
 

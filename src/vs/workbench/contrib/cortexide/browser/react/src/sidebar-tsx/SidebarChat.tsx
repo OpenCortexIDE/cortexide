@@ -17,6 +17,7 @@ import { PastThreadsList } from './SidebarThreadSelector.js';
 import { VoidChatArea, ButtonSubmit, ButtonStop } from './composer/VoidChatArea.js';
 import { SelectedFiles } from './composer/SelectedFiles.js';
 import { ScrollToBottomContainer } from './composer/ScrollToBottomContainer.js';
+import { ContextUsageBar } from './composer/ContextUsageBar.js';
 import { LandingPage } from './landing/LandingPage.js';
 import { ComposerTabs } from './chrome/ComposerTabs.js';
 import { ThreadHeader } from './chrome/ThreadHeader.js';
@@ -1164,17 +1165,12 @@ export const SidebarChat = () => {
 
 			{/* Context usage indicator */}
 			{modelSel ? (
-				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-[var(--cortex-danger)]' : contextPct > 0.8 ? 'text-[var(--cortex-warning)]' : 'text-void-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-[var(--cortex-danger)]' : contextPct > 0.8 ? 'bg-[var(--cortex-warning)]' : 'bg-void-fg-3/60'
-					return <div className='mt-1'>
-						<div className={`text-[10px] ${color}`}>Context ~{contextTotal} / {contextBudget} tokens ({pctNum}%)</div>
-						<div className='h-[3px] w-full bg-void-border-3 rounded mt-0.5'>
-							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={`Context usage ${pctNum}%`} />
-						</div>
-					</div>
-				})()
+				<ContextUsageBar
+					className="mt-1"
+					contextTotal={contextTotal}
+					contextBudget={contextBudget}
+					contextPct={contextPct}
+				/>
 			) : null}
 		</div>
 	</div>
@@ -1183,17 +1179,12 @@ export const SidebarChat = () => {
 		<div className='pt-8'>
 			{inputChatArea}
 			{modelSel ? (
-				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-[var(--cortex-danger)]' : contextPct > 0.8 ? 'text-[var(--cortex-warning)]' : 'text-void-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-[var(--cortex-danger)]' : contextPct > 0.8 ? 'bg-[var(--cortex-warning)]' : 'bg-void-fg-3/60'
-					return <div className='mt-1 px-2'>
-						<div className={`text-[10px] ${color}`}>Context ~{contextTotal} / {contextBudget} tokens ({pctNum}%)</div>
-						<div className='h-[3px] w-full bg-void-border-3 rounded mt-0.5'>
-							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={`Context usage ${pctNum}%`} />
-						</div>
-					</div>
-				})()
+				<ContextUsageBar
+					className="mt-1 px-2"
+					contextTotal={contextTotal}
+					contextBudget={contextBudget}
+					contextPct={contextPct}
+				/>
 			) : null}
 		</div>
 	</div>
