@@ -390,12 +390,10 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 			}}
 			className={`
 				gap-x-1
-                flex flex-col p-2.5 relative input text-left shrink-0
+                flex flex-col p-2.5 relative cortex-composer-shell text-left shrink-0
                 rounded-2xl
-                bg-[#030304]
 				transition-all duration-200
-				border border-[rgba(255,255,255,0.08)] focus-within:border-[rgba(255,255,255,0.12)] hover:border-[rgba(255,255,255,0.12)]
-				${isDragOver ? 'border-blue-500 bg-blue-500/10' : ''}
+				${isDragOver ? 'border-[var(--cortex-brand)] bg-[var(--cortex-brand-soft)]' : ''}
 				max-h-[80vh] overflow-y-auto
                 ${className}
             `}
@@ -483,12 +481,19 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 
 				{/* Close button (X) if onClose is provided */}
 				{onClose && (
-					<div className='absolute -top-1 -right-1 cursor-pointer z-1'>
-						<IconX
-							size={12}
-							className="stroke-[2] opacity-80 text-void-fg-3 hover:brightness-95"
+					<div className='absolute -top-1 -right-1 z-1'>
+						<button
+							type="button"
+							className="cursor-pointer void-focus-ring rounded-md p-0.5"
 							onClick={onClose}
-						/>
+							aria-label="Close"
+						>
+							<IconX
+								size={12}
+								className="stroke-[2] opacity-80 text-void-fg-3 hover:brightness-95"
+								aria-hidden="true"
+							/>
+						</button>
 					</div>
 				)}
 			</div>
@@ -524,8 +529,8 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 	return <button
 		type='button'
 		className={`rounded-full flex-shrink-0 flex-grow-0 flex items-center justify-center
-			button-press-animation
-			${disabled ? 'bg-vscode-disabled-fg cursor-default opacity-50' : 'bg-white cursor-pointer hover:bg-gray-50'}
+			btn btn-icon btn-submit button-press-animation
+			${disabled ? 'cursor-default' : 'cursor-pointer'}
 			${className}
 		`}
 		disabled={disabled}
@@ -542,7 +547,7 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
 		className={`rounded-full flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
-			bg-white hover:bg-[var(--cortex-danger)]/5 button-press-animation
+			btn btn-icon btn-stop button-press-animation
 			${className}
 		`}
 		type='button'

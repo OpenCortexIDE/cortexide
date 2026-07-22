@@ -79,11 +79,21 @@ export const ToolHeaderWrapper = ({
 						{/* title eg "> Edited File" */}
 						<div className={`
 							flex items-center min-w-0 overflow-hidden grow
-							${isClickable ? 'cursor-pointer hover:brightness-125 transition-all duration-150' : ''}
+							${isClickable ? 'cursor-pointer hover:brightness-125 transition-all duration-150 void-focus-ring rounded-sm' : ''}
 						`}
+							role={isClickable ? 'button' : undefined}
+							tabIndex={isClickable ? 0 : undefined}
 							onClick={() => {
 								if (isDropdown) { setIsOpen(v => !v); }
 								if (onClick) { onClick(); }
+							}}
+							onKeyDown={(e) => {
+								if (!isClickable) return;
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									if (isDropdown) { setIsOpen(v => !v); }
+									if (onClick) { onClick(); }
+								}
 							}}
 						>
 							{isDropdown && (<ChevronRight
@@ -165,9 +175,18 @@ export const SimplifiedToolHeader = ({
 			<div className="w-full">
 				{/* header */}
 				<div
-					className={`select-none flex items-center min-h-[24px] ${isDropdown ? 'cursor-pointer' : ''}`}
+					className={`select-none flex items-center min-h-[24px] ${isDropdown ? 'cursor-pointer void-focus-ring rounded-sm' : ''}`}
+					role={isDropdown ? 'button' : undefined}
+					tabIndex={isDropdown ? 0 : undefined}
 					onClick={() => {
 						if (isDropdown) { setIsOpen(v => !v); }
+					}}
+					onKeyDown={(e) => {
+						if (!isDropdown) return;
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							setIsOpen(v => !v);
+						}
 					}}
 				>
 					{isDropdown && (

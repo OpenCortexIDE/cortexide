@@ -307,42 +307,142 @@
 	animation: token-count-pulse 0.3s ease-in-out;
 }
 
-/* html {
-	font-size: var(--vscode-font-size);
+/* ===========================================================================
+ * CortexIDE design system (Phase 1 Sprint 2)
+ * Scoped to .void-scope via Tailwind prefix pipeline.
+ * =========================================================================== */
+
+.void-scope .btn {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cortex-space-xs);
+	border-radius: var(--cortex-radius-md);
+	font-size: var(--cortex-font-body);
+	line-height: 1.2;
+	transition:
+		background-color var(--cortex-transition-base),
+		color var(--cortex-transition-base),
+		border-color var(--cortex-transition-base),
+		transform var(--cortex-transition-fast),
+		opacity var(--cortex-transition-base);
 }
 
-.btn {
-	@apply cursor-pointer transition-colors;
-
-	&.btn-primary {
-		@apply bg-vscode-button-bg text-vscode-button-fg;
-
-		&:not(:disabled) {
-			@apply hover:bg-vscode-button-hoverBg;
-		}
-	}
-
-	&.btn-sm {
-		@apply px-3 py-1 text-sm;
-	}
-
-	&.btn-secondary {
-		@apply bg-vscode-button-secondary-bg text-vscode-button-secondary-fg;
-
-		&:not(:disabled) {
-			@apply hover:bg-vscode-button-secondary-hoverBg;
-		}
-	}
-
-	&:disabled {
-		@apply opacity-75 cursor-not-allowed;
-	}
+.void-scope .btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
 }
 
-.input {
-	@apply bg-vscode-input-bg text-vscode-input-fg border-vscode-input-border focus:outline-vscode-focus-border;
+.void-scope .btn-sm {
+	padding: var(--cortex-space-xs) var(--cortex-space-md);
+	font-size: var(--cortex-font-label);
 }
 
-.dropdown {
-	@apply bg-vscode-dropdown-bg text-vscode-dropdown-foreground border-vscode-dropdown-border focus:outline-vscode-focus-border;
-} */
+.void-scope .btn-primary {
+	background: var(--cortex-brand);
+	color: var(--cortex-btn-text);
+	border: 1px solid transparent;
+}
+
+.void-scope .btn-primary:not(:disabled):hover {
+	background: var(--cortex-brand-dim);
+}
+
+.void-scope .btn-secondary {
+	background: var(--cortex-surface-3);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-base);
+}
+
+.void-scope .btn-secondary:not(:disabled):hover {
+	background: var(--cortex-surface-4);
+	border-color: var(--cortex-border-strong);
+}
+
+.void-scope .btn-ghost {
+	background: transparent;
+	color: var(--cortex-text-muted);
+	border: 1px solid transparent;
+}
+
+.void-scope .btn-ghost:not(:disabled):hover {
+	background: var(--cortex-surface-2-alt);
+	color: var(--cortex-text-strong);
+}
+
+.void-scope .btn-icon {
+	border-radius: 9999px;
+	padding: 0;
+	flex-shrink: 0;
+}
+
+.void-scope .btn-submit {
+	background: var(--cortex-text-strong);
+	color: var(--cortex-surface-1);
+	border: 1px solid transparent;
+}
+
+.void-scope .btn-submit:not(:disabled):hover {
+	opacity: 0.92;
+}
+
+.void-scope .btn-stop {
+	background: var(--cortex-surface-3);
+	color: var(--cortex-danger);
+	border: 1px solid var(--cortex-border-base);
+}
+
+.void-scope .btn-stop:not(:disabled):hover {
+	background: color-mix(in srgb, var(--cortex-danger) 8%, var(--cortex-surface-3));
+	border-color: color-mix(in srgb, var(--cortex-danger) 35%, var(--cortex-border-base));
+}
+
+body.vscode-light .void-scope .btn-submit {
+	background: var(--cortex-brand);
+	color: var(--cortex-btn-text);
+}
+
+body.vscode-light .void-scope .btn-submit:not(:disabled):hover {
+	background: var(--cortex-brand-dim);
+}
+
+.void-scope .input,
+.void-scope .cortex-composer-shell {
+	background: var(--cortex-surface-2);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-weak);
+	border-radius: var(--cortex-radius-xl);
+	transition: border-color var(--cortex-transition-base), box-shadow var(--cortex-transition-base);
+}
+
+.void-scope .input:focus-within,
+.void-scope .cortex-composer-shell:focus-within {
+	border-color: var(--cortex-border-strong);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--cortex-brand) 25%, transparent);
+}
+
+.void-scope .cortex-prompt-chip {
+	background: color-mix(in srgb, var(--cortex-surface-3) 65%, transparent);
+	color: var(--cortex-text-muted);
+	border: 1px solid var(--cortex-border-weak);
+	border-radius: var(--cortex-radius-md);
+}
+
+.void-scope .cortex-prompt-chip:not(:disabled):hover {
+	background: var(--cortex-surface-3);
+	color: var(--cortex-text-base);
+	border-color: var(--cortex-border-base);
+}
+
+.void-scope .dropdown {
+	background: var(--cortex-surface-3);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-base);
+	border-radius: var(--cortex-radius-sm);
+}
+
+.void-scope .dropdown:focus-visible {
+	outline: 1px solid var(--cortex-ring-color);
+	outline-offset: 1px;
+}

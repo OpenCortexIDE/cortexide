@@ -12,15 +12,16 @@ const DEFAULT_PROMPTS = [
 ];
 
 export const SuggestedPrompts = ({ onSubmit }: { onSubmit: (text: string) => void }) => (
-	<div className='flex flex-col gap-2 w-full text-nowrap text-void-fg-3 select-none'>
+	<div className='flex flex-col gap-2 w-full text-nowrap select-none'>
 		{DEFAULT_PROMPTS.map((text, index) => (
-			<div
+			<button
 				key={index}
-				className='py-1 px-2 rounded text-sm bg-zinc-700/5 hover:bg-zinc-700/10 dark:bg-zinc-300/5 dark:hover:bg-zinc-300/10 cursor-pointer opacity-80 hover:opacity-100'
+				type="button"
+				className='btn btn-sm btn-secondary cortex-prompt-chip w-full text-left py-1 px-2 text-sm opacity-90 hover:opacity-100 void-focus-ring'
 				onClick={() => onSubmit(text)}
 			>
 				{text}
-			</div>
+			</button>
 		))}
 	</div>
 );

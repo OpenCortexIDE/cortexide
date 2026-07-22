@@ -14,7 +14,7 @@
     "test-browser": "npx playwright install && node test/unit/browser/index.js",
     "test-browser-no-install": "node test/unit/browser/index.js",
     "test-node": "mocha test/unit/node/index.js --delay --ui=tdd --timeout=5000 --exit",
-    "test-phase0-qa": "npm run test-node -- --runGlob \"**/cortexide/test/common/{providerSettingsValidation,onboardingHelpers,attachFileToChat,chatThreadStorageReviver,providerToolFormat,phase0ClaimVerification,modelCapabilities,menubarStackingFix}.test.js\"",
+    "test-phase0-qa": "npm run test-node -- --runGlob \"**/cortexide/test/common/{providerSettingsValidation,onboardingHelpers,attachFileToChat,chatThreadStorageReviver,providerToolFormat,phase0ClaimVerification,modelCapabilities,menubarStackingFix,designSystem}.test.js\"",
     "test-extension": "vscode-test",
     "test-build-scripts": "cd build && npm run test",
     "check-cyclic-dependencies": "node build/lib/checkCyclicDependencies.ts out",
