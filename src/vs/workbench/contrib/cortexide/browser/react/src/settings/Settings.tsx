@@ -605,7 +605,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			</div>
 		) : isAddModelOpen ? (
 			<div className="mt-4">
-				<form className="flex items-center gap-2">
+				<form className="flex flex-wrap items-center gap-2 min-w-0">
 
 					{/* Provider dropdown */}
 					<ErrorBoundary>
@@ -616,19 +616,19 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							getOptionDisplayName={(pn) => pn ? displayInfoOfProviderName(pn).title : 'Provider Name'}
 							getOptionDropdownName={(pn) => pn ? displayInfoOfProviderName(pn).title : 'Provider Name'}
 							getOptionsEqual={(a, b) => a === b}
-							className="max-w-32 mx-2 w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1 py-1 px-2 rounded"
+							className="shrink-0 max-w-[140px] w-full resize-none bg-void-bg-1 text-void-fg-1 placeholder:text-void-fg-3 border border-void-border-2 focus:border-void-border-1 py-1 px-2 rounded"
 							arrowTouchesText={false}
 						/>
 					</ErrorBoundary>
 
-					{/* Model name input */}
+					{/* Model name input — flex so long gguf names wrap instead of horizontal scroll (onboarding #67) */}
 					<ErrorBoundary>
 						<VoidSimpleInputBox
 							value={modelName}
 							compact={true}
 							onChangeValue={setModelName}
 							placeholder='Model Name'
-							className='max-w-32'
+							className='min-w-0 flex-1 basis-40'
 						/>
 					</ErrorBoundary>
 
