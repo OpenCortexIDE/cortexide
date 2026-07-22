@@ -1,0 +1,140 @@
+name: Phase 0 QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches:
+      - main
+      - 'release/*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0-qa-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  phase0-unit:
+    name: Phase 0 unit regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: npm ci
+        working-directory: build
+
+      - name: Transpile source
+        run: npm run transpile-client
+
+      - name: Run Phase 0 QA unit tests
+        run: npm run test-phase0-qa
+
+  phase0-cdp-macos:
+    name: Phase 0 CDP smoke (macOS)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: npm ci
+        working-directory: build
+
+      - name: Build React UI
+        run: npm run buildreact
+
+      - name: Build Electron dev app
+        run: node build/lib/preLaunch.ts
+
+      - name: Run Phase 0 QA (unit + CDP)
+        run: test/cortexide-smoke/run-phase0-qa.sh --cdp
+        env:
+          CX_CDP_PORT: 9222
+          CX_WS: /tmp/cx-phase0-qa-ws
+          CX_PROFILE: /tmp/cx-phase0-qa-profile
+
+      - name: Upload CDP screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phase0-qa-screenshot
+          path: /tmp/cortexide-phase0-qa.png
+          if-no-files-found: ignore
+
+  phase0-cdp-windows:
+    name: Phase 0 CDP smoke (Windows — menubar dropdown gate)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: npm ci
+        working-directory: build
+
+      - name: Build React UI
+        run: npm run buildreact
+
+      - name: Build Electron dev app
+        run: node build/lib/preLaunch.ts
+
+      - name: Run Phase 0 QA (unit + CDP)
+        shell: bash
+        run: test/cortexide-smoke/run-phase0-qa.sh --cdp
+        env:
+          CX_CDP_PORT: 9222
+          CX_WS: C:/Temp/cx-phase0-qa-ws
+          CX_PROFILE: C:/Temp/cx-phase0-qa-profile
+
+      - name: Upload CDP screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phase0-qa-windows-screenshot
+          path: ${{ runner.temp }}/cortexide-phase0-qa.png
+          if-no-files-found: ignore

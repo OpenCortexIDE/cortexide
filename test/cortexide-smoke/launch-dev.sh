@@ -22,8 +22,10 @@ WS="${2:-/tmp/cx-ws-cdp}"
 
 APP="$ROOT/.build/electron/CortexIDE.app/Contents/MacOS/CortexIDE"
 if [[ ! -x "$APP" ]]; then
-	# Linux / other: fall back to applicationName binary.
 	APP="$ROOT/.build/electron/cortexide"
+fi
+if [[ ! -x "$APP" ]] && [[ -f "$ROOT/.build/electron/cortexide.exe" ]]; then
+	APP="$ROOT/.build/electron/cortexide.exe"
 fi
 if [[ ! -x "$APP" ]]; then
 	echo "ERROR: built app not found. Run: node build/lib/preLaunch.ts" >&2
@@ -42,6 +44,13 @@ PROFILE="${3:-/tmp/cx-dev-profile}"
 UDD="$PROFILE/user-data"
 EXT="$PROFILE/extensions"
 mkdir -p "$UDD" "$EXT"
+
+# Ensure in-window menubar on Windows/Linux (required for #8 dropdown QA).
+SETTINGS="$UDD/User/settings.json"
+if [[ ! -f "$SETTINGS" ]]; then
+	mkdir -p "$(dirname "$SETTINGS")"
+	printf '%s\n' '{"window.menuBarVisibility":"classic","window.titleBarStyle":"custom"}' > "$SETTINGS"
+fi
 
 echo "Launching CortexIDE (port $PORT, ws $WS, profile $PROFILE)"
 # --password-store=basic: the ad-hoc-signed dev build (Identifier "Electron", no Team ID) can't be
