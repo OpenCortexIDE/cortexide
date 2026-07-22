@@ -124,6 +124,40 @@ export const effectiveSpecialToolFormat = (
 	isLocalInference: boolean,
 ): SpecialToolFormat => isLocalInference ? undefined : specialToolFormat
 
+/** Ollama /api/chat message — content is string; optional base64 images for vision models. */
+export type OllamaChatMessage = { role: string; content: string; images?: string[] }
+
+/** Strip data-URL prefix from base64 image payloads for Ollama's `images` field. */
+export const base64FromDataUrl = (url: string): string =>
+	url.startsWith('data:') ? url.replace(/^data:[^;]+;base64,/, '') : url
+
+/**
+ * Flatten OpenAI-format messages for Ollama's native /api/chat.
+ * Text parts join into `content`; image_url parts become base64 `images` (vision models).
+ */
+export const convertOpenAIMessagesToOllamaChat = (messages: LLMChatMessage[]): OllamaChatMessage[] =>
+	messages.map((m) => {
+		const c = (m as { content?: unknown }).content
+		let content = ''
+		const images: string[] = []
+		if (typeof c === 'string') {
+			content = c
+		} else if (Array.isArray(c)) {
+			for (const part of c) {
+				if (typeof part === 'string') { content += part }
+				else if (part?.type === 'text') { content += part.text ?? '' }
+				else if (part?.type === 'image_url' && part.image_url?.url) {
+					images.push(base64FromDataUrl(part.image_url.url))
+				}
+			}
+		} else {
+			content = c == null ? '' : String(c)
+		}
+		const out: OllamaChatMessage = { role: (m as { role: string }).role, content }
+		if (images.length) { out.images = images }
+		return out
+	})
+
 /**
  * The running accumulator for an OpenAI-compatible streaming chat response: text, reasoning, and the
  * single tool call (name / args-JSON-string / id) assembled across deltas. The OpenAI streaming

@@ -15,7 +15,7 @@ import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
 import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj } from '../../common/sendLLMMessageTypes.js';
-import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId, effectiveSpecialToolFormat } from '../../common/providerToolFormat.js';
+import { rawToolCallObjOfParamsStr, buildRawToolCallObj, sanitizeOpenAIMessagesForEmptyContent, toOpenAICompatibleTool, accumulateOpenAIChatDelta, buildTypedToolProperties, extractToolCallFromNonStreamingChoice, reduceGeminiChunk, finalizeGeminiToolId, effectiveSpecialToolFormat, convertOpenAIMessagesToOllamaChat } from '../../common/providerToolFormat.js';
 import { formatGeminiRateLimitError } from '../../common/providerErrorFormat.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/cortexideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
@@ -1206,17 +1206,7 @@ const sendOllamaChat = async ({ messages, onText, onFinalMessage, onError, setti
 	}
 
 	const messagesToSend = sanitizeOpenAIMessagesForEmptyContent(messages)
-	// Ollama's native /api/chat requires messages[].content to be a STRING, but OpenAI-format messages
-	// may carry array content (multimodal text/image parts). Flatten text parts to a string (images,
-	// rare for local coding, are dropped here — text-only agentic is the target).
-	const ollamaMessages = messagesToSend.map((m) => {
-		const c = (m as any).content
-		let content: string
-		if (typeof c === 'string') { content = c }
-		else if (Array.isArray(c)) { content = c.map((part: any) => typeof part === 'string' ? part : (part?.text ?? '')).join('') }
-		else { content = c == null ? '' : String(c) }
-		return { role: (m as any).role, content }
-	})
+	const ollamaMessages = convertOpenAIMessagesToOllamaChat(messagesToSend)
 
 	let fullTextSoFar = ''
 	let firstTokenReceived = false
