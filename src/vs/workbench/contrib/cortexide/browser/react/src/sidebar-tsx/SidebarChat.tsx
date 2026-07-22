@@ -16,6 +16,8 @@ import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../settings/ModelDropdown.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
+import { ComposerTabs } from './chrome/ComposerTabs.js';
+import { ThreadHeader } from './chrome/ThreadHeader.js';
 import { CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
@@ -4051,6 +4053,7 @@ export const SidebarChat = () => {
 	const [instructionsAreEmpty, setInstructionsAreEmpty] = useState(!initVal)
 
 	// Image attachments management
+	const [showHistory, setShowHistory] = useState(false);
 	const {
 		attachments: imageAttachments,
 		addImages: addImagesRaw,
@@ -5031,11 +5034,22 @@ export const SidebarChat = () => {
 
 
 	return (
-		<Fragment key={threadId} // force rerender when change thread
-		>
-			{isLandingPage ?
-				landingPageContent
-				: threadPageContent}
-		</Fragment>
+		<div key={threadId} className="w-full h-full flex flex-col overflow-hidden">
+			<ComposerTabs />
+			<ThreadHeader
+				showHistory={showHistory}
+				onToggleHistory={() => setShowHistory(v => !v)}
+			/>
+			{showHistory && (
+				<ErrorBoundary>
+					<div className="shrink-0 max-h-[40%] overflow-y-auto px-3 py-2 border-b border-void-border-3 bg-void-bg-2/50">
+						<PastThreadsList />
+					</div>
+				</ErrorBoundary>
+			)}
+			<div className="flex-1 min-h-0 overflow-hidden">
+				{isLandingPage ? landingPageContent : threadPageContent}
+			</div>
+		</div>
 	)
 }

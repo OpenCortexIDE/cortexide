@@ -238,7 +238,7 @@ const PastThreadElement = ({ pastThread, idx, hoveredIdx, setHoveredIdx, isRunni
 			group px-3 py-2 rounded-xl border border-void-border-3/70 bg-void-bg-1/40 hover:bg-void-bg-2/70 cursor-pointer text-sm text-void-fg-1 transition-all duration-150 ease-out shadow-[0_8px_20px_rgba(0,0,0,0.35)] hover:-translate-y-0.5
 		`}
 		onClick={() => {
-			chatThreadsService.switchToThread(pastThread.id);
+			chatThreadsService.switchToTab(pastThread.id);
 		}}
 		onMouseEnter={() => setHoveredIdx(idx)}
 		onMouseLeave={() => setHoveredIdx(null)}
