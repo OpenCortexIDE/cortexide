@@ -450,7 +450,7 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 					<button
 						type="button"
 						onClick={handleImageUploadClick}
-						className="flex-shrink-0 p-1.5 rounded hover:bg-void-bg-2-alt text-void-fg-4 hover:text-void-fg-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+						className="cortex-composer-icon-btn"
 						aria-label="Upload images"
 						title="Upload images (or paste/drag & drop)"
 					>
@@ -461,7 +461,7 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 					<button
 						type="button"
 						onClick={handlePDFUploadClick}
-						className="flex-shrink-0 p-1.5 rounded hover:bg-void-bg-2-alt text-void-fg-4 hover:text-void-fg-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+						className="cortex-composer-icon-btn"
 						aria-label="Upload PDFs"
 						title="Upload PDFs (or paste/drag & drop)"
 					>
@@ -499,11 +499,11 @@ export const VoidChatArea: React.FC<CortexideChatAreaProps> = ({
 			</div>
 
 			{/* Bottom row - Model selector and settings */}
-			<div className='flex flex-row justify-between items-center gap-2 mt-1 pt-1 border-t border-void-border-3/50'>
+			<div className='cortex-composer-toolbar flex flex-row justify-between items-center gap-2'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
-						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-2 rounded py-0.5 px-1.5' />}
-						<ModelDropdown featureName={featureName} className='text-xs text-void-fg-3 bg-void-bg-1 rounded' />
+						{featureName === 'Chat' && <ChatModeDropdown className='cortex-composer-control' />}
+						<ModelDropdown featureName={featureName} className='cortex-composer-control' />
 						<ReasoningOptionSlider featureName={featureName} />
 					</div>
 				)}

@@ -78,6 +78,9 @@ const voidOnboardingPath = join(dirname(fileURLToPath(import.meta.url)), '../../
 const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/settings/Settings.tsx');
 const sidebarChatPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/SidebarChat.tsx');
 const stagingContextChipsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/composer/StagingContextChips.tsx');
+const voidChatAreaPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/composer/VoidChatArea.tsx');
+const toolHeaderPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/tools/ToolHeader.tsx');
+const commandBarInChatPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/composer/CommandBarInChat.tsx');
 
 suite('designSystem (Phase 1 — void onboarding adoption)', () => {
 
@@ -136,5 +139,35 @@ suite('designSystem (Phase 1 — sidebar chat shell)', () => {
 		const src = readFileSync(stagingContextChipsPath, 'utf8');
 		assert.ok(src.includes('onRemoveAt'), 'expected index-based chip removal');
 		assert.ok(src.includes('onRemoveAt(idx)'), 'remove button should target clicked chip');
+	});
+});
+
+suite('designSystem (Phase 1 — composer tool headers)', () => {
+
+	test('.cortex-tool-header uses cortex surface tokens', () => {
+		assert.ok(
+			hasRule(/\.void-scope\s+\.cortex-tool-header\s*\{[^}]*background:\s*var\(--cortex-surface-3\)/s),
+			'expected cortex-tool-header background token',
+		);
+		assert.ok(
+			hasRule(/\.void-scope\s+\.cortex-tool-header-bar\s*\{[^}]*background:\s*var\(--cortex-surface-3\)/s),
+			'expected cortex-tool-header-bar background token',
+		);
+	});
+
+	test('VoidChatArea composer footer uses design-system controls', () => {
+		const src = readFileSync(voidChatAreaPath, 'utf8');
+		assert.ok(src.includes('cortex-composer-toolbar'), 'expected composer toolbar class');
+		assert.ok(src.includes('cortex-composer-icon-btn'), 'expected composer icon button class');
+		assert.ok(src.includes('cortex-composer-control'), 'expected composer control class');
+		assert.ok(!src.includes('border-void-border-3/50'), 'toolbar should not use legacy void border');
+	});
+
+	test('Tool and command bar headers use cortex-tool-header tokens', () => {
+		const toolHeaderSrc = readFileSync(toolHeaderPath, 'utf8');
+		const commandBarSrc = readFileSync(commandBarInChatPath, 'utf8');
+		assert.ok(toolHeaderSrc.includes('cortex-tool-header'), 'ToolHeaderWrapper should use cortex-tool-header');
+		assert.ok(commandBarSrc.includes('cortex-tool-header-bar'), 'CommandBarInChat should use cortex-tool-header-bar');
+		assert.ok(!commandBarSrc.includes('bg-void-bg-3'), 'CommandBarInChat should not use legacy void background');
 	});
 });

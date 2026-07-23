@@ -492,3 +492,65 @@ body.vscode-light .void-scope .btn-submit:not(:disabled):hover {
 	border: 1px solid color-mix(in srgb, var(--cortex-warning) 30%, transparent);
 	border-radius: var(--cortex-radius-lg);
 }
+
+.void-scope .cortex-composer-toolbar {
+	border-top: 1px solid color-mix(in srgb, var(--cortex-border-weak) 50%, transparent);
+	padding-top: var(--cortex-space-xs);
+	margin-top: var(--cortex-space-xs);
+}
+
+.void-scope .cortex-composer-icon-btn {
+	flex-shrink: 0;
+	padding: var(--cortex-space-sm);
+	border-radius: var(--cortex-radius-sm);
+	color: var(--cortex-text-subtle);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	transition:
+		background-color var(--cortex-transition-base),
+		color var(--cortex-transition-base);
+}
+
+.void-scope .cortex-composer-icon-btn:not(:disabled):hover {
+	background: var(--cortex-surface-2-alt);
+	color: var(--cortex-text-muted);
+}
+
+.void-scope .cortex-composer-icon-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.void-scope .cortex-composer-control {
+	font-size: var(--cortex-font-label);
+	color: var(--cortex-text-muted);
+	background: var(--cortex-surface-1);
+	border: 1px solid var(--cortex-border-base);
+	border-radius: var(--cortex-radius-sm);
+	padding: 2px var(--cortex-space-sm);
+}
+
+.void-scope .cortex-tool-header {
+	width: 100%;
+	border: 1px solid var(--cortex-border-base);
+	border-radius: var(--cortex-radius-sm);
+	padding: var(--cortex-space-xs) var(--cortex-space-sm);
+	background: var(--cortex-surface-3);
+	color: var(--cortex-text-muted);
+	overflow: hidden;
+}
+
+.void-scope .cortex-tool-header-bar {
+	display: flex;
+	width: 100%;
+	border-top-left-radius: var(--cortex-radius-lg);
+	border-top-right-radius: var(--cortex-radius-lg);
+	background: var(--cortex-surface-3);
+	color: var(--cortex-text-muted);
+	font-size: var(--cortex-font-label);
+	padding: var(--cortex-space-xs) var(--cortex-space-sm);
+	border-top: 1px solid color-mix(in srgb, var(--cortex-border-weak) 40%, transparent);
+	border-left: 1px solid color-mix(in srgb, var(--cortex-border-weak) 40%, transparent);
+	border-right: 1px solid color-mix(in srgb, var(--cortex-border-weak) 40%, transparent);
+}
