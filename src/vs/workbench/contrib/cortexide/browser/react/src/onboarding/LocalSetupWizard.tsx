@@ -240,7 +240,7 @@ export const LocalSetupWizard = ({ onComplete, onSkip }: LocalSetupWizardProps) 
 								</button>
 								<button
                   onClick={onSkip}
-                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
+                  className="btn btn-primary px-6 py-3 font-medium">
 
 									Skip Setup
 								</button>
@@ -262,7 +262,7 @@ export const LocalSetupWizard = ({ onComplete, onSkip }: LocalSetupWizardProps) 
 						{progress.canCancel &&
             <button
               onClick={handleCancel}
-              className="text-sm text-fg-3 hover:text-fg-1">
+              className="btn btn-ghost btn-sm text-sm">
 
 								Cancel
 							</button>
@@ -304,7 +304,7 @@ const ChoiceStep = ({ onChoice, onBack }: {onChoice: (choice: 'local' | 'cloud' 
 			<div className="flex items-center gap-4 mb-4">
 				<button
           onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-4 py-2">
 
 					<ChevronLeft className="w-4 h-4" />
 					Back
@@ -381,7 +381,7 @@ const SystemCheckStep = ({ systemCheck, onInstall, onNext, onBack, canGoBack }: 
 				{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-5 py-3">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -390,7 +390,7 @@ const SystemCheckStep = ({ systemCheck, onInstall, onNext, onBack, canGoBack }: 
 				{!systemCheck.ollamaInstalled &&
         <button
           onClick={onInstall}
-          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
+          className="btn btn-primary px-6 py-3 font-medium">
 
 						Install Ollama
 					</button>
@@ -398,7 +398,7 @@ const SystemCheckStep = ({ systemCheck, onInstall, onNext, onBack, canGoBack }: 
 				{systemCheck.ollamaRunning &&
         <button
           onClick={onNext}
-          className="px-6 py-3 rounded-2xl border border-border-2 bg-bg-3 text-fg-0 font-medium">
+          className="btn btn-secondary px-6 py-3 font-medium">
 
 						Next
 					</button>
@@ -429,7 +429,7 @@ const ModelPackStep = ({ selectedPack, onSelect, onDownload, state, onBack, canG
 				{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-4 py-2">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -506,7 +506,7 @@ const ModelPackStep = ({ selectedPack, onSelect, onDownload, state, onBack, canG
         <button
           onClick={onBack}
           disabled={isDownloading}
-          className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+          className="btn btn-secondary flex items-center gap-2 px-5 py-3 disabled:opacity-50">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -515,7 +515,7 @@ const ModelPackStep = ({ selectedPack, onSelect, onDownload, state, onBack, canG
 				<button
           onClick={onDownload}
           disabled={isDownloading}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+          className="btn btn-primary flex-1 px-6 py-3 font-medium disabled:opacity-50">
 
 					{isDownloading ? 'Downloading...' : 'Download Models'}
 				</button>
@@ -534,7 +534,7 @@ const VerificationStep = ({ onVerify, onSkip, state, onBack, canGoBack }: {onVer
         <button
           onClick={onBack}
           disabled={isVerifying}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+          className="btn btn-secondary flex items-center gap-2 px-4 py-2 disabled:opacity-50">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -560,7 +560,7 @@ const VerificationStep = ({ onVerify, onSkip, state, onBack, canGoBack }: {onVer
 					{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-5 py-3">
 
 							<ChevronLeft className="w-4 h-4" />
 							Back
@@ -568,14 +568,14 @@ const VerificationStep = ({ onVerify, onSkip, state, onBack, canGoBack }: {onVer
         }
 					<button
           onClick={onVerify}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
+          className="btn btn-primary flex-1 px-6 py-3 font-medium">
 
 						Run Verification
 					</button>
 					{onSkip &&
         <button
           onClick={onSkip}
-          className="px-6 py-3 rounded-2xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary px-6 py-3 font-medium">
 
 							Skip
 						</button>
@@ -596,7 +596,7 @@ const VerificationResultsStep = ({ results, onNext, onBack, canGoBack }: {result
 				{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-4 py-2">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -626,7 +626,7 @@ const VerificationResultsStep = ({ results, onNext, onBack, canGoBack }: {result
 				{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-5 py-3">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
@@ -634,7 +634,7 @@ const VerificationResultsStep = ({ results, onNext, onBack, canGoBack }: {result
         }
 				<button
           onClick={onNext}
-          className="flex-1 px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--cortex-brand)] to-[var(--cortex-brand-dim)] text-white font-medium">
+          className="btn btn-primary flex-1 px-6 py-3 font-medium">
 
 					{allPassed ? 'Continue' : 'Continue Anyway'}
 				</button>
@@ -665,7 +665,7 @@ const DefaultsStep = ({ onComplete, onBack, canGoBack }: {onComplete: () => void
 				{canGoBack &&
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border-3 bg-bg-3/40 text-fg-3 hover:text-fg-1 hover:border-border-2 transition-all">
+          className="btn btn-secondary flex items-center gap-2 px-4 py-2">
 
 						<ChevronLeft className="w-4 h-4" />
 						Back
