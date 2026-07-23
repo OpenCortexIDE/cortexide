@@ -284,7 +284,8 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 					<div className="space-y-6 overflow-y-auto pr-1 flex-1">
 						{currentTab === 'Local' && !showLocalWizard && (
 							<button
-								className="w-full flex items-center justify-between px-5 py-4 rounded-xl border-2 border-[var(--cortex-brand)]/40 bg-[var(--cortex-brand)]/10 hover:bg-[var(--cortex-brand)]/20 transition-colors text-left"
+								type="button"
+								className="btn btn-primary w-full flex items-center justify-between px-5 py-4 text-left"
 								onClick={() => setShowLocalWizard(true)}
 							>
 								<div>
@@ -298,7 +299,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 						{currentTab === 'Local' && !showLocalWizard && (
 							<button
 								type="button"
-								className="w-full flex items-center justify-between px-5 py-4 rounded-xl border border-void-border-3 bg-void-bg-3/60 hover:bg-void-bg-2/80 transition-colors text-left"
+								className="btn btn-secondary w-full flex items-center justify-between px-5 py-4 text-left"
 								onClick={() => { void applyLlamaServerPreset(settingsService); }}
 							>
 								<div>

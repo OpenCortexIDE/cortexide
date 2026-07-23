@@ -3,57 +3,36 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import React, { FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState } from '../util/services.js';
 
-import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useFullChatThreadsStreamState } from '../util/services.js';
-
-import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
-import { URI } from '../../../../../../../base/common/uri.js';
-import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
-import { ErrorDisplay } from './ErrorDisplay.js';
-import { BlockCode, TextAreaFns, VoidInputBox2, VoidDiffEditor } from '../util/inputs.js';
+import { TextAreaFns, VoidInputBox2 } from '../util/inputs.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
 import { VoidChatArea, ButtonSubmit, ButtonStop } from './composer/VoidChatArea.js';
 import { SelectedFiles } from './composer/SelectedFiles.js';
-import { ScrollToBottomContainer } from './composer/ScrollToBottomContainer.js';
+import { scrollToBottom } from './composer/ScrollToBottomContainer.js';
 import { ContextUsageBar } from './composer/ContextUsageBar.js';
 import { CommandBarInChat } from './composer/CommandBarInChat.js';
+import { ChatMessageList } from './composer/ChatMessageList.js';
+import { StagingContextChips } from './composer/StagingContextChips.js';
+import { useContextUsage } from './composer/useContextUsage.js';
 import { LandingPage } from './landing/LandingPage.js';
 import { ComposerTabs } from './chrome/ComposerTabs.js';
 import { ThreadHeader } from './chrome/ThreadHeader.js';
-import { CORTEXIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
-import { displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
-import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
-import { WarningBox } from '../settings/WarningBox.js';
-import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
-import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
-import { CopyButton, EditToolAcceptRejectButtonsHTML, JumpToFileButton, JumpToTerminalButton, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
-import { IsRunningType } from '../../../chatThreadService.js';
-import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
-import { builtinToolNames, isABuiltinToolName, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
-import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
+import { isFeatureNameDisabled } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
+import { StagingSelectionItem, ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import ErrorBoundary from './ErrorBoundary.js';
-import { ToolApprovalTypeSwitch } from '../settings/Settings.js';
-
-import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
-import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { useTranslation } from '../util/useTranslation.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
-import { ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
-import { ImageMessageRenderer } from '../util/ImageMessageRenderer.js';
-import { PDFMessageRenderer } from '../util/PDFMessageRenderer.js';
 import { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
 import { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
 import { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
 import { ChatBubble } from './chat/ChatBubble.js';
-import { EditToolSoFar } from './tools/ToolRenderers.js';
 
 // Re-export shared modules for existing consumers (will migrate imports over time).
 export { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
@@ -93,9 +72,6 @@ export const SidebarChat = () => {
 	const isRunning = currThreadStreamState?.isRunning
 	const latestError = currThreadStreamState?.error
 	const { displayContentSoFar, toolCallSoFar, reasoningSoFar } = currThreadStreamState?.llmInfo ?? {}
-
-	// this is just if it's currently being generated, NOT if it's currently running
-	const toolIsGenerating = toolCallSoFar && !toolCallSoFar.isDone // show loading for slow tools (right now just edit)
 
 	// ----- SIDEBAR CHAT state (local) -----
 
@@ -226,6 +202,8 @@ export const SidebarChat = () => {
 		if (isDisabled && !_forceSubmit) return
 		if (isRunning) return
 
+		const notificationService = accessor.get('INotificationService')
+
 		// use subscribed state - currentThread.id is already from subscribed state
 		const threadId = currentThread.id
 
@@ -238,7 +216,6 @@ export const SidebarChat = () => {
 		const trimmed = userMessage.trim()
 		if (trimmed.startsWith('/')) {
 			const [cmd, ...rest] = trimmed.slice(1).split(/\s+/)
-			const notificationService = accessor.get('INotificationService')
 			const clearInput = () => {
 				if (textAreaFnsRef.current) textAreaFnsRef.current.setValue('')
 				textAreaRef.current?.focus()
@@ -295,7 +272,6 @@ export const SidebarChat = () => {
 				const editorService = accessor.get('IEditorService')
 				const languageService = accessor.get('ILanguageService')
 				const historyService = accessor.get('IHistoryService')
-				const notificationService = accessor.get('INotificationService')
 				let outlineService: any = undefined
 				try { outlineService = accessor.get('IOutlineModelService') } catch {}
 
@@ -570,14 +546,12 @@ export const SidebarChat = () => {
 			console.error('Error while sending message in chat:', e)
 		}
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id])
+	}, [accessor, chatThreadsService, commandService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id, chatThreadsState])
 
 	const onAbort = async () => {
 		const threadId = currentThread.id
 		await chatThreadsService.abortRunning(threadId)
 	}
-
-	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(CORTEXIDE_CTRL_L_ACTION_ID)?.getLabel()
 
 	const threadId = currentThread.id
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
@@ -600,142 +574,11 @@ export const SidebarChat = () => {
 
 
 
-	const previousMessagesHTML = useMemo(() => {
-		// const lastMessageIdx = previousMessages.findLastIndex(v => v.role !== 'checkpoint')
-		// tool request shows up as Editing... if in progress
-		// Use stable keys based on message ID or index for better React reconciliation
-		return previousMessages.map((message, i) => {
-			// Use message ID if available, otherwise fall back to index
-			const messageKey = (message as any).id || `msg-${i}`
-			return <ChatBubble
-				key={messageKey}
-				currCheckpointIdx={currCheckpointIdx}
-				chatMessage={message}
-				messageIdx={i}
-				isCommitted={true}
-				chatIsRunning={isRunning}
-				threadId={threadId}
-				_scrollToBottom={scrollToBottomCallback}
-			/>
-		})
-	}, [previousMessages, threadId, currCheckpointIdx, isRunning, scrollToBottomCallback])
-
-	const streamingChatIdx = previousMessagesHTML.length
-	// Memoize chatMessage object to avoid recreating on every render
-	const streamingChatMessage = useMemo(() => ({
-		role: 'assistant' as const,
-		displayContent: displayContentSoFar ?? '',
-		reasoning: reasoningSoFar ?? '',
-		anthropicReasoning: null,
-	}), [displayContentSoFar, reasoningSoFar])
-
-	// Only show streaming message when actively streaming (LLM, tool, or preparing)
-	// Don't show when idle/undefined to prevent duplicate messages and never-ending loading
-	// Only show stop button when actively running (LLM, tool, preparing), not when idle
-	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
-	const currStreamingMessageHTML = isActivelyStreaming && (reasoningSoFar || displayContentSoFar) ?
-		<ChatBubble
-			key={'curr-streaming-msg'}
-			currCheckpointIdx={currCheckpointIdx}
-			chatMessage={streamingChatMessage}
-			messageIdx={streamingChatIdx}
-			isCommitted={false}
-			chatIsRunning={isRunning}
-			threadId={threadId}
-			_scrollToBottom={null}
-		/> : null
-
-
-	// the tool currently being generated
-	const generatingTool = toolIsGenerating ?
-		toolCallSoFar.name === 'edit_file' || toolCallSoFar.name === 'rewrite_file' ? <EditToolSoFar
-			key={'curr-streaming-tool'}
-			toolCallSoFar={toolCallSoFar}
-		/>
-			: null
-		: null
-
-	const messagesHTML = <ScrollToBottomContainer
-		key={'messages' + chatThreadsState.currentThreadId} // force rerender on all children if id changes
-		scrollContainerRef={scrollContainerRef}
-		className={`
-			flex flex-col
-			px-3 py-3 space-y-3
-			w-full h-full
-			overflow-x-hidden
-			overflow-y-auto
-			${previousMessagesHTML.length === 0 && !displayContentSoFar ? 'hidden' : ''}
-		`}
-	>
-		{/* previous messages */}
-		{previousMessagesHTML}
-		{currStreamingMessageHTML}
-
-		{/* Generating tool */}
-		{generatingTool}
-
-		{/* loading indicator with status message - only show when no content is streaming yet */}
-		{(isRunning === 'LLM' || isRunning === 'preparing') && !displayContentSoFar && !reasoningSoFar ? (
-			<ProseWrapper>
-				<div
-					className="flex flex-col gap-1"
-					role="status"
-					aria-live="polite"
-					aria-atomic="true"
-				>
-					<div className="flex items-center gap-2 text-sm opacity-70 loading-state-transition">
-						{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar ? (
-							<>
-								<span className="text-void-fg-2" aria-hidden="false">{currThreadStreamState.llmInfo.displayContentSoFar}</span>
-								<IconLoading state="thinking" inline />
-							</>
-						) : isRunning === 'preparing' ? (
-							<>
-								<span className="text-void-fg-2" aria-hidden="false">Preparing request</span>
-								<IconLoading state="thinking" inline />
-							</>
-						) : (
-							<>
-								<span className="text-void-fg-2" aria-hidden="false">Generating response</span>
-								<IconLoading state="typing" inline />
-							</>
-						)}
-					</div>
-					<span className="text-xs text-void-fg-3 opacity-60">Press Escape to cancel</span>
-				</div>
-			</ProseWrapper>
-		) : null}
-
-		{/* Escape hint when streaming (e.g. "Waiting for model response...") */}
-		{(isRunning === 'LLM' || isRunning === 'preparing') && (displayContentSoFar || reasoningSoFar) ? (
-			<p className="text-xs text-void-fg-3 opacity-60 mt-1" role="status">Press Escape to cancel</p>
-		) : null}
-
-
-		{/* error message */}
-		{latestError === undefined ? null :
-			<div className='px-2 my-1 message-enter space-y-2'>
-				<ErrorDisplay
-					message={latestError.message}
-					fullError={latestError.fullError}
-					onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
-					showDismiss={true}
-				/>
-				<p className="text-sm text-void-fg-3 px-1">
-					You can try again or open settings to change the model.
-				</p>
-				<WarningBox className='text-sm my-1 mx-3' onClick={() => { commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID) }} text='Open settings' />
-			</div>
-		}
-	</ScrollToBottomContainer>
-
-
 	const onChangeText = useCallback((newStr: string) => {
 		setInstructionsAreEmpty(!newStr)
 	}, [setInstructionsAreEmpty])
 	const onKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-			// Check isDisabled again at the time of key press (not closure value)
 			if (!isDisabled && !isRunning) {
 				onSubmit()
 			}
@@ -744,44 +587,25 @@ export const SidebarChat = () => {
 		}
 	}, [onSubmit, onAbort, isRunning, isDisabled])
 
-	// Context usage calculation + warning (partially memoized - draft tokens calculated on each render)
-	const [ctxWarned, setCtxWarned] = useState(false)
-	const estimateTokens = useCallback((s: string) => Math.ceil((s || '').length / 4), [])
-	const modelSel = settingsState.modelSelectionOfFeature['Chat']
+	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
 
-	// Memoize context budget and messages tokens (only recalculate when messages or model changes)
-	const { contextBudget, messagesTokens } = useMemo(() => {
-		let budget = 0
-		let tokens = 0
-		if (modelSel && isValidProviderModelSelection(modelSel)) {
-			const { providerName, modelName } = modelSel
-			const caps = getModelCapabilities(providerName, modelName, settingsState.overridesOfModel)
-			const contextWindow = caps.contextWindow
-			const msOpts = settingsState.optionsOfModelSelection['Chat'][providerName]?.[modelName]
-			const isReasoningEnabled2 = getIsReasoningEnabledState('Chat', providerName, modelName, msOpts, settingsState.overridesOfModel)
-			const rot = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled: isReasoningEnabled2, overridesOfModel: settingsState.overridesOfModel }) || 0
-			budget = Math.max(256, Math.floor(contextWindow * 0.8) - rot)
-			tokens = previousMessages.reduce((acc, m) => {
-				if (m.role === 'user') return acc + estimateTokens(m.content || '')
-				if (m.role === 'assistant') return acc + estimateTokens((m.displayContent as string) || (m.content || '') || '')
-				return acc
-			}, 0)
-		}
-		return { contextBudget: budget, messagesTokens: tokens }
-	}, [modelSel, previousMessages, settingsState.overridesOfModel, estimateTokens])
+	const { modelSel, contextTotal, contextBudget, contextPct } = useContextUsage(
+		previousMessages,
+		textAreaRef.current?.value || '',
+	)
 
-	// Calculate draft tokens and total on each render (draft changes frequently)
-	const draftTokens = estimateTokens(textAreaRef.current?.value || '')
-	const contextTotal = messagesTokens + draftTokens
-	const contextPct = contextBudget > 0 ? contextTotal / contextBudget : 0
-
-	useEffect(() => {
-		if (contextPct > 0.8 && contextPct < 1 && !ctxWarned) {
-			try { accessor.get('INotificationService').info(`Context nearing limit: ~${contextTotal} / ${contextBudget} tokens. Older messages may be summarized.`) } catch {}
-			setCtxWarned(true)
-		}
-		if (contextPct < 0.6 && ctxWarned) setCtxWarned(false)
-	}, [contextPct, ctxWarned, contextTotal, contextBudget, accessor])
+	const messagesHTML = <ChatMessageList
+		threadId={threadId}
+		previousMessages={previousMessages}
+		currCheckpointIdx={currCheckpointIdx}
+		isRunning={isRunning}
+		displayContentSoFar={displayContentSoFar}
+		reasoningSoFar={reasoningSoFar}
+		toolCallSoFar={toolCallSoFar}
+		latestError={latestError}
+		scrollContainerRef={scrollContainerRef}
+		scrollToBottomCallback={scrollToBottomCallback}
+	/>
 
 	const inputChatArea = <VoidChatArea
 		featureName='Chat'
@@ -850,42 +674,10 @@ export const SidebarChat = () => {
 		/>
 
 		{/* Context chips for current selections */}
-		{selections.length > 0 && (
-			<div className='mt-1 flex flex-wrap gap-1 px-1'>
-				{selections.map((sel, idx) => {
-					const name = sel.type === 'Folder'
-						? (sel.uri?.path?.split('/').filter(Boolean).pop() || 'folder')
-						: (sel.uri?.path?.split('/').pop() || 'file')
-					const fullPath = sel.uri?.fsPath || sel.uri?.path || name
-					const rangeLabel = (sel as any).range ? ` • ${(sel as any).range.startLineNumber}-${(sel as any).range.endLineNumber}` : ''
-					const tooltipText = (sel as any).range
-						? `${fullPath} (lines ${(sel as any).range.startLineNumber}-${(sel as any).range.endLineNumber})`
-						: fullPath
-					return (
-						<span
-							key={idx}
-							className='inline-flex items-center gap-1 px-2 py-0.5 rounded border border-void-border-3 bg-void-bg-1 text-void-fg-2 text-[11px]'
-							title={tooltipText}
-							aria-label={tooltipText}
-						>
-							<span className='opacity-80'>{sel.type === 'Folder' ? 'Folder' : 'File'}</span>
-							<span className='text-void-fg-1'>{name}</span>
-							{rangeLabel && <span className='opacity-70'>{rangeLabel}</span>}
-							<button
-								className='ml-1 text-void-fg-3 hover:text-void-fg-1'
-								onClick={() => {
-									// remove single selection
-									chatThreadsService.popStagingSelections(1)
-								}}
-								aria-label={`Remove ${name}`}
-							>
-								×
-							</button>
-						</span>
-					)
-				})}
-			</div>
-		)}
+		<StagingContextChips
+			selections={selections}
+			onRemoveLast={() => { chatThreadsService.popStagingSelections(1) }}
+		/>
 
 	</VoidChatArea>
 
