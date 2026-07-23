@@ -5,7 +5,7 @@
 
 import { History, Settings2 } from 'lucide-react';
 import { useAccessor, useChatThreadsState } from '../../util/services.js';
-import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../../cortexideSettingsPane.js';
+import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 import { getThreadTabLabel } from '../../../../common/threadTitle.js';
 
 type ThreadHeaderProps = {

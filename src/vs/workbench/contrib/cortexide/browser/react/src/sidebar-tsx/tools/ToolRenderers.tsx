@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, AlertTriangle, Ban, Check, Dot, FileIcon, Folder, Text, Undo2, X } from 'lucide-react';
-import { URI } from '../../../../../../../../base/common/uri.js';
+import { URI } from '../../../../../../../base/common/uri.js';
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState } from '../../util/services.js';
 import { ChatMarkdownRender, getApplyBoxId } from '../../markdown/ChatMarkdownRender.js';
 import { VoidDiffEditor } from '../../util/inputs.js';
@@ -17,7 +17,7 @@ import { isABuiltinToolName, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_INACTIVE_TIME } f
 import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
-import { ICommandService } from '../../../../../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { IconLoading } from '../shared/icons.js';
 import { getBasename, getFolderName, getRelative, voidOpenFileFn } from '../shared/pathUtils.js';
 import { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './ToolPrimitives.js';

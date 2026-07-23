@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { useAccessor } from '../../util/services.js';
-import { ICommandService } from '../../../../../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 
 const QUICK_ACTIONS: { id: string; label: string }[] = [
 	{ id: 'void.explainCode', label: 'Explain' },
