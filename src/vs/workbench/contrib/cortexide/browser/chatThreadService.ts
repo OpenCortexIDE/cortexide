@@ -34,7 +34,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
 import { selectCompactionWindow } from '../common/compactionPolicy.js';
-import { updateConsecutiveToolErrors, computeCompactionOverflowDecision, shouldEscalateModel, computePostEscalationCounters, decideFileReadGate, classifyToolStepOutcome, type ToolMessageType } from '../common/agentLoopDecisions.js';
+import { computeCompactionOverflowDecision, shouldEscalateModel, computePostEscalationCounters, decideFileReadGate, classifyToolStepOutcome, decideLoopContinuation, classifyCompletionState, type ToolMessageType } from '../common/agentLoopDecisions.js';
 import { isRateLimitErrorMessage } from '../common/providerErrorFormat.js';
 import { createSerializer } from '../common/asyncSerializer.js';
 
@@ -3507,12 +3507,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops
 			if (nMessagesSent >= maxAgentIterations) {
-				// Before giving up: a model that burned the whole step budget without finishing is usually a
-				// weak/local model spinning. Escalate the task to a more capable model and keep going.
-				// Phase 2: the escalate-or-stop gate is the pure shouldEscalateModel(); tryEscalateModel still
-				// performs the switch. shouldCallEscalate==false exactly when fallback is off or the escalation
-				// budget is spent -- in which case tryEscalateModel would itself return false (its own guard),
-				// so short-circuiting is behavior-identical and just avoids a no-op await.
+				// Phase 2: iteration-cap gate via decideLoopContinuation + shouldEscalateModel.
 				const escDec = shouldEscalateModel({
 					triggerSite: 'iterCap',
 					modelFallbackEnabled, escalationCount, MAX_MODEL_ESCALATIONS,
@@ -3522,18 +3517,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					isRateLimitError: false, isNonRetryableError: false,
 					nAttempts: 0, CHAT_RETRIES,
 				})
-				if (escDec.shouldCallEscalate && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
-					// Escalation gives the fresh model a clean budget (both loop counters reset). Centralized
-					// so every escalation site -- including the tool-error sites below -- resets uniformly.
+				const iterCapDec = decideLoopContinuation({
+					nMessagesSent,
+					maxAgentIterations,
+					consecutiveToolErrors,
+					maxConsecutiveToolErrors,
+					lastToolMessageType: null,
+					toolCallDispatched: false,
+					awaitingUserApproval: false,
+					canEscalate: escDec.shouldCallEscalate,
+				})
+				if (iterCapDec.action === 'escalate-iter-cap' && await tryEscalateModel(`the previous model used all ${maxAgentIterations} steps without finishing`)) {
 					const reset = computePostEscalationCounters('iterCap')
 					nMessagesSent = reset.nMessagesSent
 					consecutiveToolErrors = reset.consecutiveToolErrors
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 					continue
 				}
-				this._notificationService.warn(`Agent stopped after ${maxAgentIterations} tool iterations.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`)
-				this._setStreamState(threadId, { isRunning: undefined })
-				return
+				if (iterCapDec.action === 'hard-stop-iter-cap' || iterCapDec.action === 'escalate-iter-cap') {
+					this._notificationService.warn(`Agent stopped after ${maxAgentIterations} tool iterations.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`)
+					this._setStreamState(threadId, { isRunning: undefined })
+					return
+				}
 			}
 
 			// CRITICAL: Check stream state first - if execution was interrupted/aborted, stop immediately
@@ -4810,7 +4815,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const mcpTool = mcpTools?.find(t => t.name === toolCall.name)
 
 					const { awaitingUserApproval, interrupted, completionSignaled } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams }, isLocalModel, chatMode, isCapableLocalModelFlag)
-					if (interrupted) {
+
+					const toolCompletion = classifyCompletionState({
+						toolCall: { name: toolCall.name },
+						completionSignaled,
+						interrupted,
+						awaitingUserApproval,
+						fileReadLimitExceeded: false,
+						readFileLimitReached: false,
+						synthFired: false,
+						synthCompletionSignaled: false,
+						synthInterrupted: false,
+					})
+					if (toolCompletion.action === 'terminate_interrupted') {
 						this._setStreamState(threadId, undefined)
 						if (activePlanTracking?.currentStep) {
 							const updatedStep = this._markStepCompletedInternal(threadId, activePlanTracking.currentStep, false, 'Interrupted by user')
@@ -4824,7 +4841,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						return
 					}
 
-					if (completionSignaled) {
+					if (toolCompletion.action === 'terminate_completion') {
 						this._setStreamState(threadId, { isRunning: undefined })
 						return
 					}
@@ -4841,23 +4858,43 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const lastToolMessageType: ToolMessageType | null = lastToolMsg?.role === 'tool'
 						? (lastToolMsg as ToolMessage<ToolName>).type
 						: null
-					const errDec = updateConsecutiveToolErrors(consecutiveToolErrors, lastToolMessageType, maxConsecutiveToolErrors, /* escalationAvailable */ false)
-					consecutiveToolErrors = errDec.nextConsecutiveToolErrors
-					if (errDec.action === 'halt') {
-						// Before giving up: this is the single most common local-model failure mode (invents tool
-						// names, writes empty files, never converges). Escalate to a more capable model and let it
-						// recover the SAME task — it sees the failed attempts in history and corrects.
-						if (await tryEscalateModel(`the previous model failed ${consecutiveToolErrors} tool calls in a row`)) {
-							// Match the iter-cap escalation: the fresh model gets a clean budget -- reset BOTH loop
-							// counters (previously only consecutiveToolErrors reset, so the new model inherited a spent
-							// iteration budget and could hit the iteration cap before finishing).
+					const loopLastType = (lastToolMessageType === 'success' || lastToolMessageType === 'tool_error' || lastToolMessageType === 'invalid_params')
+						? lastToolMessageType
+						: null
+					const toolErrEscDec = shouldEscalateModel({
+						triggerSite: 'toolErrorCap',
+						modelFallbackEnabled, escalationCount, MAX_MODEL_ESCALATIONS,
+						nMessagesSent, maxAgentIterations,
+						consecutiveToolErrors, maxConsecutiveToolErrors,
+						isAutoMode: false, autoFallbackExhausted: true,
+						isRateLimitError: false, isNonRetryableError: false,
+						nAttempts: 0, CHAT_RETRIES,
+					})
+					const postToolDec = decideLoopContinuation({
+						nMessagesSent,
+						maxAgentIterations,
+						consecutiveToolErrors,
+						maxConsecutiveToolErrors,
+						lastToolMessageType: loopLastType,
+						toolCallDispatched: true,
+						awaitingUserApproval,
+						canEscalate: toolErrEscDec.shouldCallEscalate,
+					})
+					const toolErrorCountForMessage = postToolDec.action === 'escalate-tool-errors'
+						? maxConsecutiveToolErrors
+						: postToolDec.nextConsecutiveToolErrors
+					consecutiveToolErrors = postToolDec.nextConsecutiveToolErrors
+					if (postToolDec.action === 'escalate-tool-errors') {
+						if (await tryEscalateModel(`the previous model failed ${toolErrorCountForMessage} tool calls in a row`)) {
 							const reset = computePostEscalationCounters('toolErrorCap')
 							nMessagesSent = reset.nMessagesSent
 							consecutiveToolErrors = reset.consecutiveToolErrors
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${consecutiveToolErrors} failed tool calls in a row.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
+					}
+					if (postToolDec.action === 'hard-stop-tool-errors' || postToolDec.action === 'escalate-tool-errors') {
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `Stopped after ${toolErrorCountForMessage} failed tool calls in a row.${isLocalModel ? ' Small/local models can struggle with multi-step tool use — try Ask/Normal mode for a direct answer, or use a larger model.' : ''}`, reasoning: '', anthropicReasoning: null })
 						this._setStreamState(threadId, { isRunning: undefined })
 						this._addUserCheckpoint({ threadId })
 						return
@@ -4925,8 +4962,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					}
 
-					if (awaitingUserApproval) { isRunningWhenEnd = 'awaiting_user' }
-					else { shouldSendAnotherMessage = true }
+					if (postToolDec.action === 'await-user') { isRunningWhenEnd = postToolDec.isRunningWhenEnd ?? 'awaiting_user' }
+					else if (postToolDec.action === 'continue') { shouldSendAnotherMessage = true }
 
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' }) // just decorative, for clarity
 				}
