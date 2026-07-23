@@ -3,7 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { StagingSelectionItem } from '../../../../common/chatThreadServiceTypes.js';
+import { StagingSelectionItem } from './chatThreadServiceTypes.js';
+import { extractAtReferenceTokens } from './atReferenceTokens.js';
 
 type ServiceAccessor = { get: (id: string) => any };
 
@@ -72,13 +73,7 @@ export const resolveAtReferencesInMessage = async ({
 			});
 		};
 
-		const tokens: string[] = [];
-		const quoted = [...userMessage.matchAll(/@"([^"]+)"/g)].map(m => m[1]);
-		tokens.push(...quoted);
-		for (const m of userMessage.matchAll(/@([\w\.\-_/]+(?::\d+(?:-\d+)?)?)/g)) {
-			const t = m[1];
-			if (t) tokens.push(t);
-		}
+		const tokens = extractAtReferenceTokens(userMessage);
 
 		const unresolvedRefs: string[] = [];
 
