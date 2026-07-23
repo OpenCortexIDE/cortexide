@@ -8,10 +8,10 @@ import { StagingSelectionItem } from '../../../../common/chatThreadServiceTypes.
 
 type StagingContextChipsProps = {
 	selections: StagingSelectionItem[];
-	onRemoveLast: () => void;
+	onRemoveAt: (index: number) => void;
 };
 
-export const StagingContextChips = ({ selections, onRemoveLast }: StagingContextChipsProps) => {
+export const StagingContextChips = ({ selections, onRemoveAt }: StagingContextChipsProps) => {
 	if (selections.length === 0) {
 		return null;
 	}
@@ -42,7 +42,7 @@ export const StagingContextChips = ({ selections, onRemoveLast }: StagingContext
 						<button
 							type="button"
 							className='btn btn-icon btn-ghost ml-1 text-void-fg-3 hover:text-void-fg-1'
-							onClick={onRemoveLast}
+							onClick={() => onRemoveAt(idx)}
 							aria-label={`Remove ${name}`}
 						>
 							×

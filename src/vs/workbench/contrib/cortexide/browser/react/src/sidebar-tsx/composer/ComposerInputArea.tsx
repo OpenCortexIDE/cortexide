@@ -30,7 +30,6 @@ export type ComposerInputAreaProps = {
 	onChangeText: (value: string) => void;
 	onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 	onInputFocus: () => void;
-	onRemoveStagingLast: () => void;
 	imageAttachments: ChatImageAttachment[];
 	removeImage: (id: string) => void;
 	retryImage: (id: string) => Promise<void>;
@@ -61,7 +60,6 @@ export const ComposerInputArea = ({
 	onChangeText,
 	onKeyDown,
 	onInputFocus,
-	onRemoveStagingLast,
 	imageAttachments,
 	removeImage,
 	retryImage,
@@ -141,7 +139,7 @@ export const ComposerInputArea = ({
 		/>
 		<StagingContextChips
 			selections={selections}
-			onRemoveLast={onRemoveStagingLast}
+			onRemoveAt={(idx) => setSelections(selections.filter((_, i) => i !== idx))}
 		/>
 	</VoidChatArea>
 );

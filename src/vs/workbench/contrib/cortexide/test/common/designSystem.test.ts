@@ -76,6 +76,8 @@ suite('designSystem (Phase 1 — onboarding adoption)', () => {
 
 const voidOnboardingPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/onboarding/VoidOnboarding.tsx');
 const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/settings/Settings.tsx');
+const sidebarChatPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/SidebarChat.tsx');
+const stagingContextChipsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/sidebar-tsx/composer/StagingContextChips.tsx');
 
 suite('designSystem (Phase 1 — void onboarding adoption)', () => {
 
@@ -96,5 +98,21 @@ suite('designSystem (Phase 1 — settings adoption)', () => {
 		assert.ok((src.match(/btn btn-secondary/g) ?? []).length >= 10, 'expected direct btn-secondary usage');
 		assert.ok(src.includes('btn-stop'), 'expected btn-stop for destructive Ollama delete');
 		assert.ok(src.includes("'dropdown "), 'expected dropdown class on Ollama selects');
+	});
+});
+
+suite('designSystem (Phase 1 — sidebar chat shell)', () => {
+
+	test('SidebarChat has no legacy re-exports', () => {
+		const src = readFileSync(sidebarChatPath, 'utf8');
+		assert.ok(!src.includes('Re-export shared modules'), 'SidebarChat should not re-export extracted modules');
+		assert.ok(!src.includes('export { IconX'), 'SidebarChat should not re-export icons');
+		assert.ok(src.includes('export const SidebarChat'), 'SidebarChat remains the sidebar entry component');
+	});
+
+	test('StagingContextChips removes by index', () => {
+		const src = readFileSync(stagingContextChipsPath, 'utf8');
+		assert.ok(src.includes('onRemoveAt'), 'expected index-based chip removal');
+		assert.ok(src.includes('onRemoveAt(idx)'), 'remove button should target clicked chip');
 	});
 });
