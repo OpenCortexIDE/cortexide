@@ -184,10 +184,7 @@ export const CommandBarInChat = () => {
 			<div className='px-2'>
 				<div
 					className={`
-						select-none
-						flex w-full rounded-t-lg bg-void-bg-3
-						text-void-fg-3 text-xs text-nowrap
-
+						select-none cortex-tool-header-bar text-nowrap
 						overflow-hidden transition-all duration-200 ease-in-out
 						${isFileDetailsOpened ? 'max-h-24' : 'max-h-0'}
 					`}
@@ -195,17 +192,7 @@ export const CommandBarInChat = () => {
 					{fileDetailsContent}
 				</div>
 			</div>
-			<div
-				className={`
-					select-none
-					flex w-full rounded-t-lg bg-void-bg-3
-					text-void-fg-3 text-xs text-nowrap
-					border-t border-l border-r border-zinc-300/10
-
-					px-2 py-1
-					justify-between
-				`}
-			>
+			<div className="select-none cortex-tool-header-bar text-nowrap px-2 py-1 justify-between">
 				<div className="flex gap-2 items-center">
 					{fileDetailsButton}
 				</div>
