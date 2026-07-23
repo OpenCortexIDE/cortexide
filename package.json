@@ -15,6 +15,7 @@
     "test-browser-no-install": "node test/unit/browser/index.js",
     "test-node": "mocha test/unit/node/index.js --delay --ui=tdd --timeout=5000 --exit",
     "test-phase0-qa": "npm run test-node -- --runGlob \"**/cortexide/test/common/{providerSettingsValidation,onboardingHelpers,attachFileToChat,chatThreadStorageReviver,providerToolFormat,phase0ClaimVerification,modelCapabilities,menubarStackingFix,designSystem,atReferenceTokens,resolveAtReferences,prepareChatAttachments}.test.js\"",
+    "test-phase1-safety-cdp": "node test/cortexide-smoke/phase1-safety-verify.mjs",
     "test-extension": "vscode-test",
     "test-build-scripts": "cd build && npm run test",
     "check-cyclic-dependencies": "node build/lib/checkCyclicDependencies.ts out",
