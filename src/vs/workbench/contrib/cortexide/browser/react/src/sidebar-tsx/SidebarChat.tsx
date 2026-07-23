@@ -9,8 +9,6 @@ import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSetting
 
 import { TextAreaFns } from '../util/inputs.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
-import { VoidChatArea, ButtonSubmit, ButtonStop } from './composer/VoidChatArea.js';
-import { SelectedFiles } from './composer/SelectedFiles.js';
 import { scrollToBottom } from './composer/ScrollToBottomContainer.js';
 import { ChatMessageList } from './composer/ChatMessageList.js';
 import { ComposerInputSection } from './composer/ComposerInputSection.js';
@@ -29,22 +27,6 @@ import ErrorBoundary from './ErrorBoundary.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { useTranslation } from '../util/useTranslation.js';
-import { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
-import { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
-import { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
-import { ChatBubble } from './chat/ChatBubble.js';
-
-// Re-export shared modules for existing consumers (will migrate imports over time).
-export { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
-export { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
-export { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
-export { VoidChatArea, ButtonSubmit, ButtonStop } from './composer/VoidChatArea.js';
-export { SelectedFiles } from './composer/SelectedFiles.js';
-export { CommandBarInChat } from './composer/CommandBarInChat.js';
-export { ChatBubble } from './chat/ChatBubble.js';
-
-
-
 
 export const SidebarChat = () => {
 	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -268,7 +250,6 @@ export const SidebarChat = () => {
 		onChangeText,
 		onKeyDown,
 		onInputFocus: () => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined) },
-		onRemoveStagingLast: () => { chatThreadsService.popStagingSelections(1) },
 		imageAttachments,
 		removeImage,
 		retryImage,
