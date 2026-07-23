@@ -17,6 +17,7 @@ import { CommandBarInChat } from './composer/CommandBarInChat.js';
 import { ChatMessageList } from './composer/ChatMessageList.js';
 import { StagingContextChips } from './composer/StagingContextChips.js';
 import { useContextUsage } from './composer/useContextUsage.js';
+import { resolveAtReferencesInMessage } from './composer/resolveAtReferences.js';
 import { LandingPage } from './landing/LandingPage.js';
 import { ComposerTabs } from './chrome/ComposerTabs.js';
 import { ThreadHeader } from './chrome/ThreadHeader.js';
@@ -264,181 +265,14 @@ export const SidebarChat = () => {
 		// allow-any-unicode-next-line
 		// ─────────────────────────────────────────────────────────────────────────
 
-			// Resolve @references in the input into staging selections before sending
-			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection
-			try {
-				const toolsService = accessor.get('IToolsService')
-				const workspaceService = accessor.get('IWorkspaceContextService')
-				const editorService = accessor.get('IEditorService')
-				const languageService = accessor.get('ILanguageService')
-				const historyService = accessor.get('IHistoryService')
-				let outlineService: any = undefined
-				try { outlineService = accessor.get('IOutlineModelService') } catch {}
-
-			// Collect existing URIs to avoid duplicate attachments
-			const existing = new Set<string>()
-			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || []
-			for (const s of existingSelections) existing.add(s.uri?.fsPath || '')
-
-			const addFileSelection = async (uri: any) => {
-				if (!uri) return
-				const key = uri.fsPath || uri.path || ''
-				if (key && existing.has(key)) return
-				existing.add(key)
-				const newSel = {
-					type: 'File',
-					uri,
-					language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
-					state: { wasAddedAsCurrentFile: false },
-				}
-				await chatThreadsService.addNewStagingSelection(newSel)
-			}
-
-			const addFolderSelection = async (uri: any) => {
-				if (!uri) return
-				const key = uri.fsPath || uri.path || ''
-				if (key && existing.has(key)) return
-				existing.add(key)
-				const newSel = {
-					type: 'Folder',
-					uri,
-					language: undefined,
-					state: undefined,
-				}
-				await chatThreadsService.addNewStagingSelection(newSel)
-			}
-
-			const tokens: string[] = []
-			{
-				// Extract quoted paths first: @"..."
-				const quoted = [...userMessage.matchAll(/@"([^"]+)"/g)].map(m => m[1])
-				tokens.push(...quoted)
-				// Extract bare @word-like tokens (stop at whitespace or punctuation)
-				for (const m of userMessage.matchAll(/@([\w\.\-_/]+(?::\d+(?:-\d+)?)?)/g)) {
-					const t = m[1]
-					if (t) tokens.push(t)
-				}
-			}
-
-			const special = new Set(['selection', 'workspace', 'recent', 'folder'])
-
-			// Track unresolved references for error reporting
-			const unresolvedRefs: string[] = []
-
-			for (const raw of tokens) {
-				// Handle special tokens
-				if (raw === 'selection') {
-					const active = editorService.activeTextEditorControl
-					const activeResource = editorService.activeEditor?.resource
-					const sel = active?.getSelection?.()
-					if (activeResource && sel && !sel.isEmpty()) {
-						const newSel = {
-							type: 'File',
-							uri: activeResource,
-							language: languageService.guessLanguageIdByFilepathOrFirstLine(activeResource) || '',
-							state: { wasAddedAsCurrentFile: false },
-							range: sel,
-						}
-						const key = activeResource.fsPath || ''
-						if (!existing.has(key)) {
-							existing.add(key)
-							await chatThreadsService.addNewStagingSelection(newSel)
-						}
-					} else {
-						unresolvedRefs.push('@selection (no active selection)')
-					}
-					continue
-				}
-				if (raw === 'workspace') {
-					for (const folder of workspaceService.getWorkspace().folders) {
-						await addFolderSelection(folder.uri)
-					}
-					continue
-				}
-				if (raw === 'recent') {
-					for (const h of historyService.getHistory()) {
-						if (h.resource) await addFileSelection(h.resource)
-					}
-					continue
-				}
-
-				// Handle explicit symbol: @sym:Name or @symbol:Name
-				if (raw.startsWith('sym:') || raw.startsWith('symbol:')) {
-					const symName = raw.replace(/^symbol?:/,'')
-					let symbolFound = false
-					if (outlineService && typeof outlineService.getCachedModels === 'function') {
-						try {
-							const models = outlineService.getCachedModels()
-							for (const om of models) {
-								const list = typeof om.asListOfDocumentSymbols === 'function' ? om.asListOfDocumentSymbols() : []
-								for (const s of list) {
-									if ((s?.name || '').toLowerCase() === symName.toLowerCase()) {
-										symbolFound = true
-										const uri = om.uri
-										const range = s.range
-										const key = uri?.fsPath || ''
-										if (!existing.has(key)) {
-											existing.add(key)
-											await chatThreadsService.addNewStagingSelection({
-												type: 'File',
-												uri,
-												language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
-												state: { wasAddedAsCurrentFile: false },
-												range,
-											})
-										}
-									}
-								}
-							}
-						} catch (err) {
-							// Service error - log but continue
-							console.warn('Error resolving symbol:', err)
-						}
-					}
-					if (!symbolFound) {
-						unresolvedRefs.push(`@${raw} (symbol not found)`)
-					}
-					continue
-				}
-
-				// Handle explicit folder keyword like: @folder:path or plain name that matches a folder
-				let query = raw
-				let isFolderHint = false
-				if (raw.startsWith('folder:')) {
-					isFolderHint = true
-					query = raw.slice('folder:'.length)
-				}
-
-				// Use tools service to resolve best match in workspace
-				let resolved = false
-				try {
-					const res = await (await toolsService.callTool.search_pathnames_only({ query, includePattern: null, pageNumber: 1 })).result
-					const [first] = res.uris || []
-					if (first) {
-						resolved = true
-						// Heuristic: if hint says folder or resolved path ends with '/', treat as folder
-						if (isFolderHint) await addFolderSelection(first)
-						else await addFileSelection(first)
-					}
-				} catch (err) {
-					// Service error - log but continue
-					console.warn('Error resolving reference:', err)
-				}
-				if (!resolved) {
-					unresolvedRefs.push(`@${raw}`)
-				}
-			}
-
-			// Report unresolved references to user
-			if (unresolvedRefs.length > 0) {
-				const refList = unresolvedRefs.slice(0, 3).join(', ')
-				const moreText = unresolvedRefs.length > 3 ? ` and ${unresolvedRefs.length - 3} more` : ''
-				notificationService.warn(`Could not resolve reference${unresolvedRefs.length > 1 ? 's' : ''}: ${refList}${moreText}. Please check the file path or symbol name.`)
-			}
-		} catch (err) {
-			// Best-effort; do not block send, but log error
-			console.warn('Error resolving @references:', err)
-		}
+		await resolveAtReferencesInMessage({
+			userMessage,
+			threadId,
+			existingSelections: chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || [],
+			chatThreadsService,
+			accessor,
+			notificationService,
+		});
 
 		// Convert image attachments to ChatImageAttachment format
 		const images: ChatImageAttachment[] = imageAttachments
