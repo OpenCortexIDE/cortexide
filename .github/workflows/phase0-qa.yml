@@ -45,8 +45,8 @@ jobs:
       - name: Transpile source
         run: npm run transpile-client
 
-      - name: Run Phase 0 QA unit tests
-        run: npm run test-phase0-qa
+      - name: Run CortexIDE unit regression (Phase 0 + Phase 2)
+        run: npm run test-cortexide-qa
 
   phase0-cdp-macos:
     name: Phase 0 CDP smoke (macOS)
