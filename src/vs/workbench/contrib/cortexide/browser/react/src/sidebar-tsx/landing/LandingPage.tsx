@@ -5,7 +5,7 @@
 
 import React, { ReactNode, RefObject } from 'react';
 import { useMemo } from 'react';
-import { FileAccess } from '../../../../../../../../base/common/network.js';
+import { FileAccess } from '../../../../../../../base/common/network.js';
 import ErrorBoundary from '../ErrorBoundary.js';
 import { PastThreadsList } from '../SidebarThreadSelector.js';
 import { ContextChipsBar } from './ContextChipsBar.js';

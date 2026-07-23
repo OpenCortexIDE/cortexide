@@ -5,7 +5,7 @@
 
 import { LoaderCircle, Plus, X } from 'lucide-react';
 import { useAccessor, useChatThreadsState, useFullChatThreadsStreamState } from '../../util/services.js';
-import type { IsRunningType } from '../../../../chatThreadService.js';
+import type { IsRunningType } from '../../../chatThreadService.js';
 import { getThreadTabLabel } from '../../../../common/threadTitle.js';
 
 const MAX_VISIBLE_TABS = 12;

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { File, Folder, Text } from 'lucide-react';
-import { URI } from '../../../../../../../../base/common/uri.js';
+import { URI } from '../../../../../../../base/common/uri.js';
 import { useAccessor, useActiveURI } from '../../util/services.js';
 import { StagingSelectionItem } from '../../../../../common/chatThreadServiceTypes.js';
 import { IconX } from '../shared/icons.js';
