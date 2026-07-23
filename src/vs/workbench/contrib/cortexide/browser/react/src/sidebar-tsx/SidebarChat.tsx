@@ -19,12 +19,14 @@ import { StagingContextChips } from './composer/StagingContextChips.js';
 import { useContextUsage } from './composer/useContextUsage.js';
 import { resolveAtReferencesInMessage } from '../../../../common/resolveAtReferences.js';
 import { handleSlashCommand } from './composer/handleSlashCommand.js';
+import { prepareChatSubmitAttachments } from './composer/prepareChatSubmit.js';
+import { useVisionAttachmentHandlers } from './composer/useVisionAttachmentHandlers.js';
 import { LandingPage } from './landing/LandingPage.js';
 import { ComposerTabs } from './chrome/ComposerTabs.js';
 import { ThreadHeader } from './chrome/ThreadHeader.js';
 import { CORTEXIDE_OPEN_SETTINGS_ACTION_ID } from '../../../cortexideSettingsPane.js';
 import { isFeatureNameDisabled } from '../../../../../../../workbench/contrib/cortexide/common/cortexideSettingsTypes.js';
-import { StagingSelectionItem, ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
+import { StagingSelectionItem } from '../../../../common/chatThreadServiceTypes.js';
 import ErrorBoundary from './ErrorBoundary.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
@@ -108,83 +110,13 @@ export const SidebarChat = () => {
 		validationError: pdfValidationError,
 	} = usePDFAttachments();
 
-	// Wrapper to check vision capabilities before adding PDFs
-	// PDFs are more forgiving than images - they can work with non-vision models via text extraction
-	const addPDFs = useCallback(async (files: File[]) => {
-		const currentModelSel = settingsState.modelSelectionOfFeature['Chat'];
-
-		// In auto mode, skip vision capability check - the router will select an appropriate model
-		// PDFs can also work with non-vision models via text extraction, so we're more lenient
-		if (currentModelSel?.providerName === 'auto' && currentModelSel?.modelName === 'auto') {
-			await addPDFsRaw(files);
-			return;
-		}
-
-		// For non-auto mode, allow PDFs even without vision models (they can use text extraction)
-		// But we could optionally warn if no vision models are available
-		await addPDFsRaw(files);
-	}, [addPDFsRaw, settingsState]);
-
-	// Wrapper to check vision capabilities before adding images
-	const addImages = useCallback(async (files: File[]) => {
-		const currentModelSel = settingsState.modelSelectionOfFeature['Chat'];
-
-		// In auto mode, skip vision capability check - the router will select an appropriate model
-		if (currentModelSel?.providerName === 'auto' && currentModelSel?.modelName === 'auto') {
-			await addImagesRaw(files);
-			return;
-		}
-
-		// Check if user has vision-capable API keys or Ollama vision models
-		const { isSelectedModelVisionCapable, checkOllamaModelVisionCapable, hasVisionCapableApiKey, hasOllamaVisionModel, isOllamaAccessible } = await import('../util/visionModelHelper.js');
-
-		// First, check if the currently selected model is vision-capable (synchronous check)
-		let selectedIsVision = isSelectedModelVisionCapable(currentModelSel, settingsState.settingsOfProvider);
-
-		// If Ollama model and not detected by name, query Ollama API directly (async)
-		if (!selectedIsVision && currentModelSel?.providerName === 'ollama') {
-			const ollamaAccessible = await isOllamaAccessible();
-			if (ollamaAccessible) {
-				selectedIsVision = await checkOllamaModelVisionCapable(currentModelSel.modelName);
-			}
-		}
-
-		if (selectedIsVision) {
-			// User has selected a vision-capable model, proceed
-			await addImagesRaw(files);
-			return;
-		}
-
-		// If not selected, check if they have any vision-capable options available
-		const hasApiKey = hasVisionCapableApiKey(settingsState.settingsOfProvider, currentModelSel);
-		const ollamaAccessible = await isOllamaAccessible();
-		const hasOllamaVision = ollamaAccessible && await hasOllamaVisionModel();
-
-		if (!hasApiKey && !hasOllamaVision) {
-			// Show notification with option to open Ollama setup
-			const notificationService = accessor.get('INotificationService');
-			const commandService = accessor.get('ICommandService');
-
-			notificationService.notify({
-				severity: 2, // Severity.Warning
-				message: 'No vision-capable models available. Please set up an API key (Anthropic, OpenAI, or Gemini) or install an Ollama vision model (e.g., llava, bakllava).',
-				actions: {
-					primary: [{
-						id: 'void.vision.setup',
-						label: 'Setup Ollama Vision Models',
-						tooltip: '',
-						class: undefined,
-						enabled: true,
-						run: () => commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID),
-					}],
-				},
-			});
-			return;
-		}
-
-		// User has vision support available but not selected, proceed anyway (they might switch models)
-		await addImagesRaw(files);
-	}, [addImagesRaw, settingsState, accessor]);
+	const { addImages, addPDFs } = useVisionAttachmentHandlers({
+		settingsState,
+		accessor,
+		settingsCommandId: CORTEXIDE_OPEN_SETTINGS_ACTION_ID,
+		addImagesRaw,
+		addPDFsRaw,
+	});
 
 	// Compute isDisabled - ensure it's reactive to settings changes
 	const isDisabled = useMemo(() => {
@@ -237,92 +169,16 @@ export const SidebarChat = () => {
 			notificationService,
 		});
 
-		// Convert image attachments to ChatImageAttachment format
-		const images: ChatImageAttachment[] = imageAttachments
-			.filter(att => att.uploadStatus === 'success' || !att.uploadStatus)
-			.map(att => ({
-				id: att.id,
-				data: att.data,
-				mimeType: att.mimeType,
-				filename: att.filename,
-				width: att.width,
-				height: att.height,
-				size: att.size,
-			}));
+		const prepared = await prepareChatSubmitAttachments({
+			imageAttachments,
+			pdfAttachments,
+			modelSelection: settingsState.modelSelectionOfFeature['Chat'],
+			settingsOfProvider: settingsState.settingsOfProvider,
+			notificationService,
+		});
+		if (!prepared.ok) return;
 
-		// Check if any PDFs are still processing
-		const processingPDFs = pdfAttachments.filter(
-			att => att.uploadStatus === 'uploading' || att.uploadStatus === 'processing'
-		);
-
-		if (processingPDFs.length > 0) {
-			const processingNames = processingPDFs.map(p => p.filename).join(', ');
-			notificationService.warn(`Some PDFs are still processing: ${processingNames}. They will be sent but may not have extracted text available yet.`);
-		}
-
-		// Convert PDF attachments to ChatPDFAttachment format
-		// Include PDFs that are successful, have no status, or are still processing (they might have partial data)
-		// Exclude only failed PDFs
-		const pdfs: ChatPDFAttachment[] = pdfAttachments
-			.filter(att => att.uploadStatus !== 'failed')
-			.map(att => ({
-				id: att.id,
-				data: att.data,
-				filename: att.filename,
-				size: att.size,
-				pageCount: att.pageCount,
-				selectedPages: att.selectedPages,
-				extractedText: att.extractedText,
-				pagePreviews: att.pagePreviews,
-			}));
-
-		// Validate that model supports vision/PDFs if attachments are present
-		const currentModelSel = settingsState.modelSelectionOfFeature['Chat'];
-		if ((images.length > 0 || pdfs.length > 0) && currentModelSel) {
-			const { isSelectedModelVisionCapable, checkOllamaModelVisionCapable, hasVisionCapableApiKey, hasOllamaVisionModel, isOllamaAccessible } = await import('../util/visionModelHelper.js');
-
-			// In auto mode, check if user has any vision-capable models available
-			if (currentModelSel.providerName === 'auto' && currentModelSel.modelName === 'auto') {
-				// Images require vision-capable models (no fallback)
-				if (images.length > 0) {
-					const hasApiKey = hasVisionCapableApiKey(settingsState.settingsOfProvider, currentModelSel);
-					const ollamaAccessible = await isOllamaAccessible();
-					const hasOllamaVision = ollamaAccessible && await hasOllamaVisionModel();
-
-					if (!hasApiKey && !hasOllamaVision) {
-						notificationService.error('No vision-capable models available. Please set up an API key (Anthropic, OpenAI, or Gemini) or install an Ollama vision model (e.g., llava, bakllava) to use images.');
-						return;
-					}
-				}
-				// PDFs can work with non-vision models via text extraction, so we allow them even without vision-capable models
-				// If vision-capable models are available, router will select appropriate model
-			} else {
-				// For non-auto mode, check if the selected model is vision-capable
-				let isVisionCapable = isSelectedModelVisionCapable(currentModelSel, settingsState.settingsOfProvider);
-
-				// If Ollama, check via API
-				if (!isVisionCapable && currentModelSel.providerName === 'ollama') {
-					const ollamaAccessible = await isOllamaAccessible();
-					if (ollamaAccessible) {
-						isVisionCapable = await checkOllamaModelVisionCapable(currentModelSel.modelName);
-					}
-				}
-
-				// If not vision-capable, show error
-				if (!isVisionCapable) {
-					const hasApiKey = hasVisionCapableApiKey(settingsState.settingsOfProvider, currentModelSel);
-					const ollamaAccessible = await isOllamaAccessible();
-					const hasOllamaVision = ollamaAccessible && await hasOllamaVisionModel();
-
-					if (!hasApiKey && !hasOllamaVision) {
-						notificationService.error('The selected model does not support images or PDFs. Please select a vision-capable model (e.g., Claude, GPT-4, Gemini, or an Ollama vision model like llava).');
-						return;
-					} else {
-						notificationService.warn('The selected model may not support images or PDFs. Consider switching to a vision-capable model for better results.');
-					}
-				}
-			}
-		}
+		const { images, pdfs } = prepared;
 
 		// Capture staging selections BEFORE clearing them, so they're included in the message
 		const stagingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || []
