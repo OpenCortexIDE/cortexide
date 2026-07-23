@@ -17,7 +17,8 @@ import { CommandBarInChat } from './composer/CommandBarInChat.js';
 import { ChatMessageList } from './composer/ChatMessageList.js';
 import { StagingContextChips } from './composer/StagingContextChips.js';
 import { useContextUsage } from './composer/useContextUsage.js';
-import { resolveAtReferencesInMessage } from './composer/resolveAtReferences.js';
+import { resolveAtReferencesInMessage } from '../../../../common/resolveAtReferences.js';
+import { handleSlashCommand } from './composer/handleSlashCommand.js';
 import { LandingPage } from './landing/LandingPage.js';
 import { ComposerTabs } from './chrome/ComposerTabs.js';
 import { ThreadHeader } from './chrome/ThreadHeader.js';
@@ -210,60 +211,22 @@ export const SidebarChat = () => {
 
 		// send message to LLM
 		let userMessage = _forceSubmit || textAreaRef.current?.value || ''
-
-		// allow-any-unicode-next-line
-		// ── Slash commands ────────────────────────────────────────────────────────
-		// Intercept /command messages before sending to LLM.
 		const trimmed = userMessage.trim()
-		if (trimmed.startsWith('/')) {
-			const [cmd, ...rest] = trimmed.slice(1).split(/\s+/)
-			const clearInput = () => {
-				if (textAreaFnsRef.current) textAreaFnsRef.current.setValue('')
-				textAreaRef.current?.focus()
-			}
-			switch (cmd.toLowerCase()) {
-				case 'clear':
-				case 'new':
-					clearInput()
-					await chatThreadsService.openNewThread()
-					await chatThreadsService.focusCurrentChat()
-					return
-				case 'settings':
-					clearInput()
-					commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID)
-					return
-				case 'model':
-					clearInput()
-					commandService.executeCommand(CORTEXIDE_OPEN_SETTINGS_ACTION_ID)
-					return
-				case 'help': {
-					clearInput()
-					const skillNames = chatThreadsService.listSkillNames?.() ?? []
-					const skillsLine = skillNames.length > 0
-						? ` | skills: ${skillNames.map(n => '/' + n).join(', ')}`
-						: ''
-					notificationService.info(
-						// allow-any-unicode-next-line
-						'Slash commands: /clear — new thread | /settings — open settings | /model — change model | /help — this message' + skillsLine
-					)
-					return
-				}
-				default: {
-					// Phase 6 (Skills): /<skill-name> [args] expands the matching .cortexide/skills SKILL.md
-					// into a normal chat turn. Built-in commands above take precedence over same-named skills.
-					const skillExpansion = chatThreadsService.getSkillExpansion(trimmed)
-					if (skillExpansion !== null) {
-						userMessage = skillExpansion
-						break
-					}
-					// allow-any-unicode-next-line
-					// Unknown command — let it fall through as normal text
-					break
-				}
-			}
+		const clearInput = () => {
+			if (textAreaFnsRef.current) textAreaFnsRef.current.setValue('')
+			textAreaRef.current?.focus()
 		}
-		// allow-any-unicode-next-line
-		// ─────────────────────────────────────────────────────────────────────────
+
+		const slashResult = await handleSlashCommand({
+			trimmedMessage: trimmed,
+			clearInput,
+			chatThreadsService,
+			commandService,
+			notificationService,
+			settingsCommandId: CORTEXIDE_OPEN_SETTINGS_ACTION_ID,
+		})
+		if (slashResult.handled) return
+		userMessage = slashResult.userMessage
 
 		await resolveAtReferencesInMessage({
 			userMessage,
