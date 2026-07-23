@@ -7,15 +7,13 @@ import React, { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState
 
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState } from '../util/services.js';
 
-import { TextAreaFns, VoidInputBox2 } from '../util/inputs.js';
+import { TextAreaFns } from '../util/inputs.js';
 import { PastThreadsList } from './SidebarThreadSelector.js';
 import { VoidChatArea, ButtonSubmit, ButtonStop } from './composer/VoidChatArea.js';
 import { SelectedFiles } from './composer/SelectedFiles.js';
 import { scrollToBottom } from './composer/ScrollToBottomContainer.js';
-import { ContextUsageBar } from './composer/ContextUsageBar.js';
-import { CommandBarInChat } from './composer/CommandBarInChat.js';
 import { ChatMessageList } from './composer/ChatMessageList.js';
-import { StagingContextChips } from './composer/StagingContextChips.js';
+import { ComposerInputSection } from './composer/ComposerInputSection.js';
 import { useContextUsage } from './composer/useContextUsage.js';
 import { resolveAtReferencesInMessage } from '../../../../common/resolveAtReferences.js';
 import { handleSlashCommand } from './composer/handleSlashCommand.js';
@@ -31,8 +29,6 @@ import ErrorBoundary from './ErrorBoundary.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { useTranslation } from '../util/useTranslation.js';
-import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
-import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
 import { IconX, IconWarning, IconLoading, TypingCursor } from './shared/icons.js';
 import { getBasename, getFolderName, getRelative, voidOpenFileFn } from './shared/pathUtils.js';
 import { ToolChildrenWrapper, CodeChildren, ListableToolItem } from './tools/ToolPrimitives.js';
@@ -260,116 +256,54 @@ export const SidebarChat = () => {
 		scrollToBottomCallback={scrollToBottomCallback}
 	/>
 
-	const inputChatArea = <VoidChatArea
-		featureName='Chat'
-		onSubmit={() => onSubmit()}
-		onAbort={onAbort}
-		isStreaming={isActivelyStreaming}
-		isDisabled={isDisabled}
-		showSelections={true}
-		// showProspectiveSelections={previousMessagesHTML.length === 0}
-		selections={selections}
-		setSelections={setSelections}
-		onClickAnywhere={() => { textAreaRef.current?.focus() }}
-		imageAttachments={
-			imageAttachments.length > 0 ? (
-				<>
-					<ImageAttachmentList
-						attachments={imageAttachments}
-						onRemove={removeImage}
-						onRetry={retryImage}
-						onCancel={cancelImage}
-						focusedIndex={focusedImageIndex}
-						onFocusChange={setFocusedImageIndex}
-					/>
-					{imageValidationError && (
-						<div className="px-2 py-1 text-xs text-[var(--cortex-danger)] bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20 rounded-md mx-2">
-							{imageValidationError.message}
-						</div>
-					)}
-				</>
-			) : null
-		}
-		onImagePaste={addImages}
-		onImageDrop={addImages}
-		onPDFDrop={addPDFs}
-		pdfAttachments={
-			pdfAttachments.length > 0 ? (
-				<>
-					<PDFAttachmentList
-						attachments={pdfAttachments}
-						onRemove={removePDF}
-						onRetry={retryPDF}
-						onCancel={cancelPDF}
-						focusedIndex={focusedPDFIndex}
-						onFocusChange={setFocusedPDFIndex}
-					/>
-					{pdfValidationError && (
-						<div className="px-2 py-1 text-xs text-[var(--cortex-danger)] bg-[var(--cortex-danger)]/10 border border-[var(--cortex-danger)]/20 rounded-md mx-2">
-							{pdfValidationError}
-						</div>
-					)}
-				</>
-			) : null
-		}
-	>
-		<VoidInputBox2
-			enableAtToMention
-			appearance="chatDark"
-			className={`min-h-[60px] px-3 py-3 rounded-2xl`}
-			placeholder="Plan, @ for context"
-			onChangeText={onChangeText}
-			onKeyDown={onKeyDown}
-			onFocus={() => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined) }}
-			ref={textAreaRef}
-			fnsRef={textAreaFnsRef}
-			multiline={true}
+	const composerInputProps = {
+		onSubmit: () => onSubmit(),
+		onAbort,
+		isStreaming: isActivelyStreaming,
+		isDisabled,
+		selections,
+		setSelections,
+		textAreaRef,
+		textAreaFnsRef,
+		onChangeText,
+		onKeyDown,
+		onInputFocus: () => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined) },
+		onRemoveStagingLast: () => { chatThreadsService.popStagingSelections(1) },
+		imageAttachments,
+		removeImage,
+		retryImage,
+		cancelImage,
+		focusedImageIndex,
+		setFocusedImageIndex,
+		imageValidationError,
+		addImages,
+		pdfAttachments,
+		removePDF,
+		retryPDF,
+		cancelPDF,
+		focusedPDFIndex,
+		setFocusedPDFIndex,
+		pdfValidationError,
+		addPDFs,
+		modelSel,
+		contextTotal,
+		contextBudget,
+		contextPct,
+	};
+
+	const landingPageInput = (
+		<ComposerInputSection variant="landing" {...composerInputProps} />
+	);
+
+	const threadPageInput = (
+		<ComposerInputSection
+			variant="thread"
+			threadKey={chatThreadsState.currentThreadId}
+			{...composerInputProps}
 		/>
-
-		{/* Context chips for current selections */}
-		<StagingContextChips
-			selections={selections}
-			onRemoveLast={() => { chatThreadsService.popStagingSelections(1) }}
-		/>
-
-	</VoidChatArea>
-
+	);
 
 	const isLandingPage = previousMessages.length === 0
-
-
-	const threadPageInput = <div key={'input' + chatThreadsState.currentThreadId}>
-		<div className='px-4'>
-			<CommandBarInChat />
-		</div>
-		<div className='px-2 pb-2'>
-			{inputChatArea}
-
-			{/* Context usage indicator */}
-			{modelSel ? (
-				<ContextUsageBar
-					className="mt-1"
-					contextTotal={contextTotal}
-					contextBudget={contextBudget}
-					contextPct={contextPct}
-				/>
-			) : null}
-		</div>
-	</div>
-
-	const landingPageInput = <div>
-		<div className='pt-8'>
-			{inputChatArea}
-			{modelSel ? (
-				<ContextUsageBar
-					className="mt-1 px-2"
-					contextTotal={contextTotal}
-					contextBudget={contextBudget}
-					contextPct={contextPct}
-				/>
-			) : null}
-		</div>
-	</div>
 
 	const landingPageContent = <LandingPage
 		sidebarRef={sidebarRef}
