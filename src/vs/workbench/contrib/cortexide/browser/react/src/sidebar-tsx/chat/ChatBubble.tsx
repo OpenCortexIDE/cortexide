@@ -218,9 +218,12 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 					<div className="flex items-center justify-between">
 						<div className="flex items-center gap-2 flex-1 min-w-0">
 							<button
+								type='button'
 								onClick={() => setIsCollapsed(!isCollapsed)}
 								className="flex-shrink-0 p-1 hover:bg-void-bg-2 rounded transition-colors"
 								disabled={isCheckpointGhost}
+								aria-expanded={!isCollapsed}
+								aria-label={isCollapsed ? 'Expand plan' : 'Collapse plan'}
 							>
 								<ChevronRight
 									size={16}
@@ -374,8 +377,11 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										{/* Expandable Details */}
 										{hasDetails && (
 											<button
+												type='button'
 												onClick={() => toggleStepExpanded(step.stepNumber)}
 												className="mt-2 flex items-center gap-1 text-void-fg-3 hover:text-void-fg-2 text-xs transition-colors"
+												aria-expanded={isExpanded}
+												aria-label={isExpanded ? `Hide details for step ${step.stepNumber}` : `Show details for step ${step.stepNumber}`}
 											>
 												<ChevronRight
 													size={12}
