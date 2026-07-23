@@ -27,8 +27,8 @@ PORT="${CX_CDP_PORT:-9222}"
 WS="${CX_WS:-/tmp/cx-phase0-qa-ws}"
 PROFILE="${CX_PROFILE:-/tmp/cx-phase0-qa-profile}"
 
-echo "== Phase 0 QA: unit tests =="
-npm run test-phase0-qa
+echo "== CortexIDE QA: Phase 0 + Phase 2 unit tests =="
+npm run test-cortexide-qa
 
 if [[ "$RUN_CDP" -ne 1 ]]; then
 	echo ""

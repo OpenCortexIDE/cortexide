@@ -35,7 +35,9 @@ Exit code 0 = all checks passed. A screenshot is written to the OS temp dir.
 
 ```bash
 # Fast — unit tests only (CI runs this on every PR):
-npm run test-phase0-qa
+npm run test-cortexide-qa
+# Phase 0 only: npm run test-phase0-qa
+# Phase 2 only: npm run test-phase2-qa
 
 # Full — unit tests + live CDP verify (needs a built dev app):
 node build/lib/preLaunch.ts
