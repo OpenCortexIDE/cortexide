@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
 import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, CortexideStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/cortexideSettingsTypes.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
-import { VoidButtonBgDarken, VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
+import { VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
 import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus } from 'lucide-react'
 import { URI } from '../../../../../../../base/common/uri.js'
@@ -262,7 +262,7 @@ const ConfirmButton = ({ children, onConfirm, className }: { children: React.Rea
 	}, [confirm]);
 	return (
 		<div ref={ref} className={`inline-block`}>
-			<VoidButtonBgDarken className={className} onClick={() => {
+			<button type="button" className={`btn btn-secondary btn-sm ${className ?? ''}`.trim()} onClick={() => {
 				if (!confirm) {
 					setConfirm(true);
 				} else {
@@ -271,7 +271,7 @@ const ConfirmButton = ({ children, onConfirm, className }: { children: React.Rea
 				}
 			}}>
 				{confirm ? `Confirm Reset` : children}
-			</VoidButtonBgDarken>
+			</button>
 		</div>
 	);
 };
@@ -431,9 +431,9 @@ const SimpleModelSettingsDialog = ({
 
 
 				<div className="flex justify-end gap-2 mt-4">
-					<VoidButtonBgDarken onClick={onClose}>
+					<button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
 						Cancel
-					</VoidButtonBgDarken>
+					</button>
 					<button type="button" onClick={onSave} className="btn btn-primary btn-sm">
 						Save
 					</button>
@@ -918,12 +918,12 @@ const ProjectRulesSection = () => {
 				{t('rules.description')}
 			</h4>
 			<div className='flex gap-2 mb-4'>
-				<VoidButtonBgDarken className='px-4 py-1' onClick={openRulesDir}>
+				<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={openRulesDir}>
 					{t('rules.openRulesDir')}
-				</VoidButtonBgDarken>
-				<VoidButtonBgDarken className='px-4 py-1' onClick={createRuleFile}>
+				</button>
+				<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={createRuleFile}>
 					{t('rules.createRule')}
-				</VoidButtonBgDarken>
+				</button>
 			</div>
 			{rules.length === 0 ? (
 				<p className='text-void-fg-3 text-sm'>{t('rules.noRules')}</p>
@@ -1529,13 +1529,13 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 	}
 
 	return <>
-		<VoidButtonBgDarken className={`max-w-48 p-4 ${className}`} disabled={transferState.type !== 'done'} onClick={onClick}>
+		<button type="button" className={`btn btn-secondary btn-sm max-w-48 p-4 ${className ?? ''}`.trim()} disabled={transferState.type !== 'done'} onClick={onClick}>
 			{transferState.type === 'done' ? `Transfer from ${fromEditor}`
 				: transferState.type === 'loading' ? <span className='text-nowrap flex flex-nowrap items-center gap-1'>Transferring<IconLoading state="processing" inline /></span>
 					: transferState.type === 'justfinished' ? <AnimatedCheckmarkButton text='Settings Transferred' className='bg-none' />
 						: null
 			}
-		</VoidButtonBgDarken>
+		</button>
 		{transferState.type === 'done' && transferState.error ? <WarningBox text={transferState.error} /> : null}
 	</>
 }
@@ -2134,12 +2134,12 @@ export const Settings = () => {
 										{/* Settings Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s} ref={fileInputSettingsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Settings')} />
-											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputSettingsRef.current?.click() }}>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1 w-full" onClick={() => { fileInputSettingsRef.current?.click() }}>
 												Import Settings
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Settings')}>
+											</button>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1 w-full" onClick={() => onDownload('Settings')}>
 												Export Settings
-											</VoidButtonBgDarken>
+											</button>
 											<ConfirmButton className='px-4 py-1 w-full' onConfirm={() => { cortexideSettingsService.resetState(); }}>
 												Reset Settings
 											</ConfirmButton>
@@ -2148,12 +2148,12 @@ export const Settings = () => {
 										{/* Chats Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s + 1} ref={fileInputChatsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Chats')} />
-											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputChatsRef.current?.click() }}>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1 w-full" onClick={() => { fileInputChatsRef.current?.click() }}>
 												Import Chats
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Chats')}>
+											</button>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1 w-full" onClick={() => onDownload('Chats')}>
 												Export Chats
-											</VoidButtonBgDarken>
+											</button>
 											<ConfirmButton className='px-4 py-1 w-full' onConfirm={() => { chatThreadsService.resetState(); }}>
 												Reset Chats
 											</ConfirmButton>
@@ -2170,18 +2170,18 @@ export const Settings = () => {
 
 									<ErrorBoundary>
 										<div className='flex flex-col gap-2 justify-center max-w-48 w-full'>
-											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openSettings') }}>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={() => { commandService.executeCommand('workbench.action.openSettings') }}>
 												General Settings
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openGlobalKeybindings') }}>
+											</button>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={() => { commandService.executeCommand('workbench.action.openGlobalKeybindings') }}>
 												Keyboard Settings
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.selectTheme') }}>
+											</button>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={() => { commandService.executeCommand('workbench.action.selectTheme') }}>
 												Theme Settings
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-1' onClick={() => { nativeHostService.showItemInFolder(environmentService.logsHome.fsPath) }}>
+											</button>
+											<button type="button" className="btn btn-secondary btn-sm px-4 py-1" onClick={() => { nativeHostService.showItemInFolder(environmentService.logsHome.fsPath) }}>
 												Open Logs
-											</VoidButtonBgDarken>
+											</button>
 										</div>
 									</ErrorBoundary>
 								</div>
@@ -2266,11 +2266,12 @@ Use Model Context Protocol to provide Agent mode with more tools.
 							`} chatMessageLocation={undefined} />
 									</h4>
 									<div className='my-2 flex flex-wrap gap-2'>
-										<VoidButtonBgDarken className='px-4 py-1 max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
+										<button type="button" className="btn btn-secondary btn-sm px-4 py-1 max-w-48" onClick={async () => { await mcpService.revealMCPConfigFile() }}>
 											Add MCP Server
-										</VoidButtonBgDarken>
-										<VoidButtonBgDarken
-											className='px-4 py-1 max-w-64'
+										</button>
+										<button
+											type="button"
+											className="btn btn-secondary btn-sm px-4 py-1 max-w-64"
 											onClick={async () => {
 												try {
 													const result = await mcpService.addRecommendedMCPServer('playwright')
@@ -2285,7 +2286,7 @@ Use Model Context Protocol to provide Agent mode with more tools.
 											}}
 										>
 											+ Playwright (browser automation)
-										</VoidButtonBgDarken>
+										</button>
 									</div>
 
 									<ErrorBoundary>

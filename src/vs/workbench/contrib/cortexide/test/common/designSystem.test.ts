@@ -92,6 +92,8 @@ suite('designSystem (Phase 1 — settings adoption)', () => {
 		const src = readFileSync(settingsPath, 'utf8');
 		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in settings');
 		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in settings');
+		assert.ok(!src.includes('VoidButtonBgDarken'), 'settings should use native buttons, not VoidButtonBgDarken');
+		assert.ok((src.match(/btn btn-secondary/g) ?? []).length >= 10, 'expected direct btn-secondary usage');
 		assert.ok(src.includes('btn-stop'), 'expected btn-stop for destructive Ollama delete');
 		assert.ok(src.includes("'dropdown "), 'expected dropdown class on Ollama selects');
 	});

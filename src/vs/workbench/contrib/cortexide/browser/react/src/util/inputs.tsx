@@ -1829,16 +1829,6 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 
 }
 
-
-export const VoidButtonBgDarken = ({ children, disabled, onClick, className }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string }) => {
-	return <button
-		type="button"
-		disabled={disabled}
-		className={`btn btn-secondary btn-sm ${className || ''}`}
-		onClick={onClick}
-	>{children}</button>
-}
-
 // export const VoidScrollableElt = ({ options, children }: { options: ScrollableElementCreationOptions, children: React.ReactNode }) => {
 // 	const instanceRef = useRef<DomScrollableElement | null>(null);
 // 	const [childrenPortal, setChildrenPortal] = useState<React.ReactNode | null>(null)
