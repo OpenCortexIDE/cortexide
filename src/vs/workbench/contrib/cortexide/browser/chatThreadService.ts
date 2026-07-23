@@ -4608,17 +4608,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 								)
 
-								if (interrupted) {
+								const intentSynthOutcome = classifyCompletionState({
+									toolCall: { name: toolName },
+									completionSignaled: hwCompletion,
+									interrupted,
+									awaitingUserApproval,
+									fileReadLimitExceeded: false,
+									readFileLimitReached: false,
+									synthFired: false,
+									synthCompletionSignaled: false,
+									synthInterrupted: false,
+								})
+								if (intentSynthOutcome.action === 'terminate_interrupted') {
 									this._setStreamState(threadId, undefined)
 									return
 								}
-								if (hwCompletion) {
+								if (intentSynthOutcome.action === 'terminate_completion') {
 									this._setStreamState(threadId, { isRunning: undefined })
 									return
 								}
-								if (awaitingUserApproval) {
+								if (intentSynthOutcome.action === 'await_user') {
 									isRunningWhenEnd = 'awaiting_user'
-								} else {
+								} else if (intentSynthOutcome.action === 'continue') {
 									shouldSendAnotherMessage = true
 								}
 
@@ -4693,12 +4704,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								isCapableLocalModelFlag, // a capable local model (>=7B, coder or general) is allowed the web tools at the chokepoint too
 							)
 
-							if (interrupted) {
+							const howManySynthOutcome = classifyCompletionState({
+								toolCall: { name: toolName },
+								completionSignaled: synthCompletion,
+								interrupted,
+								awaitingUserApproval,
+								fileReadLimitExceeded: false,
+								readFileLimitReached: false,
+								synthFired: false,
+								synthCompletionSignaled: false,
+								synthInterrupted: false,
+							})
+							if (howManySynthOutcome.action === 'terminate_interrupted') {
 								this._setStreamState(threadId, undefined)
 								return
 							}
-
-							if (synthCompletion) {
+							if (howManySynthOutcome.action === 'terminate_completion') {
 								this._setStreamState(threadId, { isRunning: undefined })
 								return
 							}
@@ -4706,9 +4727,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							(toolsExecutedInRequest as string[]).push(toolName)
 							hasSynthesizedToolsInThisRequest = true
 
-							if (awaitingUserApproval) {
+							if (howManySynthOutcome.action === 'await_user') {
 								isRunningWhenEnd = 'awaiting_user'
-							} else {
+							} else if (howManySynthOutcome.action === 'continue') {
 								shouldSendAnotherMessage = true
 							}
 

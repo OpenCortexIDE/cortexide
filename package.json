@@ -17,6 +17,7 @@
     "test-phase0-qa": "npm run test-node -- --runGlob \"**/cortexide/test/common/{providerSettingsValidation,onboardingHelpers,attachFileToChat,chatThreadStorageReviver,providerToolFormat,phase0ClaimVerification,modelCapabilities,menubarStackingFix,designSystem,atReferenceTokens,resolveAtReferences,prepareChatAttachments}.test.js\"",
     "test-phase1-safety-cdp": "node test/cortexide-smoke/phase1-safety-verify.mjs",
     "test-phase2-qa": "npm run test-node -- --runGlob \"**/cortexide/test/common/{agentLoopDecisions,toolPermissions,toolSynthesisDecision,toolCallRecognition}.test.js\"",
+    "test-phase2-cap-cdp": "node test/cortexide-smoke/phase2-cap-escalation-probe.mjs",
     "test-cortexide-qa": "npm run test-phase0-qa && npm run test-phase2-qa",
     "test-extension": "vscode-test",
     "test-build-scripts": "cd build && npm run test",

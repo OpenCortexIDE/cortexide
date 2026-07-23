@@ -15,7 +15,9 @@ Chrome DevTools Protocol (CDP). Used to confirm the editor actually boots and it
 - `phase1-safety-verify.mjs` — CDP regression for Phase 1 safety: loads real transpiled
   `toolPermissions` / `commandRisk` in the live renderer, exercises gather/agent/untrusted
   decisions, and confirms `cortexide.*` safety settings registered at startup.
-- `run-phase0-qa.sh` — runs `npm run test-phase0-qa` (unit) and optionally `--cdp` live verify
+- `phase2-cap-escalation-probe.mjs` — optional CDP probe for Phase 2 agent-loop cap/escalation
+  markers (needs Ollama + a small local model; slow — manual only).
+- `run-phase0-qa.sh` — runs `npm run test-cortexide-qa` (unit) and optionally `--cdp` live verify
   (Phase 0 UI + Phase 1 safety).
 
 ## Usage
@@ -47,6 +49,10 @@ test/cortexide-smoke/run-phase0-qa.sh --cdp
 # Phase 1 safety only (app must already be running on the CDP port):
 npm run test-phase1-safety-cdp
 # or: node test/cortexide-smoke/phase1-safety-verify.mjs --port 9222
+
+# Phase 2 cap/escalation probe (optional — needs Ollama + small model, slow):
+npm run test-phase2-cap-cdp
+# or: CX_WS=/tmp/cx-p2-cap-ws node test/cortexide-smoke/phase2-cap-escalation-probe.mjs --port 9222
 ```
 
 CI: `.github/workflows/phase0-qa.yml` runs unit tests on every PR/push to `main`.
