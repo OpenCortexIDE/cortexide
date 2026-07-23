@@ -416,6 +416,7 @@ body.vscode-light .void-scope .btn-submit:not(:disabled):hover {
 	transition: border-color var(--cortex-transition-base), box-shadow var(--cortex-transition-base);
 }
 
+.void-scope .input:focus,
 .void-scope .input:focus-within,
 .void-scope .cortex-composer-shell:focus-within {
 	border-color: var(--cortex-border-strong);

@@ -46,4 +46,30 @@ suite('designSystem (Phase 1 Sprint 2 — composer tokens)', () => {
 			'expected input border token',
 		);
 	});
+
+	test('.input:focus styles native inputs', () => {
+		assert.ok(
+			hasRule(/\.void-scope\s+\.input:focus,/s),
+			'expected native input focus rule',
+		);
+	});
+});
+
+const expressOnboardingPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/onboarding/ExpressOnboardingFlow.tsx');
+const localSetupPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/onboarding/LocalSetupWizard.tsx');
+
+suite('designSystem (Phase 1 — onboarding adoption)', () => {
+
+	test('Express onboarding uses btn-primary and btn-secondary', () => {
+		const src = readFileSync(expressOnboardingPath, 'utf8');
+		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in express onboarding');
+		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in express onboarding');
+		assert.ok(src.includes('className="input '), 'expected .input class on Groq key field');
+	});
+
+	test('Local setup wizard uses design-system nav buttons', () => {
+		const src = readFileSync(localSetupPath, 'utf8');
+		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in local setup wizard');
+		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in local setup wizard');
+	});
 });

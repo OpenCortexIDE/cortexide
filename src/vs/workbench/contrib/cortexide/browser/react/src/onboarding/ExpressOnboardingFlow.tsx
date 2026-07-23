@@ -341,8 +341,7 @@ const ExpressShell = ({ children, onCustomize, onDismiss }: {
 					type="button"
 					onClick={onDismiss}
 					aria-label={t('express.dismiss')}
-					className="p-2 rounded-xl transition-colors"
-					style={{ color: 'var(--cortex-fg-3, rgba(255,255,255,0.6))' }}
+					className="btn btn-icon btn-ghost p-2"
 				>
 					<X className="w-4 h-4" />
 				</button>
@@ -357,8 +356,7 @@ const ExpressShell = ({ children, onCustomize, onDismiss }: {
 				<button
 					type="button"
 					onClick={onCustomize}
-					className="inline-flex items-center gap-2 text-xs font-medium transition-colors"
-					style={{ color: 'var(--cortex-fg-3, rgba(255,255,255,0.6))' }}
+					className="btn btn-ghost btn-sm inline-flex items-center gap-2 text-xs font-medium"
 				>
 					<Settings className="w-3.5 h-3.5" />
 					{t('express.customize')}
@@ -366,8 +364,7 @@ const ExpressShell = ({ children, onCustomize, onDismiss }: {
 				<button
 					type="button"
 					onClick={onDismiss}
-					className="text-xs font-medium transition-colors"
-					style={{ color: 'var(--cortex-fg-4, rgba(255,255,255,0.45))' }}
+					className="btn btn-ghost btn-sm text-xs font-medium"
 				>
 					{t('express.dismiss')}
 				</button>
@@ -422,19 +419,14 @@ const InstallConfirmPanel = ({ t, hardware, pack, onConfirm, onDecline }: {
 			<button
 				type="button"
 				onClick={onConfirm}
-				className="flex-1 px-4 py-2.5 rounded-xl font-medium text-white transition-transform hover:translate-y-[-1px]"
-				style={{ background: 'var(--cortex-brand, #6b5bff)' }}
+				className="btn btn-primary flex-1 px-4 py-2.5 font-medium"
 			>
 				{t('express.installConfirm')}
 			</button>
 			<button
 				type="button"
 				onClick={onDecline}
-				className="flex-1 px-4 py-2.5 rounded-xl font-medium transition-colors"
-				style={{
-					border: '1px solid var(--cortex-border-3, rgba(255,255,255,0.1))',
-					color: 'var(--cortex-fg-2, rgba(255,255,255,0.8))',
-				}}
+				className="btn btn-secondary flex-1 px-4 py-2.5 font-medium"
 			>
 				{t('express.installDecline')}
 			</button>
@@ -501,8 +493,7 @@ const ReadyPanel = ({ t, onStart }: {
 		<button
 			type="button"
 			onClick={onStart}
-			className="w-full px-4 py-2.5 rounded-xl font-medium text-white transition-transform hover:translate-y-[-1px]"
-			style={{ background: 'var(--cortex-brand, #6b5bff)' }}
+			className="btn btn-primary w-full px-4 py-2.5 font-medium"
 		>
 			{t('express.startChatting')}
 		</button>
@@ -530,12 +521,7 @@ const GroqFallbackPanel = ({ t, apiKey, onApiKeyChange, onSubmit, errorMessage }
 			href={GROQ_KEYS_URL}
 			target="_blank"
 			rel="noopener noreferrer"
-			className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
-			style={{
-				border: '1px solid var(--cortex-border-3, rgba(255,255,255,0.1))',
-				color: 'var(--cortex-fg-1, rgba(255,255,255,0.9))',
-				background: 'var(--cortex-bg-3, rgba(255,255,255,0.04))',
-			}}
+			className="btn btn-secondary inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium"
 		>
 			<ExternalLink className="w-4 h-4" />
 			{t('express.openGroqKeyPage')}
@@ -549,12 +535,7 @@ const GroqFallbackPanel = ({ t, apiKey, onApiKeyChange, onSubmit, errorMessage }
 				value={apiKey}
 				onChange={(e) => onApiKeyChange(e.target.value)}
 				placeholder={t('express.pasteKeyPlaceholder')}
-				className="w-full px-3 py-2.5 rounded-xl text-sm font-mono outline-none"
-				style={{
-					background: 'var(--cortex-bg-3, rgba(255,255,255,0.04))',
-					border: '1px solid var(--cortex-border-3, rgba(255,255,255,0.1))',
-					color: 'var(--cortex-fg-0, #ffffff)',
-				}}
+				className="input w-full px-3 py-2.5 text-sm font-mono outline-none"
 			/>
 			{errorMessage && (
 				<p className="text-xs" style={{ color: 'rgb(248, 113, 113)' }}>{errorMessage}</p>
@@ -565,8 +546,7 @@ const GroqFallbackPanel = ({ t, apiKey, onApiKeyChange, onSubmit, errorMessage }
 			type="button"
 			onClick={onSubmit}
 			disabled={!apiKey.trim()}
-			className="w-full px-4 py-2.5 rounded-xl font-medium text-white transition-transform disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:translate-y-[-1px]"
-			style={{ background: 'var(--cortex-brand, #6b5bff)' }}
+			className="btn btn-primary w-full px-4 py-2.5 font-medium"
 		>
 			{t('express.useGroqKey')}
 		</button>
@@ -587,19 +567,14 @@ const ErrorPanel = ({ t, message, onRetry, onFallback }: {
 			<button
 				type="button"
 				onClick={onRetry}
-				className="flex-1 px-4 py-2.5 rounded-xl font-medium text-white transition-transform hover:translate-y-[-1px]"
-				style={{ background: 'var(--cortex-brand, #6b5bff)' }}
+				className="btn btn-primary flex-1 px-4 py-2.5 font-medium"
 			>
 				{t('express.retry')}
 			</button>
 			<button
 				type="button"
 				onClick={onFallback}
-				className="flex-1 px-4 py-2.5 rounded-xl font-medium transition-colors"
-				style={{
-					border: '1px solid var(--cortex-border-3, rgba(255,255,255,0.1))',
-					color: 'var(--cortex-fg-2, rgba(255,255,255,0.8))',
-				}}
+				className="btn btn-secondary flex-1 px-4 py-2.5 font-medium"
 			>
 				{t('express.useCloudInstead')}
 			</button>
