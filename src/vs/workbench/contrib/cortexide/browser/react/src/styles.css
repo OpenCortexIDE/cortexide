@@ -447,3 +447,48 @@ body.vscode-light .void-scope .btn-submit:not(:disabled):hover {
 	outline: 1px solid var(--cortex-ring-color);
 	outline-offset: 1px;
 }
+
+.void-scope .cortex-card {
+	background: color-mix(in srgb, var(--cortex-surface-2) 72%, transparent);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-base);
+	border-radius: var(--cortex-radius-xl);
+	box-shadow: var(--cortex-shadow-soft);
+	backdrop-filter: blur(12px);
+}
+
+.void-scope .cortex-card-elevated {
+	background: color-mix(in srgb, var(--cortex-surface-2) 88%, transparent);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-strong);
+	border-radius: var(--cortex-radius-xl);
+	box-shadow: var(--cortex-shadow-soft);
+	backdrop-filter: blur(16px);
+}
+
+.void-scope .cortex-card-muted {
+	background: color-mix(in srgb, var(--cortex-surface-3) 58%, transparent);
+	color: var(--cortex-text-base);
+	border: 1px solid var(--cortex-border-weak);
+	border-radius: var(--cortex-radius-lg);
+}
+
+.void-scope .cortex-chip {
+	display: inline-flex;
+	align-items: center;
+	padding: var(--cortex-space-xs) var(--cortex-space-md);
+	background: color-mix(in srgb, var(--cortex-surface-3) 80%, transparent);
+	color: var(--cortex-text-muted);
+	border: 1px solid var(--cortex-border-weak);
+	border-radius: 9999px;
+	font-size: var(--cortex-font-label);
+	letter-spacing: 0.3em;
+	text-transform: uppercase;
+}
+
+.void-scope .cortex-alert-warning {
+	background: color-mix(in srgb, var(--cortex-warning) 15%, transparent);
+	color: var(--cortex-warning);
+	border: 1px solid color-mix(in srgb, var(--cortex-warning) 30%, transparent);
+	border-radius: var(--cortex-radius-lg);
+}

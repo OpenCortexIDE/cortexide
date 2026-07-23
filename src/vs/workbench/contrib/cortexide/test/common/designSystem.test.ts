@@ -86,6 +86,28 @@ suite('designSystem (Phase 1 — void onboarding adoption)', () => {
 		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in void onboarding');
 		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in void onboarding');
 	});
+
+	test('Void onboarding uses design-system card chrome', () => {
+		const src = readFileSync(voidOnboardingPath, 'utf8');
+		assert.ok(src.includes('cortex-card'), 'expected cortex-card panels in void onboarding');
+		assert.ok(src.includes('cortex-card-muted'), 'expected muted cards for nested sections');
+		assert.ok(src.includes('cortex-chip'), 'expected cortex-chip highlight pills');
+		assert.ok(!src.includes('bg-gradient-to-r from-[#0e70c0]'), 'tab rail should use btn-primary, not legacy gradient');
+	});
+});
+
+suite('designSystem (Phase 1 — onboarding card tokens)', () => {
+
+	test('.cortex-card uses cortex surface tokens', () => {
+		assert.ok(
+			hasRule(/\.void-scope\s+\.cortex-card\s*\{[^}]*background:\s*color-mix\([^)]*var\(--cortex-surface-2\)/s),
+			'expected cortex-card background token',
+		);
+		assert.ok(
+			hasRule(/\.void-scope\s+\.cortex-card\s*\{[^}]*border:\s*1px solid var\(--cortex-border-base\)/s),
+			'expected cortex-card border token',
+		);
+	});
 });
 
 suite('designSystem (Phase 1 — settings adoption)', () => {

@@ -232,17 +232,13 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 
 			<div className="flex flex-col md:flex-row flex-1 gap-6">
 				{/* Left rail */}
-				<div className="md:w-1/3 w-full flex flex-col gap-6 p-6 rounded-[28px] border border-void-border-3 bg-void-bg-2/70 shadow-[0_35px_90px_rgba(0,0,0,0.35)] h-full overflow-y-auto">
+				<div className="md:w-1/3 w-full flex flex-col gap-6 p-6 cortex-card h-full overflow-y-auto">
 					<div className="flex flex-wrap md:flex-col gap-2">
 						{[...tabNames, 'Cloud/Other'].map(tab => (
 							<button
+								type="button"
 								key={tab}
-								className={`
-									w-full rounded-2xl px-4 py-3 text-left text-sm font-medium tracking-wide transition-all duration-200
-									${currentTab === tab
-										? 'bg-gradient-to-r from-[#0e70c0] to-[#6b5bff] text-white shadow-[0_18px_40px_rgba(28,107,219,0.35)]'
-										: 'bg-void-bg-3/90 text-void-fg-2 border border-void-border-3 hover:border-void-border-1'}
-								`}
+								className={`btn w-full text-left px-4 py-3 text-sm font-medium tracking-wide ${currentTab === tab ? 'btn-primary' : 'btn-secondary'}`}
 								onClick={() => {
 									setCurrentTab(tab as TabName);
 									setErrorMessage(null);
@@ -258,7 +254,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 						{featureNameMap.map(({ display, featureName }) => {
 							const hasModel = settingsState.modelSelectionOfFeature[featureName] !== null;
 							return (
-								<div key={featureName} className="flex items-center justify-between rounded-2xl border border-void-border-4/80 bg-void-bg-3/60 px-4 py-3">
+								<div key={featureName} className="flex items-center justify-between cortex-card-muted px-4 py-3">
 									<span>{display}</span>
 									{hasModel ? (
 										<span className="inline-flex items-center gap-1 text-emerald-400 text-xs font-medium">
@@ -274,7 +270,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 				</div>
 
 				{/* Content */}
-				<div className="flex-1 flex flex-col rounded-[32px] border border-void-border-3 bg-void-bg-1/70 backdrop-blur-xl shadow-[0_45px_120px_rgba(0,0,0,0.45)] p-6">
+				<div className="flex-1 flex flex-col cortex-card p-6">
 					<div className="w-full max-w-xl mx-auto text-center mb-8 space-y-3">
 						<p className="text-xs uppercase tracking-[0.35em] text-void-fg-4">Active tab</p>
 						<div className="text-4xl font-light text-void-fg-0">{currentTab}</div>
@@ -318,7 +314,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 							</ErrorBoundary>
 						)}
 						{(!showLocalWizard) && providerNamesOfTab[currentTab].map((providerName) => (
-							<div key={providerName} className="rounded-2xl border border-void-border-3/80 bg-void-bg-3/60 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+							<div key={providerName} className="cortex-card-muted p-5">
 								<div className="flex items-center justify-between mb-3">
 									<div className="text-xl font-medium text-void-fg-0 flex items-center gap-2">
 										Add {displayInfoOfProviderName(providerName).title}
@@ -347,7 +343,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 								<SettingsForProvider providerName={providerName} showProviderTitle={false} showProviderSuggestions={true} />
 
 								{providerName === 'ollama' && (
-									<div className="mt-4 rounded-xl border border-void-border-4/80 bg-black/20">
+									<div className="mt-4 cortex-card-muted bg-black/20">
 										<OllamaSetupInstructions />
 									</div>
 								)}
@@ -356,7 +352,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 					</div>
 
 					{(currentTab === 'Local' || currentTab === 'Cloud/Other') && !showLocalWizard && (
-						<div className="w-full mt-6 rounded-2xl border border-void-border-4/80 bg-void-bg-2/70 p-6">
+						<div className="w-full mt-6 cortex-card-muted p-6">
 							<div className="flex items-center gap-2 mb-4">
 								<div className="text-xl font-medium">Models</div>
 							</div>
@@ -370,7 +366,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 
 					<div className="flex flex-col gap-3 items-end w-full mt-6">
 						{errorMessage && (
-							<div className="w-full text-sm rounded-2xl border border-void-warning/30 bg-void-warning/15 text-void-warning px-4 py-3 text-right">
+							<div className="w-full text-sm cortex-alert-warning px-4 py-3 text-right">
 								{errorMessage}
 							</div>
 						)}
@@ -447,13 +443,8 @@ const NextButton = ({ onClick, ...props }: { onClick: () => void } & React.Butto
 			type="button"
 			onClick={disabled ? undefined : onClick}
 			onDoubleClick={onClick}
-			className={`
-				inline-flex items-center gap-2 px-6 py-2.5 rounded-2xl font-semibold tracking-tight transition-all duration-300 border border-white/10
-				${disabled
-					? 'bg-white/5 text-white/35 cursor-not-allowed'
-					: 'bg-gradient-to-r from-[#2a2c34] via-[#1b1c23] to-[#101117] text-white shadow-[0_25px_55px_rgba(0,0,0,0.55)] hover:translate-y-[-1px] hover:shadow-[0_30px_70px_rgba(0,0,0,0.65)]'}
-				${className}
-			`}
+			className={`btn btn-primary inline-flex items-center gap-2 ${className}`.trim()}
+			disabled={disabled}
 			{...disabled && {
 				'data-tooltip-id': 'cortex-tooltip',
 				"data-tooltip-content": 'Please enter all required fields or choose another provider',
@@ -472,7 +463,7 @@ const PreviousButton = ({ onClick, ...props }: { onClick: () => void } & React.B
 		<button
 			type="button"
 			onClick={onClick}
-			className="px-5 py-2.5 rounded-2xl border border-white/15 bg-white/5 text-white/70 hover:text-white hover:border-white/40 hover:bg-white/10 transition-all duration-200"
+			className="btn btn-secondary"
 			{...props}
 		>
 			Back
@@ -492,9 +483,7 @@ const OnboardingPageShell = ({ top, bottom, content, hasMaxWidth = true, classNa
 	return (
 		<div className={`min-h-[70vh] w-full ${className}`}>
 			<div className={`
-				text-lg flex flex-col gap-6 w-full h-full mx-auto px-8 py-10
-				rounded-[32px] border border-void-border-3 bg-void-bg-2/70 backdrop-blur-xl
-				shadow-[0_30px_90px_rgba(0,0,0,0.45)]
+				text-lg flex flex-col gap-6 w-full h-full mx-auto px-8 py-10 cortex-card
 				${hasMaxWidth ? 'max-w-[720px]' : ''}
 				max-h-[calc(100vh-6rem)]
 				overflow-y-auto
@@ -511,7 +500,7 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 	const { t } = useTranslation()
 	return (
 		<div className="space-y-8">
-			<div className="rounded-[32px] border border-void-border-2 bg-void-bg-2/90 backdrop-blur-2xl shadow-[0_60px_140px_rgba(0,0,0,0.75)] px-10 py-12">
+			<div className="cortex-card-elevated px-10 py-12">
 				<div className="flex flex-col lg:flex-row gap-10 items-center">
 					<div className="flex-1 flex flex-col gap-6 text-center lg:text-left">
 						<p className="text-xs uppercase tracking-[0.45em] text-void-fg-4">{t('onboarding.welcome')}</p>
@@ -523,7 +512,7 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 						</div>
 						<div className="flex flex-wrap gap-3 justify-center lg:justify-start">
 							{welcomeHighlights.map((highlight) => (
-								<span key={highlight} className="px-3 py-1.5 rounded-full border border-void-border-3 bg-void-bg-3/80 text-xs tracking-[0.3em] uppercase text-void-fg-3">
+								<span key={highlight} className="cortex-chip">
 									{highlight}
 								</span>
 							))}
@@ -536,13 +525,13 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 					<div className="flex-1 w-full flex flex-col items-center gap-6">
 						<div className="relative w-full max-w-sm aspect-square">
 							<div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent blur-3xl rounded-[32px]" />
-							<div className="relative w-full h-full rounded-[28px] border border-void-border-2 bg-void-bg-3/80 shadow-[0_45px_110px_rgba(0,0,0,0.7)] flex items-center justify-center p-6">
+							<div className="relative w-full h-full cortex-card-muted flex items-center justify-center p-6">
 								<VoidIcon />
 							</div>
 						</div>
 						<div className="grid grid-cols-2 gap-4 w-full max-w-sm">
 							{welcomeStats.map(({ label, value, detail }) => (
-								<div key={label} className="rounded-2xl border border-void-border-3 bg-void-bg-3/80 p-4 text-center text-void-fg-2">
+								<div key={label} className="cortex-card-muted p-4 text-center text-void-fg-2">
 									<p className="text-[11px] uppercase tracking-[0.4em] text-void-fg-4">{label}</p>
 									<p className="text-lg font-medium text-void-fg-0 mt-2">{value}</p>
 									<p className="text-xs text-void-fg-3 mt-1">{detail}</p>
@@ -618,17 +607,10 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 		<button
 			type='button'
 			className={`
-				inline-flex items-center justify-center gap-2 rounded-[18px] font-semibold tracking-tight leading-normal
-				text-white border border-white/10 min-h-[44px]
-				bg-gradient-to-r from-[#3a3d47] via-[#23252c] to-[#111216]
-				shadow-[0_35px_80px_rgba(0,0,0,0.6)]
-				hover:shadow-[0_45px_100px_rgba(0,0,0,0.7)] hover:translate-y-[-1px]
-				focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-white/20
-				focus-visible:ring-offset-[#050612]
-				transition-all duration-300 group
+				btn btn-primary inline-flex items-center justify-center gap-2 font-semibold tracking-tight leading-normal min-h-[44px] group
 				${sizingClass}
 				${className}
-			`}
+			`.trim()}
 			{...props}
 		>
 			<span className="inline-flex items-center gap-2">{children}</span>
@@ -642,13 +624,7 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 const SecondaryActionButton = ({ children, className = '', ...props }: { children: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
 		type="button"
-		className={`
-			inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5
-			border border-void-border-2 text-void-fg-2
-			hover:text-void-fg-0 hover:border-void-border-1
-			transition-all duration-200
-			${className}
-		`}
+		className={`btn btn-secondary ${className}`.trim()}
 		{...props}
 	>
 		{children}
