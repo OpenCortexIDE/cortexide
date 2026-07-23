@@ -74,7 +74,17 @@ suite('designSystem (Phase 1 — onboarding adoption)', () => {
 	});
 });
 
+const voidOnboardingPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/onboarding/VoidOnboarding.tsx');
 const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/settings/Settings.tsx');
+
+suite('designSystem (Phase 1 — void onboarding adoption)', () => {
+
+	test('Void onboarding welcome CTAs use design-system buttons', () => {
+		const src = readFileSync(voidOnboardingPath, 'utf8');
+		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in void onboarding');
+		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in void onboarding');
+	});
+});
 
 suite('designSystem (Phase 1 — settings adoption)', () => {
 

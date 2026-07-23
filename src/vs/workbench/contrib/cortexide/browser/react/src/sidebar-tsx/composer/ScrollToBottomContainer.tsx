@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 
-const scrollToBottom = (divRef: { current: HTMLElement | null }) => {
+export const scrollToBottom = (divRef: { current: HTMLElement | null }) => {
 	if (divRef.current) {
 		divRef.current.scrollTop = divRef.current.scrollHeight;
 	}
