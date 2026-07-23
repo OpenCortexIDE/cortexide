@@ -5,6 +5,7 @@
 #---------------------------------------------------------------------------------------------
 #
 # Phase 0 QA runner — unit tests (always) + optional CDP smoke against a dev build.
+# When --cdp is set, also runs Phase 1 safety verification (tool permissions, command risk, config registry).
 #
 #  Usage:
 #    test/cortexide-smoke/run-phase0-qa.sh           # unit tests only
@@ -69,4 +70,7 @@ for i in {1..60}; do
 done
 
 node test/cortexide-smoke/phase0-qa-verify.mjs --port "$PORT"
-echo "Phase 0 QA (unit + CDP) complete."
+echo ""
+echo "== Phase 1 safety: CDP verify (port $PORT) =="
+node test/cortexide-smoke/phase1-safety-verify.mjs --port "$PORT"
+echo "Phase 0 QA + Phase 1 safety (unit + CDP) complete."

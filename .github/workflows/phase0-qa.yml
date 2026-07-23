@@ -80,7 +80,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Phase 0 QA (unit + CDP)
+      - name: Run Phase 0 QA (unit + CDP + Phase 1 safety)
         run: test/cortexide-smoke/run-phase0-qa.sh --cdp
         env:
           CX_CDP_PORT: 9222
@@ -127,7 +127,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Phase 0 QA (unit + CDP)
+      - name: Run Phase 0 QA (unit + CDP + Phase 1 safety)
         shell: bash
         run: test/cortexide-smoke/run-phase0-qa.sh --cdp
         env:
