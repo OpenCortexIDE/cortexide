@@ -238,8 +238,9 @@ export const AnimatedCheckmarkButton = ({ text, className }: { text?: string, cl
 const AddButton = ({ disabled, text = 'Add', ...props }: { disabled?: boolean, text?: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 
 	return <button
+		type="button"
 		disabled={disabled}
-		className={`bg-[var(--cortex-brand)] px-3 py-1 text-white rounded-sm ${!disabled ? 'hover:bg-[var(--cortex-brand-dim)] cursor-pointer' : 'opacity-50 cursor-not-allowed bg-opacity-70'}`}
+		className={`btn btn-sm btn-primary`}
 		{...props}
 	>{text}</button>
 
@@ -430,15 +431,12 @@ const SimpleModelSettingsDialog = ({
 
 
 				<div className="flex justify-end gap-2 mt-4">
-					<VoidButtonBgDarken onClick={onClose} className="px-3 py-1">
+					<VoidButtonBgDarken onClick={onClose}>
 						Cancel
 					</VoidButtonBgDarken>
-					<VoidButtonBgDarken
-						onClick={onSave}
-						className="px-3 py-1 bg-[var(--cortex-brand)] hover:bg-[var(--cortex-brand-dim)] text-white"
-					>
+					<button type="button" onClick={onSave} className="btn btn-primary btn-sm">
 						Save
-					</VoidButtonBgDarken>
+					</button>
 				</div>
 			</div>
 		</div>
@@ -555,11 +553,13 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 					{disabled ? null : (
 						<div className="w-5 flex items-center justify-center">
 							<button
+								type="button"
 								onClick={() => { setOpenSettingsModel({ modelName, providerName, type }) }}
 								data-tooltip-id='cortex-tooltip'
 								data-tooltip-place='right'
 								data-tooltip-content='Advanced Settings'
-								className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+								aria-label='Advanced settings'
+								className={`btn btn-icon btn-ghost ${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
 							>
 								<Plus size={12} className="text-void-fg-3 opacity-50" />
 							</button>
@@ -585,11 +585,13 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 					{/* X button */}
 					<div className={`w-5 flex items-center justify-center`}>
 						{type === 'default' || type === 'autodetected' ? null : <button
+							type="button"
 							onClick={() => { settingsStateService.deleteModel(providerName, modelName); }}
 							data-tooltip-id='cortex-tooltip'
 							data-tooltip-place='right'
 							data-tooltip-content='Delete'
-							className={`${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+							aria-label='Delete model'
+							className={`btn btn-icon btn-ghost ${hasOverrides ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
 						>
 							<X size={12} className="text-void-fg-3 opacity-50" />
 						</button>}
@@ -601,7 +603,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		{/* Add Model Section */}
 		{showCheckmark ? (
 			<div className="mt-4">
-				<AnimatedCheckmarkButton text='Added' className="bg-[var(--cortex-brand)] text-white px-3 py-1 rounded-sm" />
+				<AnimatedCheckmarkButton text='Added' className="btn btn-sm btn-primary" />
 			</div>
 		) : isAddModelOpen ? (
 			<div className="mt-4">
@@ -650,7 +652,8 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							setModelName('');
 							setUserChosenProviderName(null);
 						}}
-						className='text-void-fg-4'
+						aria-label='Cancel add model'
+						className='btn btn-icon btn-ghost text-void-fg-4'
 					>
 						<X className='size-4' />
 					</button>
@@ -1115,7 +1118,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
         <div className='flex items-center gap-3'>
             <ChatMarkdownRender string={`Ollama Setup (rev 2025-10-30-1)`} chatMessageLocation={undefined} />
             <select
-                className='text-xs bg-void-bg-1 text-void-fg-1 border border-void-border-1 rounded px-1 py-0.5'
+                className='dropdown text-xs px-1 py-0.5'
                 value={method}
                 onChange={(e) => setMethod(e.target.value as any)}
                 title='Install method'
@@ -1127,13 +1130,15 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 <option value='choco'>Chocolatey (Windows)</option>
             </select>
             <button
-                className='px-2 py-1 bg-void-bg-2 text-void-fg-1 border border-void-border-1 rounded hover:brightness-110 disabled:opacity-60'
+                type="button"
+                className='btn btn-secondary btn-sm'
                 onClick={onInstall}
                 disabled={status === 'running'}
             >{status === 'running' ? 'Installing…' : 'Install Ollama'}</button>
             {status === 'error' && (
                 <button
-                    className='px-2 py-1 bg-void-bg-1 text-void-fg-3 border border-void-border-2 rounded hover:brightness-110'
+                    type="button"
+                    className='btn btn-secondary btn-sm'
                     onClick={() => { setStatus('idle'); setStatusText(''); setTerminalOutput(''); setIsHealthy(null); }}
                 >Retry</button>
             )}
@@ -1208,11 +1213,13 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
             <div className=' pl-6 mt-2'>
                 <div className='flex items-center gap-2 mb-1'>
                     <button
-                        className='px-2 py-0.5 bg-void-bg-1 text-void-fg-3 border border-void-border-2 rounded hover:brightness-110'
+                        type="button"
+                        className='btn btn-secondary btn-sm'
                         onClick={async () => { try { await navigator.clipboard.writeText(terminalOutput) } catch {} }}
                     >Copy log</button>
                     <button
-                        className='px-2 py-0.5 bg-void-bg-1 text-void-fg-3 border border-void-border-2 rounded hover:brightness-110'
+                        type="button"
+                        className='btn btn-secondary btn-sm'
                         onClick={() => setTerminalOutput('')}
                     >Clear</button>
                 </div>
@@ -1224,7 +1231,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
         <div className=' pl-6 mt-2 flex items-center gap-2 whitespace-nowrap'>
             <span className='text-void-fg-3 text-xs'>Pull model:</span>
             <select
-                className='text-xs bg-void-bg-1 text-void-fg-1 border border-void-border-1 rounded px-1 py-0.5 shrink-0'
+                className='dropdown text-xs px-1 py-0.5 shrink-0'
                 value={modelTag}
                 onChange={(e) => setModelTag(e.target.value)}
             >
@@ -1249,7 +1256,8 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 </optgroup>
             </select>
             <button
-                className='px-2 py-1 bg-void-bg-2 text-void-fg-1 border border-void-border-1 rounded hover:brightness-110 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                type="button"
+                className='btn btn-secondary btn-sm shrink-0'
                 disabled={!modelTag || status === 'running'}
                 onClick={async () => {
                     if (!modelTag) {
@@ -1366,7 +1374,8 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 }}
             >Pull</button>
             <button
-                className='px-2 py-1 bg-red-600/80 text-white border border-red-500/80 rounded hover:brightness-110 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                type="button"
+                className='btn btn-sm btn-stop shrink-0'
                 disabled={!modelTag || status === 'running'}
                 onClick={async () => {
                     if (!modelTag) {
@@ -1755,6 +1764,7 @@ export const Settings = () => {
 						{navItems.map(({ tab, label }) => (
 							<button
 								key={tab}
+								type="button"
 								onClick={() => {
 									if (tab === 'all') {
 										setSelectedSection('all');
@@ -1763,12 +1773,9 @@ export const Settings = () => {
 										setSelectedSection(tab);
 									}
 								}}
-								className={`
-          py-2 px-4 rounded-md text-left transition-all duration-200
-          ${selectedSection === tab
-										? 'bg-[var(--cortex-brand)] text-white font-medium shadow-sm'
-										: 'bg-void-bg-2 hover:bg-void-bg-2/80 text-void-fg-1'}
-        `}
+								className={`btn btn-sm w-full justify-start text-left py-2 px-4 ${
+									selectedSection === tab ? 'btn-primary' : 'btn-secondary'
+								}`}
 							>
 								{label}
 							</button>

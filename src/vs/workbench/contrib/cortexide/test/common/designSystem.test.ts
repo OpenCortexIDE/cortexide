@@ -73,3 +73,16 @@ suite('designSystem (Phase 1 — onboarding adoption)', () => {
 		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in local setup wizard');
 	});
 });
+
+const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../../browser/react/src/settings/Settings.tsx');
+
+suite('designSystem (Phase 1 — settings adoption)', () => {
+
+	test('Settings pane uses design-system button classes', () => {
+		const src = readFileSync(settingsPath, 'utf8');
+		assert.ok(src.includes('btn btn-primary'), 'expected btn-primary in settings');
+		assert.ok(src.includes('btn btn-secondary'), 'expected btn-secondary in settings');
+		assert.ok(src.includes('btn-stop'), 'expected btn-stop for destructive Ollama delete');
+		assert.ok(src.includes("'dropdown "), 'expected dropdown class on Ollama selects');
+	});
+});
